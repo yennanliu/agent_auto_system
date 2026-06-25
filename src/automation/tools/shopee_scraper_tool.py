@@ -33,6 +33,36 @@ _UA = (
 # Matches Shopee product URLs ending in "-i.{shopid}.{itemid}".
 _IID_RE = re.compile(r"-i\.(\d+)\.(\d+)")
 
+# Shopee serves an anti-bot captcha wall under /verify/captcha, and its JSON
+# APIs return HTTP 403 with error code 90309999 once a session looks scripted.
+_CAPTCHA_URL_MARK = "/verify/captcha"
+_ANTIBOT_HINT = (
+    "Shopee served an anti-bot captcha and blocked the search. Re-seed a fresh "
+    "session by running `uv run python scripts/shopee_login.py` (clear the "
+    "captcha in the browser window it opens), then retry. Spacing runs further "
+    "apart, or running with SHOPEE_HEADED=1 to clear a captcha manually, also helps."
+)
+
+
+def _headless() -> bool:
+    """Headless unless SHOPEE_HEADED is set — a headed run lets a human clear a
+    captcha manually when the anti-bot wall trips."""
+    return os.getenv("SHOPEE_HEADED", "").strip().lower() not in ("1", "true", "yes")
+
+
+def _is_captcha(page) -> bool:
+    """True if the page got redirected to Shopee's captcha verification wall."""
+    try:
+        return _CAPTCHA_URL_MARK in (page.url or "")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_blocked(errors: list[str]) -> bool:
+    """True if the recorded errors indicate an anti-bot block rather than an
+    ordinary empty/sparse result — drives the actionable hint we surface."""
+    return any(("captcha" in e or "anti-bot" in e or "HTTP 403" in e) for e in errors)
+
 
 class ShopeeScrapeInput(BaseModel):
     keyword: str
@@ -145,7 +175,7 @@ def _scrape(keyword: str, limit: int, state_path: str) -> dict:
     errors: list[str] = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            headless=True,
+            headless=_headless(),
             args=["--disable-blink-features=AutomationControlled"],
         )
         ctx = browser.new_context(
@@ -166,8 +196,14 @@ def _scrape(keyword: str, limit: int, state_path: str) -> dict:
             if not products:
                 return {
                     "keyword": keyword,
+                    "source": "shopee.tw",
+                    "requested": limit,
+                    "seller_count": 0,
                     "sellers": [],
-                    "error": "No products found — " + (" | ".join(errors[:4]) or "empty result"),
+                    "warnings": errors[:6],
+                    "error": (_ANTIBOT_HINT if _is_blocked(errors)
+                              else "No products found — "
+                                   + (" | ".join(errors[:4]) or "empty result")),
                 }
 
             # One seller per unique shop, preserving search order, up to limit.
@@ -188,11 +224,24 @@ def _scrape(keyword: str, limit: int, state_path: str) -> dict:
             result = {
                 "keyword": keyword,
                 "source": "shopee.tw",
+                "requested": limit,
                 "seller_count": len(sellers),
                 "sellers": sellers,
             }
-            if not sellers and errors:
-                result["error"] = " | ".join(errors[:4])
+            if errors:
+                # Always surface the errors, even on a partial success, so a run
+                # that lost most of its quota to throttling isn't reported as a
+                # clean win.
+                result["warnings"] = errors[:6]
+            if not sellers:
+                result["error"] = (_ANTIBOT_HINT if _is_blocked(errors)
+                                   else (" | ".join(errors[:4]) or "no sellers found"))
+            elif len(sellers) < limit:
+                note = (f"Collected {len(sellers)} of {limit} requested sellers — "
+                        "Shopee throttled or blocked further result pages.")
+                if _is_blocked(errors):
+                    note += " " + _ANTIBOT_HINT
+                result["note"] = note
             return result
         finally:
             browser.close()
@@ -214,7 +263,11 @@ def _api_get(page, path: str, errors: list[str]) -> dict | None:
             timeout=20_000,
         )
         if resp.status != 200:
-            errors.append(f"api {path.split('?')[0]}: HTTP {resp.status}")
+            tag = path.split('?')[0]
+            # 403 here is Shopee's anti-bot wall (error 90309999), not a normal
+            # miss — flag it so the caller can emit the captcha hint.
+            errors.append(f"api {tag}: anti-bot block (HTTP 403)"
+                          if resp.status == 403 else f"api {tag}: HTTP {resp.status}")
             return None
         return resp.json()
     except Exception as exc:  # noqa: BLE001
@@ -394,12 +447,21 @@ def _open_search_page(page, kw: str, pg: int, errors: list[str]) -> bool:
     for attempt in range(2):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            # A captcha redirect will never render the grid — bail immediately
+            # with a clear marker instead of burning the 8s selector timeout and
+            # a retry on a page that can't load.
+            if _is_captcha(page):
+                errors.append(f"dom search p{pg}: captcha wall")
+                return False
             # A loadable grid renders within ~1-2s of domcontentloaded; a blocked
             # page never renders, so a short wait trims the doomed case while the
             # one-shot retry below still covers a slow grid under throttling.
             page.wait_for_selector('a[href*="-i."]', timeout=8_000)
             return True
         except Exception as exc:  # noqa: BLE001
+            if _is_captcha(page):
+                errors.append(f"dom search p{pg}: captcha wall")
+                return False
             if attempt == 0:
                 page.wait_for_timeout(2_500)  # back off past the throttle, retry
                 continue

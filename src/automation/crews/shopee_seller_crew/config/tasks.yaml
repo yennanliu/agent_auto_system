@@ -13,15 +13,22 @@ shopee_seller_task:
     FAILED: copy that error message verbatim into BOTH a top-level "error" key
     and the "summary", and return an empty "sellers" list. Do not invent sellers.
 
+    If the tool result has a "note" field (a partial-result warning — e.g. fewer
+    sellers were collected than requested because Shopee throttled or blocked
+    further pages), copy it VERBATIM into a "note" key so the shortfall is
+    visible. Never hide a partial result or present it as a complete success.
+
     From the fetched sellers: write a one-paragraph summary describing the kinds
     of shops selling "{keyword}" (locations, ratings, how established they are).
     If retrying, fix this issue from the previous attempt: {previous_error}
   expected_output: >
     A JSON object with exactly these keys:
     - "keyword": the search keyword (string)
+    - "requested": the number of sellers requested — copy the tool's "requested" (integer)
     - "seller_count": number of sellers in the "sellers" list (integer, must match)
     - "sellers": the complete list of seller objects from the tool result
     - "summary": one paragraph summarizing the sellers found
+    - "note": (only if the tool result has one) the verbatim partial-result warning; omit if absent
     - "error": (only if the tool failed) the verbatim error message; omit on success
     Return ONLY the JSON object, no markdown fences.
   agent: shopee_seller_analyst
