@@ -173,6 +173,18 @@ _CATALOG: dict = {
             "source_file": "src/automation/crews/tasker_relevance_crew/config/agents.yaml",
         },
         {
+            "id": "tw104_relevance_judge",
+            "name": "104 Relevance Judge",
+            "role": "104 求職職缺相關性判斷專家",
+            "goal": "依求職者自訂的 task_filter 篩選條件，判斷單一 104 職缺是否為值得投遞的相關職缺，只回傳 JSON 判斷。",
+            "backstory": "資深求職與獵才顧問，熟悉各產業與職務。第二道關卡：只看職缺標題與公司/摘要對照篩選條件，快速客觀判斷相關與否，只輸出 {\"relevant\": bool, \"reason\": str}。應徵動作本身為純 DOM 自動化。",
+            "tools": [],
+            "crew": "TW104RelevanceCrew",
+            "task": "judge_relevance_task",
+            "job_type": "tw104_apply",
+            "source_file": "src/automation/crews/tw104_relevance_crew/config/agents.yaml",
+        },
+        {
             "id": "lead_qualifier_agent",
             "name": "Lead Qualifier",
             "role": "B2B Lead Qualifier & Outreach Strategist",
@@ -326,6 +338,30 @@ _CATALOG: dict = {
             ],
             "used_by": ["TaskerApplyFlow"],
             "source_file": "src/automation/tools/tasker_apply_tool.py",
+        },
+        {
+            "id": "tw104_apply",
+            "name": "104 Auto-Apply",
+            "class": "TW104ApplyTool",
+            "description": (
+                "Log in to 104.com.tw (persisted session) and auto-apply (應徵) to open "
+                "jobs matching a keyword. Pages through /jobs/search/, opens each job, "
+                "clicks 應徵, selects a saved 推薦信 cover letter, skips already-applied "
+                "jobs (已應徵), and clicks 確認送出 only when dry_run is false — counting "
+                "success only when the site lands on /job/apply/done/. Called directly "
+                "by the flow (with an optional LLM relevance_fn); the apply itself is "
+                "pure DOM automation."
+            ),
+            "inputs": [
+                {"name": "keyword",          "type": "str",  "description": "Job search keyword, e.g. '軟體工程師'"},
+                {"name": "area",             "type": "str",  "description": "104 area code(s), e.g. '6001001000' (blank = all Taiwan)"},
+                {"name": "order",            "type": "str",  "description": "Listing sort order (default '1')"},
+                {"name": "max_applications", "type": "int (1–200)", "description": "Number of jobs to actually apply to; auto-advances pages (default 5)"},
+                {"name": "cover_letter",     "type": "str",  "description": "Name of a saved 推薦信 (blank = site default 系統預設)"},
+                {"name": "dry_run",          "type": "bool", "description": "If true (default), prepare but do NOT click 確認送出"},
+            ],
+            "used_by": ["TW104ApplyFlow"],
+            "source_file": "src/automation/tools/tw104_apply_tool.py",
         },
         {
             "id": "maps_search",

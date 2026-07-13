@@ -57,6 +57,7 @@ _RUBRICS: dict[str, str] = {
     "shopee_seller_scraper": "A non-empty list of sellers with plausible fields was returned.",
     "profit_health_check": "Concrete SKU-level analysis with actionable recommendations is present.",
     "tasker_apply":       "Cases were found and an accurate applied[] list reflects real submissions; when a task_filter was used, cases skipped as 'filtered out' with a reason are correct behavior, not failures.",
+    "tw104_apply":        "Jobs were found and an accurate applied[] list reflects real applications (a submission counts only when the site confirmed /job/apply/done/); jobs skipped as already-applied or 'filtered out' with a reason are correct behavior, not failures.",
     "email_collect":       "Real businesses were discovered with verified contact emails and useful personalization hooks.",
 }
 _GENERIC_RUBRIC = "The expected fields are present and the content is substantive, on-topic, and complete."

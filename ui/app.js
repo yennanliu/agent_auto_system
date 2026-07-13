@@ -1,6 +1,6 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'email_collect', 'pipeline'];
+const ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'email_collect', 'pipeline'];
 
 const TYPE_META = {
   google_form_fill:   { chip: 'FORM',  cls: 'chip-form'     },
@@ -12,6 +12,7 @@ const TYPE_META = {
   shopee_seller_scraper: { chip: 'SHOPEE', cls: 'chip-shopee' },
   profit_health_check: { chip: '利潤健檢', cls: 'chip-profit' },
   tasker_apply:        { chip: 'TASKER', cls: 'chip-tasker' },
+  tw104_apply:         { chip: '104',    cls: 'chip-104'    },
   email_collect:        { chip: 'EMAILS', cls: 'chip-leads' },
   pipeline:            { chip: 'PIPE',  cls: 'chip-pipeline' },
 };
@@ -110,6 +111,20 @@ const AUTO_CATALOG = {
     ],
     crew: 'TaskerProposalCrew + TaskerRelevanceCrew', flow: 'TaskerApplyFlow',
     agent: 'Proposal Writer', tools: ['Tasker Auto-Apply'],
+  },
+  tw104_apply: {
+    icon: '💼', name: '104 自動應徵',
+    desc: 'Log in to 104.com.tw (via a saved session) and auto-apply (應徵) to open jobs matching a keyword: click 應徵, pick a saved 推薦信 cover letter, and submit. Auto-advances through search result pages, skipping jobs you already applied to, until it has applied to max_applications ones. An application is only counted as successful when the site confirms it (lands on /job/apply/done/). The LLM (gemini/openai/anthropic) acts as an optional relevance gate — the apply itself is pure browser automation. Dry-run by default — prepares applications without clicking 確認送出.',
+    inputs: [
+      { name: 'keyword',          type: 'str',         desc: 'Job search keyword, e.g. 軟體工程師 / python' },
+      { name: 'area',             type: 'str',         desc: '104 area code(s), e.g. 6001001000,6001002000 (blank = all of Taiwan)' },
+      { name: 'max_applications', type: 'int (1–200)', desc: 'Number of jobs to actually apply to (auto-advances pages)' },
+      { name: 'cover_letter',     type: 'str',         desc: 'Name of a saved 推薦信 to use (blank = site default 系統預設)' },
+      { name: 'task_filter',      type: 'str',         desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match before applying' },
+      { name: 'dry_run',          type: 'bool',        desc: 'If checked, prepare but do NOT click 確認送出' },
+    ],
+    crew: 'TW104RelevanceCrew', flow: 'TW104ApplyFlow',
+    agent: '104 Relevance Judge', tools: ['104 Auto-Apply'],
   },
   email_collect: {
     icon: '📧', name: 'Email Collector',
@@ -229,6 +244,14 @@ const FLOW_STEPS = {
     { label: 'Start',    trigger: 'Starting' },
     { label: 'Validate', trigger: 'Payload validated' },
     { label: 'Login',    trigger: 'Loading tasker.com.tw session' },
+    { label: 'Apply',    trigger: 'run complete' },
+    ..._QA_STEPS,
+    { label: 'Done',     trigger: 'completed successfully' },
+  ],
+  tw104_apply: [
+    { label: 'Start',    trigger: 'Starting' },
+    { label: 'Validate', trigger: 'Payload validated' },
+    { label: 'Login',    trigger: 'Loading 104.com.tw session' },
     { label: 'Apply',    trigger: 'run complete' },
     ..._QA_STEPS,
     { label: 'Done',     trigger: 'completed successfully' },
@@ -1217,6 +1240,23 @@ runForm.addEventListener('submit', async (e) => {
       ...(taskFilter ? { task_filter: taskFilter } : {}),
     };
     jobName = `Tasker 提案: ${categories}${payload.dry_run ? ' (dry-run)' : ''}`;
+
+  } else if (jobType === 'tw104_apply') {
+    const keyword = document.getElementById('tw104-keyword').value.trim();
+    if (!keyword) { showToast('職缺關鍵字為必填 (e.g. 軟體工程師)', 'error'); return; }
+    const area = document.getElementById('tw104-area').value.trim();
+    const coverLetter = document.getElementById('tw104-cover').value.trim();
+    const taskFilter = document.getElementById('tw104-filter').value.trim();
+    payload = {
+      keyword,
+      max_applications: parseInt(document.getElementById('tw104-max').value, 10) || 5,
+      max_pages: parseInt(document.getElementById('tw104-max-pages').value, 10) || 10,
+      dry_run: document.getElementById('tw104-dry-run').checked,
+      ...(area ? { area } : {}),
+      ...(coverLetter ? { cover_letter: coverLetter } : {}),
+      ...(taskFilter ? { task_filter: taskFilter } : {}),
+    };
+    jobName = `104 應徵: ${keyword}${payload.dry_run ? ' (dry-run)' : ''}`;
 
   } else if (jobType === 'email_collect') {
     const query = document.getElementById('lead-query').value.trim();
