@@ -417,6 +417,10 @@
           <div class="type-card-header"><span class="type-card-icon">🧰</span><span class="type-card-name">Tasker 自動提案</span></div>
           <div class="type-card-desc">Auto-apply to tasker.com.tw cases</div>
         </div>
+        <div class="type-card" data-type="tw104_apply">
+          <div class="type-card-header"><span class="type-card-icon">💼</span><span class="type-card-name">104 自動應徵</span></div>
+          <div class="type-card-desc">Auto-apply to 104.com.tw job openings</div>
+        </div>
         <div class="type-card" data-type="email_collect">
           <div class="type-card-header"><span class="type-card-icon">📧</span><span class="type-card-name">Email Collector</span></div>
           <div class="type-card-desc">Find businesses & collect their emails</div>
@@ -529,6 +533,46 @@
         <div style="font-size:0.75rem;color:var(--text-muted);background:var(--accent-soft);border:1px solid rgba(47,107,255,0.2);border-radius:10px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
           需要已登入的 tasker.com.tw session。首次請執行 <code style="font-family:ui-monospace,monospace">uv run python scripts/tasker_login.py</code> 手動登入一次，並在 <code style="font-family:ui-monospace,monospace">.env</code> 設定 <code style="font-family:ui-monospace,monospace">TASKER_USERNAME / TASKER_PASSWORD / TASKER_STORAGE_STATE</code>。
           <b>取消勾選試跑模式會送出真實提案。</b>
+        </div>
+      </div>
+
+      <div id="fields-tw104_apply" class="hidden">
+        <div class="field"><label>職缺關鍵字</label><input type="text" id="tw104-keyword" placeholder="e.g. 軟體工程師 / python / data engineer" /></div>
+        <div class="field"><label>地區（可用名稱或代碼，選填）</label><input type="text" id="tw104-area" placeholder="e.g. 台北 / taipei / 高雄，或 6001001000（留空 = 全台灣）" />
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">可輸入縣市名稱（中／英文皆可）、簡稱或代碼；AI 會自動對應與修正成 104 地區代碼。可用逗號分隔多個地區。</div>
+        </div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1"><label>最多應徵職缺數 (1–1000)</label><input type="number" id="tw104-max" value="5" min="1" max="1000" /></div>
+          <div style="flex:1"><label>最多掃描頁數 (1–500)</label><input type="number" id="tw104-max-pages" value="10" min="1" max="500" /></div>
+        </div>
+        <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="tw104-remote" style="width:auto;margin:0" />
+            <label for="tw104-remote" style="margin:0">只搜遠端職缺（完全遠端）</label>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="tw104-part-time" style="width:auto;margin:0" />
+            <label for="tw104-part-time" style="margin:0">只搜兼職職缺</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>自我推薦信（選填，最多 2000 字）</label>
+          <div style="display:flex;gap:0.4rem;margin-bottom:0.4rem;align-items:center;flex-wrap:wrap">
+            <select id="tw104-cover-saved" style="flex:1;min-width:160px"><option value="">— 載入已存推薦信範本 —</option></select>
+            <button type="button" id="tw104-cover-save" class="btn-sm">儲存為範本</button>
+            <button type="button" id="tw104-cover-delete" class="btn-sm" style="color:var(--red)">刪除</button>
+          </div>
+          <textarea id="tw104-cover" rows="6" maxlength="2000" placeholder="留空 = 使用 104 系統預設推薦信。填寫後，會在每個職缺的應徵表單「自我推薦信」欄位帶入此內容。"></textarea>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem"><span id="tw104-cover-count">0</span>/2000 字。可將常用內容「儲存為範本」，下次執行從上方下拉選單載入重用。</div>
+        </div>
+        <div class="field"><label>任務篩選條件（第二道關卡，選填）</label><textarea id="tw104-filter" rows="3" placeholder="留空 = 不篩選，套用該關鍵字下所有可應徵職缺。填寫後，AI 會在應徵前先判斷每個職缺是否符合此條件，不符合的直接跳過。例：只投遞後端 / Python / 資料工程職缺；不投業務、行政、純前端。">AI, software, backend, python, cloud, infra</textarea></div>
+        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" id="tw104-dry-run" checked style="width:auto;margin:0" />
+          <label for="tw104-dry-run" style="margin:0">試跑模式 (dry-run)：只準備、不按「確認送出」</label>
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);background:var(--accent-soft);border:1px solid rgba(47,107,255,0.2);border-radius:10px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
+          需要已登入的 104.com.tw session。首次請執行 <code style="font-family:ui-monospace,monospace">uv run python scripts/104_login.py</code> 手動登入一次，並在 <code style="font-family:ui-monospace,monospace">.env</code> 設定 <code style="font-family:ui-monospace,monospace">TW104_USERNAME / TW104_PASSWORD / TW104_STORAGE_STATE</code>。
+          <b>取消勾選試跑模式會送出真實應徵。</b>
         </div>
       </div>
 

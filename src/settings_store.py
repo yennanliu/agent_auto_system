@@ -38,6 +38,7 @@ ALL_AUTOMATIONS = [
     "shopee_seller_scraper",
     "profit_health_check",
     "tasker_apply",
+    "tw104_apply",
     "email_collect",
     "pipeline",
 ]
@@ -45,6 +46,10 @@ ALL_AUTOMATIONS = [
 _ENABLED_KEY = "enabled_automations"
 _LLM_KEY_PREFIX = "llm_key:"
 _EVAL_JUDGE_KEY = "eval_judge"
+_COVER_LETTERS_KEY = "tw104_cover_letters"
+
+_COVER_LETTER_MAX = 2000   # matches 104's own 自我推薦信 limit
+_COVER_LETTERS_MAX_COUNT = 50
 
 
 # ── Generic key/value access ──────────────────────────────────────────────────
@@ -187,3 +192,51 @@ def set_eval_judge(provider: str | None, model: str | None) -> None:
         delete_setting(_EVAL_JUDGE_KEY)
         return
     set_setting(_EVAL_JUDGE_KEY, json.dumps({"provider": provider, "model": model or None}))
+
+
+# ── 104 cover-letter (自我推薦信) patterns ─────────────────────────────────────
+# Named, reusable 自我推薦信 templates for the tw104_apply automation. Stored
+# globally as a JSON list [{"name", "text"}] so they persist across runs and can
+# be picked in the UI. Kept small and plain (no encryption) — this is user
+# content, not a secret.
+
+def get_cover_letters() -> list[dict]:
+    """All saved cover-letter patterns as [{"name", "text"}], newest-first order
+    preserved. Returns [] when unset or unreadable."""
+    raw = get_setting(_COVER_LETTERS_KEY)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for item in data:
+        if isinstance(item, dict) and item.get("name"):
+            out.append({"name": str(item["name"]), "text": str(item.get("text") or "")})
+    return out
+
+
+def save_cover_letter(name: str, text: str) -> list[dict]:
+    """Upsert a pattern by name (case-sensitive). Text is trimmed to the site
+    limit; the name to 60 chars. Returns the updated list. Raises ValueError on
+    an empty name."""
+    name = (name or "").strip()[:60]
+    if not name:
+        raise ValueError("cover letter name is required")
+    text = (text or "")[:_COVER_LETTER_MAX]
+    letters = [c for c in get_cover_letters() if c["name"] != name]
+    letters.insert(0, {"name": name, "text": text})
+    del letters[_COVER_LETTERS_MAX_COUNT:]
+    set_setting(_COVER_LETTERS_KEY, json.dumps(letters, ensure_ascii=False))
+    return letters
+
+
+def delete_cover_letter(name: str) -> list[dict]:
+    """Remove a pattern by name. Returns the updated list."""
+    name = (name or "").strip()
+    letters = [c for c in get_cover_letters() if c["name"] != name]
+    set_setting(_COVER_LETTERS_KEY, json.dumps(letters, ensure_ascii=False))
+    return letters

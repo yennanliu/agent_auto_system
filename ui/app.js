@@ -1,6 +1,6 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'email_collect', 'pipeline'];
+const ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'email_collect', 'pipeline'];
 
 const TYPE_META = {
   google_form_fill:   { chip: 'FORM',  cls: 'chip-form'     },
@@ -12,6 +12,7 @@ const TYPE_META = {
   shopee_seller_scraper: { chip: 'SHOPEE', cls: 'chip-shopee' },
   profit_health_check: { chip: '利潤健檢', cls: 'chip-profit' },
   tasker_apply:        { chip: 'TASKER', cls: 'chip-tasker' },
+  tw104_apply:         { chip: '104',    cls: 'chip-104'    },
   email_collect:        { chip: 'EMAILS', cls: 'chip-leads' },
   pipeline:            { chip: 'PIPE',  cls: 'chip-pipeline' },
 };
@@ -110,6 +111,23 @@ const AUTO_CATALOG = {
     ],
     crew: 'TaskerProposalCrew + TaskerRelevanceCrew', flow: 'TaskerApplyFlow',
     agent: 'Proposal Writer', tools: ['Tasker Auto-Apply'],
+  },
+  tw104_apply: {
+    icon: '💼', name: '104 自動應徵',
+    desc: 'Log in to 104.com.tw (via a saved session) and auto-apply (應徵) to open jobs matching a keyword: click 應徵, pick a saved 推薦信 cover letter, and submit. Auto-advances through search result pages, skipping jobs you already applied to, until it has applied to max_applications ones. An application is only counted as successful when the site confirms it (lands on /job/apply/done/). The LLM (gemini/openai/anthropic) acts as an optional relevance gate — the apply itself is pure browser automation. Dry-run by default — prepares applications without clicking 確認送出.',
+    inputs: [
+      { name: 'keyword',          type: 'str',         desc: 'Job search keyword, e.g. 軟體工程師 / python' },
+      { name: 'area',             type: 'str',         desc: 'Area name OR 104 code — 台北 / taipei / 高雄, or 6001001000 (blank = all Taiwan). AI auto-resolves names & typos to codes.' },
+      { name: 'max_applications', type: 'int (1–1000)', desc: 'Number of jobs to actually apply to (auto-advances pages)' },
+      { name: 'max_pages',        type: 'int (1–500)',  desc: 'Max search result pages to scan before stopping' },
+      { name: 'cover_letter',     type: 'str',         desc: 'Custom 自我推薦信 text typed into the apply form (blank = site default; max 2000). Save & reuse as a named pattern.' },
+      { name: 'remote',           type: 'bool',        desc: '只搜完全遠端職缺 (104 remoteWork=1)' },
+      { name: 'part_time',        type: 'bool',        desc: '只搜兼職職缺 (104 工作性質 ro=2)' },
+      { name: 'task_filter',      type: 'str',         desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match before applying' },
+      { name: 'dry_run',          type: 'bool',        desc: 'If checked, prepare but do NOT click 確認送出' },
+    ],
+    crew: 'TW104RelevanceCrew', flow: 'TW104ApplyFlow',
+    agent: '104 Relevance Judge', tools: ['104 Auto-Apply'],
   },
   email_collect: {
     icon: '📧', name: 'Email Collector',
@@ -229,6 +247,14 @@ const FLOW_STEPS = {
     { label: 'Start',    trigger: 'Starting' },
     { label: 'Validate', trigger: 'Payload validated' },
     { label: 'Login',    trigger: 'Loading tasker.com.tw session' },
+    { label: 'Apply',    trigger: 'run complete' },
+    ..._QA_STEPS,
+    { label: 'Done',     trigger: 'completed successfully' },
+  ],
+  tw104_apply: [
+    { label: 'Start',    trigger: 'Starting' },
+    { label: 'Validate', trigger: 'Payload validated' },
+    { label: 'Login',    trigger: 'Loading 104.com.tw session' },
     { label: 'Apply',    trigger: 'run complete' },
     ..._QA_STEPS,
     { label: 'Done',     trigger: 'completed successfully' },
@@ -917,7 +943,67 @@ function selectJobType(type) {
       addPipelineStep('email_sender');
     }
   }
+  if (type === 'tw104_apply') loadTw104CoverLetters();
 }
+
+// ── 104 saved cover-letter (自我推薦信) patterns ──────────────────────────────
+let _tw104Covers = [];
+
+async function loadTw104CoverLetters(selectName) {
+  const sel = document.getElementById('tw104-cover-saved');
+  if (!sel) return;
+  try {
+    const resp = await fetch('/api/cover-letters');
+    _tw104Covers = resp.ok ? await resp.json() : [];
+  } catch { _tw104Covers = []; }
+  sel.innerHTML = '<option value="">— 載入已存推薦信範本 —</option>' +
+    _tw104Covers.map(c => `<option value="${encodeURIComponent(c.name)}">${c.name}</option>`).join('');
+  if (selectName) sel.value = encodeURIComponent(selectName);
+}
+
+function _tw104CoverCount() {
+  const ta = document.getElementById('tw104-cover');
+  const el = document.getElementById('tw104-cover-count');
+  if (ta && el) el.textContent = String(ta.value.length);
+}
+
+function wireTw104CoverLetters() {
+  const ta = document.getElementById('tw104-cover');
+  const sel = document.getElementById('tw104-cover-saved');
+  const saveBtn = document.getElementById('tw104-cover-save');
+  const delBtn = document.getElementById('tw104-cover-delete');
+  if (!ta || !sel || !saveBtn || !delBtn) return;
+
+  ta.addEventListener('input', _tw104CoverCount);
+
+  sel.addEventListener('change', () => {
+    const name = decodeURIComponent(sel.value || '');
+    const found = _tw104Covers.find(c => c.name === name);
+    if (found) { ta.value = found.text || ''; _tw104CoverCount(); }
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const current = sel.value ? decodeURIComponent(sel.value) : '';
+    const name = (prompt('儲存為推薦信範本，請輸入名稱：', current) || '').trim();
+    if (!name) return;
+    const resp = await fetch('/api/cover-letters', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, text: ta.value }),
+    });
+    if (resp.ok) { await loadTw104CoverLetters(name); showToast(`已儲存範本「${name}」`, 'success'); }
+    else { const b = await resp.json().catch(() => ({})); showToast(b.detail || '儲存失敗', 'error'); }
+  });
+
+  delBtn.addEventListener('click', async () => {
+    const name = sel.value ? decodeURIComponent(sel.value) : '';
+    if (!name) { showToast('請先從下拉選單選擇要刪除的範本', 'error'); return; }
+    if (!confirm(`刪除推薦信範本「${name}」？`)) return;
+    const resp = await fetch(`/api/cover-letters/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (resp.ok) { await loadTw104CoverLetters(); showToast(`已刪除範本「${name}」`, 'success'); }
+    else showToast('刪除失敗', 'error');
+  });
+}
+wireTw104CoverLetters();
 
 // ── Profit health check: filename → role classification (mirrors uploads.py) ──
 
@@ -1217,6 +1303,25 @@ runForm.addEventListener('submit', async (e) => {
       ...(taskFilter ? { task_filter: taskFilter } : {}),
     };
     jobName = `Tasker 提案: ${categories}${payload.dry_run ? ' (dry-run)' : ''}`;
+
+  } else if (jobType === 'tw104_apply') {
+    const keyword = document.getElementById('tw104-keyword').value.trim();
+    if (!keyword) { showToast('職缺關鍵字為必填 (e.g. 軟體工程師)', 'error'); return; }
+    const area = document.getElementById('tw104-area').value.trim();
+    const coverLetter = document.getElementById('tw104-cover').value.trim();
+    const taskFilter = document.getElementById('tw104-filter').value.trim();
+    payload = {
+      keyword,
+      max_applications: parseInt(document.getElementById('tw104-max').value, 10) || 5,
+      max_pages: parseInt(document.getElementById('tw104-max-pages').value, 10) || 10,
+      remote: document.getElementById('tw104-remote').checked,
+      part_time: document.getElementById('tw104-part-time').checked,
+      dry_run: document.getElementById('tw104-dry-run').checked,
+      ...(area ? { area } : {}),
+      ...(coverLetter ? { cover_letter: coverLetter } : {}),
+      ...(taskFilter ? { task_filter: taskFilter } : {}),
+    };
+    jobName = `104 應徵: ${keyword}${payload.dry_run ? ' (dry-run)' : ''}`;
 
   } else if (jobType === 'email_collect') {
     const query = document.getElementById('lead-query').value.trim();
