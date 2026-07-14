@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from src.automation.scheduler import CronScheduler
 from src.models import Job

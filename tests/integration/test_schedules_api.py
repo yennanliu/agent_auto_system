@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime
 
-from src.models import Job, Run
+from src.models import Run
 
 FORM_PAYLOAD = {
     "name": "Daily Form",
