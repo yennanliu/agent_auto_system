@@ -938,6 +938,10 @@ html.theme-dark .lead-conf-low { background: rgba(255,255,255,0.08); color: #9aa
 .ov-job.active { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), 0.3); }
 .ov-job-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ov-job-cron { color: var(--accent); font-size: 0.8rem; }
+.ov-job-count { flex: 0 0 auto; min-width: 1.4rem; text-align: center; font-size: 0.72rem;
+  font-weight: 600; color: var(--text-muted); background: var(--surface2);
+  border-radius: 999px; padding: 0.05rem 0.4rem; }
+.ov-job.active .ov-job-count { background: rgba(var(--accent-rgb), 0.15); color: var(--accent); }
 
 .ov-grid-wrap { border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.15rem; background: var(--surface); min-height: 200px; }
 .ov-grid-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }

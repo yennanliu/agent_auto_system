@@ -393,53 +393,56 @@ function updateModelOptions() {
 }
 
 // ══════════════════════════════════════ TASK OVERVIEW ════════════════════════════
-// Airflow-style grid: rows = flow steps, columns = recent runs, cells = status.
+// Airflow-style grid grouped by AUTOMATION TYPE: one entry per automation, and its
+// grid shows ALL runs of that automation together (columns = runs, rows = steps),
+// so runs of the same automation can be compared side by side.
 
-let ovJobs = [];
-let ovSelectedJobId = null;
+let ovTypes = [];
+let ovSelectedType = null;
 
 async function loadOverviewPage() {
   const list = document.getElementById('ov-joblist');
   list.innerHTML = '<div class="loading-state">Loading…</div>';
   try {
-    const resp = await fetch('/api/jobs');
-    if (!resp.ok) throw new Error('Failed to load jobs');
-    ovJobs = await resp.json();
+    const resp = await fetch('/api/overview');
+    if (!resp.ok) throw new Error('Failed to load overview');
+    ovTypes = await resp.json();
   } catch (err) {
     list.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
     return;
   }
-  renderOverviewJobList();
-  if (ovJobs.length) {
-    const keep = ovJobs.find(j => j.id === ovSelectedJobId);
-    selectOverviewJob((keep || ovJobs[0]).id);
+  renderOverviewTypeList();
+  if (ovTypes.length) {
+    const keep = ovTypes.find(t => t.job_type === ovSelectedType);
+    selectOverviewType((keep || ovTypes[0]).job_type);
   } else {
     document.getElementById('ov-grid-wrap').innerHTML =
-      '<div class="empty-state">No jobs yet. Run an automation first.</div>';
+      '<div class="empty-state">No runs yet. Run an automation first.</div>';
   }
 }
 
-function renderOverviewJobList() {
+function renderOverviewTypeList() {
   const list = document.getElementById('ov-joblist');
-  if (!ovJobs.length) { list.innerHTML = '<div class="empty-state">No jobs</div>'; return; }
-  list.innerHTML = ovJobs.map(j => {
-    const meta = TYPE_META[j.job_type] || { chip: (j.job_type || '?').toUpperCase(), cls: 'chip-unknown' };
-    const active = j.id === ovSelectedJobId ? ' active' : '';
-    const sched = j.schedule ? `<span class="ov-job-cron" title="Scheduled ${escHtml(j.schedule)}">⏱</span>` : '';
-    return `<button class="ov-job${active}" data-job-id="${j.id}">
+  if (!ovTypes.length) { list.innerHTML = '<div class="empty-state">No runs</div>'; return; }
+  list.innerHTML = ovTypes.map(t => {
+    const meta = TYPE_META[t.job_type] || { chip: (t.job_type || '?').toUpperCase(), cls: 'chip-unknown' };
+    const name = AUTO_CATALOG[t.job_type]?.name || t.job_type;
+    const active = t.job_type === ovSelectedType ? ' active' : '';
+    return `<button class="ov-job${active}" data-job-type="${escHtml(t.job_type)}">
       <span class="type-chip ${meta.cls}">${escHtml(meta.chip)}</span>
-      <span class="ov-job-name">${escHtml(j.name)}</span>${sched}
+      <span class="ov-job-name">${escHtml(name)}</span>
+      <span class="ov-job-count">${t.run_count}</span>
     </button>`;
   }).join('');
 }
 
-async function selectOverviewJob(jobId) {
-  ovSelectedJobId = jobId;
-  renderOverviewJobList();
+async function selectOverviewType(jobType) {
+  ovSelectedType = jobType;
+  renderOverviewTypeList();
   const wrap = document.getElementById('ov-grid-wrap');
   wrap.innerHTML = '<div class="loading-state">Loading…</div>';
   try {
-    const resp = await fetch(`/api/jobs/${jobId}/overview?limit=30`);
+    const resp = await fetch(`/api/overview/${encodeURIComponent(jobType)}?limit=40`);
     if (!resp.ok) throw new Error('Failed to load overview');
     wrap.innerHTML = renderOverviewGrid(await resp.json());
   } catch (err) {
@@ -450,29 +453,31 @@ async function selectOverviewJob(jobId) {
 const OV_ICON = { done: '✓', success: '✓', running: '', failed: '✕', pending: '' };
 
 function renderOverviewGrid(data) {
-  const { job, task_names, runs } = data;
+  const { job_type, task_names, runs } = data;
+  const name = AUTO_CATALOG[job_type]?.name || job_type;
   if (!runs || !runs.length) {
-    return `<div class="ov-grid-head"><h2>${escHtml(job.name)}</h2></div>
-      <div class="empty-state">No runs for this job yet.</div>`;
+    return `<div class="ov-grid-head"><h2>${escHtml(name)}</h2></div>
+      <div class="empty-state">No runs for this automation yet.</div>`;
   }
   const durs = runs.map(r => r.duration_secs || 0);
   const maxDur = Math.max(...durs, 1);
   const bars = runs.map(r => {
     const d = r.duration_secs || 0;
     const h = Math.max(3, Math.round((d / maxDur) * 46));
-    return `<div class="ov-bar ov-fill-${r.status}" style="height:${h}px" title="run #${r.run_id} · ${r.status} · ${fmtDur(d) || '—'}"></div>`;
+    return `<div class="ov-bar ov-fill-${r.status}" style="height:${h}px" title="${escHtml(r.job_name)} · run #${r.run_id} · ${r.status} · ${fmtDur(d) || '—'}"></div>`;
   }).join('');
 
+  const tip = r => `${escHtml(r.job_name)} · run #${r.run_id} · ${r.status} · ${new Date(r.started_at).toLocaleString()}`;
   const runHead = runs.map(r =>
-    `<div class="ov-cell ov-fill-${r.status}" title="run #${r.run_id} · ${r.status} · ${new Date(r.started_at).toLocaleString()}">${OV_ICON[r.status] || ''}</div>`
+    `<div class="ov-cell ov-fill-${r.status}" title="${tip(r)}">${OV_ICON[r.status] || ''}</div>`
   ).join('');
 
-  const rows = task_names.map((name, ri) => {
+  const rows = task_names.map((tname, ri) => {
     const cells = runs.map(r => {
       const status = r.steps[ri] ? r.steps[ri].status : 'pending';
-      return `<div class="ov-cell ov-fill-${status}" title="${escHtml(name)} · run #${r.run_id} · ${status}">${OV_ICON[status] || ''}</div>`;
+      return `<div class="ov-cell ov-fill-${status}" title="${escHtml(tname)} · ${escHtml(r.job_name)} · run #${r.run_id} · ${status}">${OV_ICON[status] || ''}</div>`;
     }).join('');
-    return `<div class="ov-row"><div class="ov-row-label" title="${escHtml(name)}">${escHtml(name)}</div><div class="ov-cells">${cells}</div></div>`;
+    return `<div class="ov-row"><div class="ov-row-label" title="${escHtml(tname)}">${escHtml(tname)}</div><div class="ov-cells">${cells}</div></div>`;
   }).join('');
 
   const nSuccess = runs.filter(r => r.status === 'success').length;
@@ -480,12 +485,11 @@ function renderOverviewGrid(data) {
 
   return `
     <div class="ov-grid-head">
-      <h2>${escHtml(job.name)} <span class="muted" style="font-weight:400;font-size:0.8rem">${escHtml(job.job_type)}</span></h2>
+      <h2>${escHtml(name)} <span class="muted" style="font-weight:400;font-size:0.8rem">${escHtml(job_type)}</span></h2>
       <div class="ov-summary">
         <span class="ov-stat"><b>${runs.length}</b> runs</span>
         <span class="ov-stat ov-stat-ok"><b>${nSuccess}</b> ok</span>
         <span class="ov-stat ov-stat-fail"><b>${nFailed}</b> failed</span>
-        ${job.schedule ? `<span class="ov-stat">⏱ ${escHtml(job.schedule)}</span>` : ''}
       </div>
     </div>
     <div class="ov-duration-chart" title="Run duration (oldest → newest)">${bars}</div>
@@ -502,8 +506,8 @@ function renderOverviewGrid(data) {
 }
 
 document.getElementById('ov-joblist').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-job-id]');
-  if (btn) selectOverviewJob(parseInt(btn.dataset.jobId, 10));
+  const btn = e.target.closest('[data-job-type]');
+  if (btn) selectOverviewType(btn.dataset.jobType);
 });
 
 // ══════════════════════════════════════ SCHEDULES ════════════════════════════════

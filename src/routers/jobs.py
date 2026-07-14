@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from src.auth import assert_can_run, require_user
@@ -160,45 +161,99 @@ def _run_step_states(job_type: str, run: Run) -> list[dict]:
     return infer_step_states(job_type, logs, run.status)
 
 
-@router.get("/jobs/{job_id}/overview")
-def job_overview(
-    job_id: int,
-    limit: int = 30,
-    session: Session = Depends(get_session),
-):
-    """Airflow-style grid data for a job: recent runs × per-step status.
-
-    Returns the ordered ``task_names`` (grid rows) and, per run (grid columns),
-    the status of each step derived from the run's progress log.
-    """
-    job = session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    limit = max(1, min(limit, 100))
-
-    runs = session.exec(
-        select(Run).where(Run.job_id == job_id).order_by(Run.started_at.desc()).limit(limit)
-    ).all()
-
+def _build_grid(job_type: str, runs_desc: list[Run], job_names: dict[int, str]) -> dict:
+    """Shared grid builder: ordered ``task_names`` (rows) + per-run step states
+    (columns). ``runs_desc`` is newest-first; the grid is emitted oldest→newest so
+    it reads left-to-right by time."""
     # Fixed rows come from the flow definition; pipeline rows are per-run dynamic,
     # so we take the union (longest wins) across the returned runs.
-    task_names = step_labels(job.job_type)
+    task_names = step_labels(job_type)
     run_rows = []
-    for r in reversed(runs):  # oldest → newest so the grid reads left-to-right by time
-        steps = _run_step_states(job.job_type, r)
-        if job.job_type == "pipeline" and len(steps) > len(task_names):
+    for r in reversed(runs_desc):
+        steps = _run_step_states(job_type, r)
+        if job_type == "pipeline" and len(steps) > len(task_names):
             task_names = [s["name"] for s in steps]
         run_rows.append({
             "run_id": r.id,
+            "job_id": r.job_id,
+            "job_name": job_names.get(r.job_id, f"job {r.job_id}"),
             "status": r.status,
             "started_at": r.started_at,
             "finished_at": r.finished_at,
             "duration_secs": r.duration_secs,
             "steps": steps,
         })
+    return {"task_names": task_names, "runs": run_rows}
 
+
+@router.get("/overview")
+def overview_index(session: Session = Depends(get_session)):
+    """Automation types that have at least one run, with run counts + last status.
+
+    Drives the Task Overview left-hand list: one entry per automation (job_type),
+    so all runs of the same automation can be compared together on one grid.
+    """
+    rows = session.exec(
+        select(
+            Job.job_type,
+            func.count(Run.id),
+            func.max(Run.started_at),
+        )
+        .join(Run, Run.job_id == Job.id)
+        .group_by(Job.job_type)
+    ).all()
+    out = [
+        {"job_type": jt, "run_count": n, "last_run_at": last}
+        for jt, n, last in rows
+    ]
+    out.sort(key=lambda r: r["run_count"], reverse=True)
+    return out
+
+
+@router.get("/overview/{job_type}")
+def automation_overview(
+    job_type: str,
+    limit: int = 40,
+    session: Session = Depends(get_session),
+):
+    """Airflow-style grid for ALL runs of one automation type (across every job of
+    that type), so runs can be compared side by side. Columns = runs, rows = steps.
+    """
+    limit = max(1, min(limit, 200))
+    jobs = session.exec(select(Job).where(Job.job_type == job_type)).all()
+    job_names = {j.id: j.name for j in jobs}
+
+    runs: list[Run] = []
+    if job_names:
+        runs = list(session.exec(
+            select(Run)
+            .where(Run.job_id.in_(list(job_names)))
+            .order_by(Run.started_at.desc())
+            .limit(limit)
+        ).all())
+
+    grid = _build_grid(job_type, runs, job_names)
+    return {"job_type": job_type, **grid}
+
+
+@router.get("/jobs/{job_id}/overview")
+def job_overview(
+    job_id: int,
+    limit: int = 30,
+    session: Session = Depends(get_session),
+):
+    """Airflow-style grid data for a single job: recent runs × per-step status."""
+    job = session.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    limit = max(1, min(limit, 100))
+
+    runs = list(session.exec(
+        select(Run).where(Run.job_id == job_id).order_by(Run.started_at.desc()).limit(limit)
+    ).all())
+
+    grid = _build_grid(job.job_type, runs, {job.id: job.name})
     return {
         "job": {"id": job.id, "name": job.name, "job_type": job.job_type, "schedule": job.schedule},
-        "task_names": task_names,
-        "runs": run_rows,
+        **grid,
     }

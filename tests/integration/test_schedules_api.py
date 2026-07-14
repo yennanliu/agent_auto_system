@@ -125,6 +125,53 @@ async def test_overview_returns_task_grid(client, db_session):
     assert steps["Submit"] == "pending"
 
 
+# ── GET /overview (index, grouped by automation type) ─────────────────────────
+
+async def test_overview_index_groups_by_type(client, db_session):
+    # Two jobs of the SAME type, each with a run → one grouped entry, count 2.
+    j1 = (await client.post("/api/jobs", json=FORM_PAYLOAD)).json()
+    j2 = (await client.post("/api/jobs", json={**FORM_PAYLOAD, "name": "Form B"})).json()
+    for jid in (j1["id"], j2["id"]):
+        db_session.add(Run(job_id=jid, status="success",
+                           started_at=datetime(2026, 1, 1, tzinfo=UTC)))
+    db_session.commit()
+
+    rows = (await client.get("/api/overview")).json()
+    entry = next(r for r in rows if r["job_type"] == "google_form_fill")
+    assert entry["run_count"] == 2
+
+
+async def test_overview_index_excludes_types_without_runs(client):
+    await client.post("/api/jobs", json=FORM_PAYLOAD)  # job but no runs
+    assert (await client.get("/api/overview")).json() == []
+
+
+# ── GET /overview/{job_type} (all runs of one automation) ─────────────────────
+
+async def test_automation_overview_combines_runs_across_jobs(client, db_session):
+    p = {"job_type": "tw104_apply", "payload": {"keyword": "x"}}
+    j1 = (await client.post("/api/jobs", json={"name": "104 A", **p})).json()
+    j2 = (await client.post("/api/jobs", json={"name": "104 B", **p})).json()
+    db_session.add(Run(job_id=j1["id"], status="success",
+                       started_at=datetime(2026, 1, 1, tzinfo=UTC)))
+    db_session.add(Run(job_id=j2["id"], status="failed",
+                       started_at=datetime(2026, 1, 2, tzinfo=UTC)))
+    db_session.commit()
+
+    data = (await client.get("/api/overview/tw104_apply")).json()
+    assert data["job_type"] == "tw104_apply"
+    assert data["task_names"][0] == "Start"
+    # Both jobs' runs appear together, oldest → newest, each labelled by its job.
+    assert [r["status"] for r in data["runs"]] == ["success", "failed"]
+    assert {r["job_name"] for r in data["runs"]} == {"104 A", "104 B"}
+
+
+async def test_automation_overview_unknown_type_empty(client):
+    data = (await client.get("/api/overview/web_scraper")).json()
+    assert data["runs"] == []
+    assert data["task_names"][0] == "Start"  # step scaffold still returned
+
+
 async def test_overview_orders_runs_oldest_to_newest(client, db_session):
     job = (await client.post("/api/jobs", json=FORM_PAYLOAD)).json()
     db_session.add(Run(job_id=job["id"], status="success",
