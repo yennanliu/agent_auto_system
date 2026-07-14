@@ -104,3 +104,35 @@ async def test_change_password_wrong_current(client):
         json={"current_password": "WRONG", "new_password": "newpassword456"},
     )
     assert resp.status_code == 400
+
+
+# ── SSO / OAuth ───────────────────────────────────────────────────────────────
+
+async def test_providers_endpoint_open_without_session(anon_client):
+    # Reachable pre-login so the login page can decide which SSO buttons to show.
+    resp = await anon_client.get("/api/auth/providers")
+    assert resp.status_code == 200
+    assert "providers" in resp.json()  # empty list when no creds configured in tests
+
+
+async def test_oauth_login_unknown_provider_404(anon_client):
+    # An unknown/unconfigured provider is rejected (google/github may be
+    # configured via the developer's .env, so use a name that never is).
+    resp = await anon_client.get("/api/auth/oauth/nonexistent/login")
+    assert resp.status_code == 404
+
+
+async def test_sso_only_account_cannot_password_login(anon_client, test_engine):
+    from sqlmodel import Session
+
+    from src.models import User
+
+    with Session(test_engine) as s:
+        s.add(User(username="ssouser", password_hash=None, oauth_provider="google",
+                   oauth_sub="X1", is_active=True))
+        s.commit()
+
+    resp = await anon_client.post(
+        "/api/auth/login", json={"username": "ssouser", "password": "anything"}
+    )
+    assert resp.status_code == 401

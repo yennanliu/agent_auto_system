@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src import telemetry as _tel
 from src.auth import require_user
 from src.database import get_engine, init_db, reconcile_stale_runs
-from src.routers import admin, auth, cover_letters, jobs, runs, system, uploads
+from src.routers import admin, auth, cover_letters, jobs, oauth, runs, system, uploads
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,8 @@ app.add_middleware(SessionMiddleware, secret_key=APP_SECRET, https_only=False)
 
 # Auth endpoints stay open (login must be reachable without a session).
 app.include_router(auth.router, prefix="/api")
+# SSO/OAuth login + provider discovery — also open (pre-login redirect flow).
+app.include_router(oauth.router, prefix="/api")
 
 # Admin router enforces require_admin internally (every route).
 app.include_router(admin.router, prefix="/api")

@@ -37,8 +37,10 @@ def _public(user: User) -> dict:
     return {
         "id": user.id,
         "username": user.username,
+        "email": user.email,
         "is_admin": user.is_admin,
         "is_active": user.is_active,
+        "oauth_provider": user.oauth_provider,  # None for password accounts
         "allowed_automations": allowed,  # "*" or list of job_type
         "enabled_automations": settings_store.get_enabled_automations(),  # global
     }
@@ -49,7 +51,10 @@ def login(
     data: LoginRequest, request: Request, session: Session = Depends(get_session)
 ):
     user = session.exec(select(User).where(User.username == data.username)).first()
-    if not user or not verify_password(data.password, user.password_hash):
+    # SSO-only accounts have no password_hash and can't log in with a password.
+    if not user or not user.password_hash or not verify_password(
+        data.password, user.password_hash
+    ):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
@@ -80,6 +85,11 @@ def change_password(
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="This account signs in via SSO and has no password to change",
+        )
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(data.new_password) < 8:

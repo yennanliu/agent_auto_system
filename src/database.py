@@ -42,6 +42,11 @@ def init_db():
             "ALTER TABLE run ADD COLUMN user_id INTEGER",
             "ALTER TABLE job ADD COLUMN schedule VARCHAR",
             "ALTER TABLE job ADD COLUMN created_by INTEGER",
+            # SSO / OAuth login (nullable — existing password accounts keep working)
+            "ALTER TABLE user ADD COLUMN email VARCHAR",
+            "ALTER TABLE user ADD COLUMN oauth_provider VARCHAR",
+            "ALTER TABLE user ADD COLUMN oauth_sub VARCHAR",
+            "CREATE INDEX IF NOT EXISTS ix_user_email ON user(email)",
             # Indexes for common query patterns
             "CREATE INDEX IF NOT EXISTS ix_run_job_id ON run(job_id)",
             "CREATE INDEX IF NOT EXISTS ix_run_status ON run(status)",

@@ -41,6 +41,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Pipeline | `src/automation/pipeline.py` | Chains steps; later steps read earlier output via `{{steps.N.result}}` |
 | Registry | `src/automation/registry.py` | asyncio task dict for run cancellation |
 | Auth / RBAC | `src/auth.py`, `src/settings_store.py` | login, per-user `allowed_automations`, global `ALL_AUTOMATIONS`/enabled set, Fernet-encrypted API keys, eval-judge choice |
+| SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `uploads` |
 | UI | `ui/app.js` | `LLM_MODELS` dict drives the provider→model dropdown |
 
