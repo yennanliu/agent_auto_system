@@ -3,9 +3,14 @@ Auto-apply (應徵) to job openings on 104.com.tw (Taiwan's 104 人力銀行).
 
 This is a faithful Playwright port of the reference browser script
 (ai_experiment/104/gemini/104_auto_apply_with_controls.js). 104's apply flow is
-DOM-driven, not a clean JSON API: clicking 應徵 opens the application page, you
-pick a saved 推薦信 (cover letter — 104 does NOT accept free-text at apply time),
-then click 確認送出. So we drive the DOM exactly like the reference did.
+DOM-driven, not a clean JSON API: clicking 應徵 opens the in-page application
+form (?apply=form), which contains a free-text 自我推薦信 (cover letter) textarea
+pre-filled with your 系統預設 letter, then a 確認送出 button. We drive that DOM.
+
+The cover letter IS free text (a `<textarea>`, max 2000 chars) — so a custom
+`cover_letter` string is typed straight into it, overriding the default. The
+resume (履歷) is chosen via a separate multiselect which we leave on the user's
+default. When `cover_letter` is empty the site's 系統預設 letter is left in place.
 
 Auth is a persisted browser session (cookies), created ONCE via
 `scripts/104_login.py` — same pattern as the Shopee scraper. 104 guards password
@@ -36,7 +41,6 @@ with an LLM-backed relevance_fn). `TW104ApplyTool` is a thin BaseTool wrapper fo
 catalog/agent parity.
 """
 import os
-import re
 from collections.abc import Callable
 
 from crewai.tools import BaseTool
@@ -50,9 +54,9 @@ _UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
-# 104 job ids look like .../job/abcde or a jobsource query; we key jobs by their
-# /job/<id> path so the same posting is never applied to twice in one run.
-_JOB_ID_RE = re.compile(r"/job/([0-9a-z]+)", re.IGNORECASE)
+# Job ids (/job/<id>) and the 已應徵 "already applied" flag are extracted inside
+# the page.evaluate() block in _collect_page_jobs (JS-side), not with Python
+# regex/string constants — see that function.
 
 # DOM selectors, mirroring the reference script. Kept as fallbacks-in-order lists
 # because 104's markup uses hashed/utility class names that shift over time; the
@@ -69,8 +73,14 @@ _CONFIRM_SEND_SELECTORS = [
     "button:has-text('送出應徵')",
     "button:has-text('確定送出')",
 ]
-# text signalling a job is already applied to — skip it
-_ALREADY_APPLIED_TEXT = "已應徵"
+# The 自我推薦信 (cover letter) free-text field on the application form. It's the
+# only <textarea> on the apply page; the placeholder text is the most stable hook.
+_COVER_LETTER_SELECTORS = [
+    "textarea[placeholder*='自我推薦']",
+    "textarea.form-control",
+    "textarea",
+]
+_COVER_LETTER_MAX = 2000  # site's own limit (the counter reads "n/2000")
 _DONE_URL_FRAGMENT = "/job/apply/done"
 
 
@@ -226,38 +236,31 @@ def _first_visible(scope, selectors: list[str]):
     return None
 
 
-def _select_cover_letter(popup, cover_letter: str, log: Callable,
-                         warnings: list, job_id: str) -> None:
-    """Best-effort: pick a saved 推薦信 by name. 104 pre-selects 系統預設, so when
-    no name is given (or it can't be found) we leave the default in place. Never
-    raises — a cover-letter mismatch degrades to the default rather than aborting."""
-    if not cover_letter:
+def _fill_cover_letter(popup, cover_letter: str, log: Callable,
+                       warnings: list, job_id: str) -> None:
+    """Type a custom 自我推薦信 into the free-text textarea, overriding the site's
+    系統預設 letter. When `cover_letter` is empty the default is left untouched.
+    Never raises — a fill failure degrades to the default rather than aborting.
+
+    104 is a Vue app, so we use fill() (which dispatches input events the model
+    listens to) rather than setting .value directly."""
+    text = (cover_letter or "").strip()
+    if not text:
         return
-    # The letter picker is a multiselect; open it, then click the option whose
-    # text contains the requested name.
+    if len(text) > _COVER_LETTER_MAX:
+        text = text[:_COVER_LETTER_MAX]
+        warnings.append(f"{job_id}: cover letter truncated to {_COVER_LETTER_MAX} chars")
+    box = _first_visible(popup, _COVER_LETTER_SELECTORS)
+    if box is None:
+        warnings.append(f"{job_id}: 自我推薦信 textarea not found; used site default")
+        log("  · 自我推薦信 field not found — using site default letter")
+        return
     try:
-        toggle = _first_visible(popup, [
-            ".multiselect__select", ".multiselect", "[class*='multiselect']",
-            "select",
-        ])
-        if toggle is not None:
-            toggle.click(timeout=4000)
-            popup.wait_for_timeout(400)
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        opt = popup.locator(
-            f".multiselect__option:has-text('{cover_letter}'), "
-            f"li:has-text('{cover_letter}'), option:has-text('{cover_letter}')"
-        ).first
-        if opt.count() > 0:
-            opt.click(timeout=4000)
-            log(f"  · cover letter set to '{cover_letter}'")
-            return
-    except Exception:  # noqa: BLE001
-        pass
-    warnings.append(f"{job_id}: cover letter '{cover_letter}' not found; used default")
-    log(f"  · cover letter '{cover_letter}' not found — using site default")
+        box.fill(text, timeout=6000)
+        log(f"  · 自我推薦信 set to custom text ({len(text)} chars)")
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"{job_id}: could not fill 自我推薦信 ({exc}); used default")
+        log(f"  · could not fill 自我推薦信 ({exc}) — using site default")
 
 
 def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
@@ -291,7 +294,7 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
 
     try:
         popup.wait_for_timeout(1000)
-        _select_cover_letter(popup, cover_letter, log, warnings, job["job_id"])
+        _fill_cover_letter(popup, cover_letter, log, warnings, job["job_id"])
 
         if dry_run:
             entry.update(status="prepared", submitted=False, reason="dry_run")
@@ -506,8 +509,8 @@ class TW104ApplyTool(BaseTool):
     description: str = (
         "Log in to 104.com.tw (via a saved session) and auto-apply (應徵) to open "
         "jobs matching a keyword. Args: keyword, area (104 area codes, optional), "
-        "order, max_applications, max_pages, cover_letter (a saved 推薦信 name, "
-        "optional), dry_run. Skips already-applied jobs and submits only when "
+        "order, max_applications, max_pages, cover_letter (custom 自我推薦信 free "
+        "text, optional), dry_run. Skips already-applied jobs and submits only when "
         "dry_run is false (a confirmed /job/apply/done/ URL is required)."
     )
     args_schema: type[BaseModel] = TW104ApplyInput

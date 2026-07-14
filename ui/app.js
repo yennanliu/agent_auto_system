@@ -117,9 +117,9 @@ const AUTO_CATALOG = {
     desc: 'Log in to 104.com.tw (via a saved session) and auto-apply (應徵) to open jobs matching a keyword: click 應徵, pick a saved 推薦信 cover letter, and submit. Auto-advances through search result pages, skipping jobs you already applied to, until it has applied to max_applications ones. An application is only counted as successful when the site confirms it (lands on /job/apply/done/). The LLM (gemini/openai/anthropic) acts as an optional relevance gate — the apply itself is pure browser automation. Dry-run by default — prepares applications without clicking 確認送出.',
     inputs: [
       { name: 'keyword',          type: 'str',         desc: 'Job search keyword, e.g. 軟體工程師 / python' },
-      { name: 'area',             type: 'str',         desc: '104 area code(s), e.g. 6001001000,6001002000 (blank = all of Taiwan)' },
+      { name: 'area',             type: 'str',         desc: 'Area name OR 104 code — 台北 / taipei / 高雄, or 6001001000 (blank = all Taiwan). AI auto-resolves names & typos to codes.' },
       { name: 'max_applications', type: 'int (1–200)', desc: 'Number of jobs to actually apply to (auto-advances pages)' },
-      { name: 'cover_letter',     type: 'str',         desc: 'Name of a saved 推薦信 to use (blank = site default 系統預設)' },
+      { name: 'cover_letter',     type: 'str',         desc: 'Custom 自我推薦信 text typed into the apply form (blank = site default; max 2000). Save & reuse as a named pattern.' },
       { name: 'task_filter',      type: 'str',         desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match before applying' },
       { name: 'dry_run',          type: 'bool',        desc: 'If checked, prepare but do NOT click 確認送出' },
     ],
@@ -940,7 +940,67 @@ function selectJobType(type) {
       addPipelineStep('email_sender');
     }
   }
+  if (type === 'tw104_apply') loadTw104CoverLetters();
 }
+
+// ── 104 saved cover-letter (自我推薦信) patterns ──────────────────────────────
+let _tw104Covers = [];
+
+async function loadTw104CoverLetters(selectName) {
+  const sel = document.getElementById('tw104-cover-saved');
+  if (!sel) return;
+  try {
+    const resp = await fetch('/api/cover-letters');
+    _tw104Covers = resp.ok ? await resp.json() : [];
+  } catch { _tw104Covers = []; }
+  sel.innerHTML = '<option value="">— 載入已存推薦信範本 —</option>' +
+    _tw104Covers.map(c => `<option value="${encodeURIComponent(c.name)}">${c.name}</option>`).join('');
+  if (selectName) sel.value = encodeURIComponent(selectName);
+}
+
+function _tw104CoverCount() {
+  const ta = document.getElementById('tw104-cover');
+  const el = document.getElementById('tw104-cover-count');
+  if (ta && el) el.textContent = String(ta.value.length);
+}
+
+function wireTw104CoverLetters() {
+  const ta = document.getElementById('tw104-cover');
+  const sel = document.getElementById('tw104-cover-saved');
+  const saveBtn = document.getElementById('tw104-cover-save');
+  const delBtn = document.getElementById('tw104-cover-delete');
+  if (!ta || !sel || !saveBtn || !delBtn) return;
+
+  ta.addEventListener('input', _tw104CoverCount);
+
+  sel.addEventListener('change', () => {
+    const name = decodeURIComponent(sel.value || '');
+    const found = _tw104Covers.find(c => c.name === name);
+    if (found) { ta.value = found.text || ''; _tw104CoverCount(); }
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const current = sel.value ? decodeURIComponent(sel.value) : '';
+    const name = (prompt('儲存為推薦信範本，請輸入名稱：', current) || '').trim();
+    if (!name) return;
+    const resp = await fetch('/api/cover-letters', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, text: ta.value }),
+    });
+    if (resp.ok) { await loadTw104CoverLetters(name); showToast(`已儲存範本「${name}」`, 'success'); }
+    else { const b = await resp.json().catch(() => ({})); showToast(b.detail || '儲存失敗', 'error'); }
+  });
+
+  delBtn.addEventListener('click', async () => {
+    const name = sel.value ? decodeURIComponent(sel.value) : '';
+    if (!name) { showToast('請先從下拉選單選擇要刪除的範本', 'error'); return; }
+    if (!confirm(`刪除推薦信範本「${name}」？`)) return;
+    const resp = await fetch(`/api/cover-letters/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (resp.ok) { await loadTw104CoverLetters(); showToast(`已刪除範本「${name}」`, 'success'); }
+    else showToast('刪除失敗', 'error');
+  });
+}
+wireTw104CoverLetters();
 
 // ── Profit health check: filename → role classification (mirrors uploads.py) ──
 

@@ -11,17 +11,16 @@ with open(_CFG / "tasks.yaml", encoding="utf-8") as _f:
     _TASKS = yaml.safe_load(_f)
 
 
-class TW104RelevanceCrew:
-    """Judges whether a single 104.com.tw job posting matches the user's
-    task_filter.
+class TW104AreaCrew:
+    """Normalises a free-form area string (e.g. "台北", "taipei", a typo) into
+    the canonical 104 city name(s) it refers to.
 
-    Pure-LLM (no browser tools). This is the "second gate" that runs after the
-    keyword search: the flow calls `.crew().kickoff(...)` once per scanned job
-    and skips jobs the judge marks irrelevant, BEFORE spending an apply attempt.
-    Returns a small JSON verdict ``{"relevant": bool, "reason": str}``.
+    Pure-LLM (no browser tools). Only invoked as a fallback for inputs the
+    static alias table in tw104_area.resolve_area couldn't match, so it runs
+    rarely and cheaply. Returns a JSON object ``{"areas": ["台北市", ...]}``;
+    the caller maps those names back to 104 codes.
 
-    No `@CrewBase` (see CLAUDE.md): build Agent/Task/Crew fresh each call so a
-    reused id(self) can't hand back a stale LLM.
+    No `@CrewBase` (see CLAUDE.md): build Agent/Task/Crew fresh each call.
     """
 
     def __init__(self, llm=None):
@@ -31,11 +30,11 @@ class TW104RelevanceCrew:
 
     def crew(self) -> Crew:
         agent = Agent(
-            config=self._agents["relevance_judge"],
+            config=self._agents["area_resolver"],
             verbose=False,
             llm=self._llm,
         )
-        task = Task(config={**self._tasks["judge_relevance_task"], "agent": agent})
+        task = Task(config={**self._tasks["resolve_area_task"], "agent": agent})
         return Crew(
             agents=[agent],
             tasks=[task],

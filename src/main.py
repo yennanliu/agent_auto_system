@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src import telemetry as _tel
 from src.auth import require_user
 from src.database import get_engine, init_db, reconcile_stale_runs
-from src.routers import admin, auth, jobs, runs, system, uploads
+from src.routers import admin, auth, cover_letters, jobs, runs, system, uploads
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,7 @@ app.include_router(jobs.router, prefix="/api", dependencies=_gated)
 app.include_router(runs.router, prefix="/api", dependencies=_gated)
 app.include_router(system.router, prefix="/api", dependencies=_gated)
 app.include_router(uploads.router, prefix="/api", dependencies=_gated)
+app.include_router(cover_letters.router, prefix="/api", dependencies=_gated)
 
 if Path("ui").exists():
     app.mount("/ui", StaticFiles(directory="ui"), name="ui")

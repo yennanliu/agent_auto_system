@@ -3,11 +3,13 @@ import json
 from crewai.flow.flow import Flow, listen, start
 from pydantic import BaseModel
 
+from src.automation.crews.tw104_area_crew.crew import TW104AreaCrew
 from src.automation.crews.tw104_relevance_crew.crew import TW104RelevanceCrew
 from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.tw104_apply_tool import run_tw104_apply
+from src.automation.tools.tw104_area import CANONICAL_NAMES, resolve_area
 
 
 def _parse_verdict(text: str) -> dict | None:
@@ -33,6 +35,26 @@ def _parse_verdict(text: str) -> dict | None:
                     "true", "yes", "y", "1", "相關", "符合", "是", "對")
             return obj
     return None
+
+
+def _parse_areas(text: str) -> list[str]:
+    """Extract the ``areas`` list from a TW104AreaCrew JSON reply. Tolerates
+    ```json fences / prose; returns [] if none found (caller then leaves the
+    input unresolved)."""
+    if not text:
+        return []
+    candidates = [text]
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        candidates.append(text[start:end + 1])
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("areas"), list):
+            return [str(a) for a in obj["areas"] if a]
+    return []
 
 
 class TW104ApplyState(BaseModel):
@@ -69,26 +91,62 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
     def execute_apply(self, _):
         usage_acc = {"prompt_tokens": 0, "completion_tokens": 0}
 
-        # The LLM is used only for the optional relevance gate, which is why this
-        # automation runs with whichever provider/model the run selected. If no
-        # task_filter is set (or no LLM is available) we apply to every eligible
-        # job — no LLM call is made.
+        # The LLM (whichever provider/model the run selected) powers two optional
+        # steps: enriching a free-form area into 104 codes, and the relevance
+        # gate. It's resolved lazily and shared, so a run with neither need makes
+        # no LLM call at all.
+        llm_box: dict = {}
+
+        def _get_llm():
+            if "llm" not in llm_box:
+                llm = None
+                try:
+                    from src.automation.harness.provider import resolve as resolve_llm
+                    llm, _p, _m = resolve_llm(
+                        self.state.llm_provider or None,
+                        self.state.llm_model or None,
+                        temperature=0.2,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    append_log(self.state.run_id, f"No LLM available ({exc}).")
+                llm_box["llm"] = llm
+            return llm_box["llm"]
+
+        def _acc_usage(result) -> None:
+            u = extract_usage(result)
+            usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
+            usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+
+        # ── Area: name/typo/English → 104 code(s). Static table first; the LLM
+        # only runs for tokens the table misses (rare), so common inputs are free.
+        def _area_llm_fn(unresolved: str) -> str:
+            llm = _get_llm()
+            if llm is None:
+                return ""
+            result = TW104AreaCrew(llm=llm).crew().kickoff(inputs={
+                "raw_input": unresolved,
+                "valid_areas": ", ".join(CANONICAL_NAMES),
+            })
+            _acc_usage(result)
+            text = (result.raw if hasattr(result, "raw") else str(result)) or ""
+            names = _parse_areas(text)
+            return ", ".join(names)
+
+        area_codes, _note = resolve_area(
+            self.state.area, llm_fn=_area_llm_fn,
+            log=lambda m: append_log(self.state.run_id, m),
+        )
+
+        # ── Relevance gate (optional second filter before applying) ──
         task_filter = (self.state.task_filter or "").strip()
         relevance_fn = None
         if task_filter:
-            llm = None
-            try:
-                from src.automation.harness.provider import resolve as resolve_llm
-                llm, _p, _m = resolve_llm(
-                    self.state.llm_provider or None,
-                    self.state.llm_model or None,
-                    temperature=0.2,
-                )
-            except Exception as exc:  # noqa: BLE001
+            llm = _get_llm()
+            if llm is None:
                 append_log(self.state.run_id,
-                           f"task_filter is set but no LLM is available ({exc}); "
+                           "task_filter is set but no LLM is available; "
                            "applying to all eligible jobs.")
-            if llm is not None:
+            else:
                 append_log(self.state.run_id,
                            "Second gate active: filtering jobs by task_filter before applying.")
 
@@ -99,9 +157,7 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
                             "job_title": title,
                             "job_meta": meta,
                         })
-                        u = extract_usage(result)
-                        usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
-                        usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+                        _acc_usage(result)
                         text = (result.raw if hasattr(result, "raw") else str(result)) or ""
                         verdict = _parse_verdict(text)
                         if verdict is None:
@@ -118,7 +174,7 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
         append_log(self.state.run_id, "Loading 104.com.tw session and scanning jobs...")
         result = run_tw104_apply(
             keyword=self.state.keyword,
-            area=self.state.area,
+            area=area_codes,
             order=self.state.order or "1",
             max_applications=self.state.max_applications,
             max_pages=self.state.max_pages,
