@@ -388,7 +388,8 @@ def run_tasker_apply(
 
     if not (state_path and os.path.exists(state_path)):
         return {**base, "error": (
-            f"No saved tasker.com.tw session at '{state_path}'. Run "
+            f"No saved tasker.com.tw session at '{state_path}'. Refresh it from "
+            "Admin → Sessions in the UI (local server only), or run "
             "`uv run python scripts/tasker_login.py` once to log in and save it."
         )}
 
@@ -409,7 +410,8 @@ def run_tasker_apply(
             if not bearer:
                 return {**base, "error": (
                     "Not logged in / could not obtain an API token. The saved "
-                    "session may have expired — re-run "
+                    "session may have expired — refresh it from Admin → Sessions "
+                    "in the UI (local server only), or re-run "
                     "`uv run python scripts/tasker_login.py`."
                 )}
             log("✓ Authenticated with tasker.com.tw API")
