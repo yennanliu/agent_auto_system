@@ -16,6 +16,7 @@
   var STORAGE_KEY = "aas-lang";
   var original = new Map();
   var originalAttrs = new Map();
+  var currentLang = null;
 
   function supported(lang) {
     return lang === "en" || lang === "zh";
@@ -42,8 +43,9 @@
       if (originalAttrs.has(el)) return;
       var map = {};
       el.getAttribute("data-i18n-attr").split(";").forEach(function (pair) {
-        var parts = pair.split(":");
-        var attr = (parts[0] || "").trim();
+        var idx = pair.indexOf(":");
+        if (idx === -1) return;
+        var attr = pair.substring(0, idx).trim();
         if (attr) map[attr] = el.getAttribute(attr);
       });
       originalAttrs.set(el, map);
@@ -52,32 +54,41 @@
 
   function apply(lang) {
     if (!supported(lang)) lang = "en";
+    if (lang === currentLang) return; // already applied — nothing to do
     var zh = window.I18N_ZH || {};
 
-    document.querySelectorAll("[data-i18n]").forEach(function (el) {
-      var key = el.getAttribute("data-i18n");
-      if (lang === "zh" && zh[key] != null) {
-        el.innerHTML = zh[key];
-      } else if (original.has(el)) {
-        el.innerHTML = original.get(el);
-      }
-    });
-
-    document.querySelectorAll("[data-i18n-attr]").forEach(function (el) {
-      var spec = el.getAttribute("data-i18n-attr");
-      var base = originalAttrs.get(el) || {};
-      spec.split(";").forEach(function (pair) {
-        var parts = pair.split(":");
-        var attr = (parts[0] || "").trim();
-        var key = (parts[1] || "").trim();
-        if (!attr || !key) return;
+    // On the very first load in English, the DOM already holds the English
+    // source, so skip the redundant innerHTML/attribute rewrites entirely.
+    if (currentLang !== null || lang !== "en") {
+      document.querySelectorAll("[data-i18n]").forEach(function (el) {
+        var key = el.getAttribute("data-i18n");
         if (lang === "zh" && zh[key] != null) {
-          el.setAttribute(attr, zh[key]);
-        } else if (base[attr] != null) {
-          el.setAttribute(attr, base[attr]);
+          el.innerHTML = zh[key];
+        } else if (original.has(el)) {
+          el.innerHTML = original.get(el);
         }
       });
-    });
+
+      document.querySelectorAll("[data-i18n-attr]").forEach(function (el) {
+        var spec = el.getAttribute("data-i18n-attr");
+        var base = originalAttrs.get(el) || {};
+        spec.split(";").forEach(function (pair) {
+          var idx = pair.indexOf(":");
+          if (idx === -1) return;
+          var attr = pair.substring(0, idx).trim();
+          var key = pair.substring(idx + 1).trim();
+          if (!attr || !key) return;
+          if (lang === "zh" && zh[key] != null) {
+            el.setAttribute(attr, zh[key]);
+          } else if (base[attr] != null) {
+            el.setAttribute(attr, base[attr]);
+          } else {
+            // Attribute did not exist in the original — drop it on revert.
+            el.removeAttribute(attr);
+          }
+        });
+      });
+    }
 
     document.documentElement.lang = lang === "zh" ? "zh-Hant" : "en";
 
@@ -88,6 +99,7 @@
     });
 
     saveLang(lang);
+    currentLang = lang;
   }
 
   function init() {
