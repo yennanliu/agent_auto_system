@@ -118,15 +118,27 @@ def list_schedules(session: Session = Depends(get_session)):
         return []
 
     job_ids = [j.id for j in jobs]
-    # Most recent run per job (single pass, newest first).
-    runs = session.exec(
-        select(Run).where(Run.job_id.in_(job_ids)).order_by(Run.started_at.desc())
-    ).all()
-    last_run: dict[int, Run] = {}
-    run_counts: dict[int, int] = {}
-    for r in runs:
-        run_counts[r.job_id] = run_counts.get(r.job_id, 0) + 1
-        last_run.setdefault(r.job_id, r)
+    # Run counts per job — DB-side aggregation (no full-table load into memory).
+    run_counts = {
+        job_id: cnt
+        for job_id, cnt in session.exec(
+            select(Run.job_id, func.count(Run.id))
+            .where(Run.job_id.in_(job_ids))
+            .group_by(Run.job_id)
+        ).all()
+    }
+    # Latest run per job: fetch only the max-id row per job (id is monotonic, so
+    # max id == most recent), then hydrate just those rows.
+    subq = (
+        select(func.max(Run.id))
+        .where(Run.job_id.in_(job_ids))
+        .group_by(Run.job_id)
+        .subquery()
+    )
+    last_run = {
+        r.job_id: r
+        for r in session.exec(select(Run).where(Run.id.in_(select(subq)))).all()
+    }
 
     now = datetime.now(UTC)
     out = []
@@ -229,7 +241,7 @@ def automation_overview(
         runs = list(session.exec(
             select(Run)
             .where(Run.job_id.in_(list(job_names)))
-            .order_by(Run.started_at.desc())
+            .order_by(Run.id.desc())  # monotonic recency; NULL-safe across SQLite/Postgres
             .limit(limit)
         ).all())
 
@@ -274,7 +286,7 @@ def job_overview(
     limit = max(1, min(limit, 100))
 
     runs = list(session.exec(
-        select(Run).where(Run.job_id == job_id).order_by(Run.started_at.desc()).limit(limit)
+        select(Run).where(Run.job_id == job_id).order_by(Run.id.desc()).limit(limit)
     ).all())
 
     grid = _build_grid(job.job_type, runs, {job.id: job.name})

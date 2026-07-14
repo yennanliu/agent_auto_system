@@ -21,7 +21,7 @@ _MACROS = {
 }
 
 
-def normalize_cron(expr: str) -> str:
+def normalize_cron(expr: str | None) -> str:
     """Trim, collapse whitespace, and expand @macros to a 5-field expression."""
     if expr is None:
         return ""

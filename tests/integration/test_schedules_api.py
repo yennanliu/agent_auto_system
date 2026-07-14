@@ -80,9 +80,11 @@ async def test_list_schedules_empty(client):
 
 async def test_list_schedules_returns_next_run_and_last_run(client, db_session):
     job = (await client.post("/api/jobs", json={**FORM_PAYLOAD, "schedule": "0 8 * * *"})).json()
-    # Attach a finished run so last_run / run_count are populated.
+    # Two runs → run_count aggregates both; last_run is the latest (highest id).
     db_session.add(Run(job_id=job["id"], status="success",
                        started_at=datetime(2026, 1, 1, tzinfo=UTC)))
+    db_session.add(Run(job_id=job["id"], status="failed",
+                       started_at=datetime(2026, 1, 2, tzinfo=UTC)))
     db_session.commit()
 
     rows = (await client.get("/api/schedules")).json()
@@ -92,8 +94,8 @@ async def test_list_schedules_returns_next_run_and_last_run(client, db_session):
     assert row["schedule"] == "0 8 * * *"
     assert row["valid"] is True
     assert row["next_run_at"] is not None
-    assert row["run_count"] == 1
-    assert row["last_run"]["status"] == "success"
+    assert row["run_count"] == 2
+    assert row["last_run"]["status"] == "failed"  # most recent (max id)
 
 
 # ── GET /jobs/{id}/overview ───────────────────────────────────────────────────
