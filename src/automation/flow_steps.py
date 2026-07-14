@@ -103,6 +103,54 @@ def infer_step_states(job_type: str, logs: list[dict], final_status: str) -> lis
     return out
 
 
+def run_step_logs(job_type: str, logs: list[dict], final_status: str) -> list[dict]:
+    """Per-step view of a run: ``{name, status, logs}`` for each step, where ``logs``
+    are the progress entries emitted while that step was active.
+
+    An entry is attributed to the latest step whose trigger has appeared at or
+    before it (entries before the first trigger fall under step 0). For pipeline
+    runs, the ``[Step n/total]`` markers delimit steps.
+    """
+    logs = logs or []
+    if job_type == "pipeline":
+        states = pipeline_step_states(logs, final_status)
+        buckets = _bucket_pipeline_logs(logs, len(states))
+        return [{**states[i], "logs": buckets[i]} for i in range(len(states))]
+
+    steps = FLOW_STEPS.get(job_type)
+    if not steps:
+        return []
+    states = infer_step_states(job_type, logs, final_status)
+    buckets: list[list[dict]] = [[] for _ in steps]
+    current = 0
+    for e in logs:
+        msg = str(e.get("msg", ""))
+        best = current
+        for i, (_, trigger) in enumerate(steps):
+            if i > best and trigger in msg:
+                best = i
+        current = best
+        buckets[current].append(e)
+    return [{**states[i], "logs": buckets[i]} for i in range(len(steps))]
+
+
+def _bucket_pipeline_logs(logs: list[dict], n_steps: int) -> list[list[dict]]:
+    import re
+
+    step_re = re.compile(r"\[Step (\d+)/(\d+)\]")
+    n = max(n_steps, 1)
+    buckets: list[list[dict]] = [[] for _ in range(n)]
+    current = 0
+    for e in logs:
+        m = step_re.search(str(e.get("msg", "")))
+        if m:
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < n:
+                current = idx
+        buckets[current].append(e)
+    return buckets
+
+
 def pipeline_step_states(logs: list[dict], final_status: str) -> list[dict]:
     """Derive per-step states for a ``pipeline`` run from its bracketed log lines
     (``[Step n/total] Starting <type>...`` / ``[Step n/total] Completed ...``)."""

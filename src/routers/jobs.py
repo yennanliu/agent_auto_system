@@ -11,6 +11,7 @@ from src.automation.cron_utils import is_valid_cron, next_fire, normalize_cron
 from src.automation.flow_steps import (
     infer_step_states,
     pipeline_step_states,
+    run_step_logs,
     step_labels,
 )
 from src.database import get_session
@@ -234,6 +235,30 @@ def automation_overview(
 
     grid = _build_grid(job_type, runs, job_names)
     return {"job_type": job_type, **grid}
+
+
+@router.get("/runs/{run_id}/steps")
+def run_steps(
+    run_id: int,
+    session: Session = Depends(get_session),
+):
+    """Per-step breakdown of a single run: each step's name, status, and the log
+    entries emitted during it. Powers the Task Overview drill-down (click a cell)."""
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = session.get(Job, run.job_id)
+    job_type = job.job_type if job else "unknown"
+    try:
+        logs = json.loads(run.log) if run.log else []
+    except (json.JSONDecodeError, TypeError):
+        logs = []
+    return {
+        "run_id": run_id,
+        "job_type": job_type,
+        "status": run.status,
+        "steps": run_step_logs(job_type, logs, run.status),
+    }
 
 
 @router.get("/jobs/{job_id}/overview")

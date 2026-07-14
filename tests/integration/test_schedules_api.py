@@ -172,6 +172,37 @@ async def test_automation_overview_unknown_type_empty(client):
     assert data["task_names"][0] == "Start"  # step scaffold still returned
 
 
+# ── GET /runs/{id}/steps (per-step log drill-down) ────────────────────────────
+
+async def test_run_steps_returns_per_step_logs(client, db_session):
+    job = (await client.post("/api/jobs", json=FORM_PAYLOAD)).json()
+    log = json.dumps([
+        {"ts": "00:00:01", "msg": "Starting google_form_fill..."},
+        {"ts": "00:00:02", "msg": "Payload validated"},
+        {"ts": "00:00:03", "msg": "Inspecting Google Form"},
+        {"ts": "00:00:04", "msg": "found 5 fields"},
+    ])
+    run = Run(job_id=job["id"], status="running", log=log,
+              started_at=datetime(2026, 1, 1, tzinfo=UTC))
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    data = (await client.get(f"/api/runs/{run.id}/steps")).json()
+    assert data["job_type"] == "google_form_fill"
+    steps = {s["name"]: s for s in data["steps"]}
+    assert [e["msg"] for e in steps["Validate"]["logs"]] == ["Payload validated"]
+    inspect_msgs = [e["msg"] for e in steps["Inspect Form"]["logs"]]
+    assert "Inspecting Google Form" in inspect_msgs
+    assert "found 5 fields" in inspect_msgs        # follow-on line stays in the step
+    assert steps["Submit"]["logs"] == []           # not reached
+
+
+async def test_run_steps_missing_run_404(client):
+    resp = await client.get("/api/runs/9999/steps")
+    assert resp.status_code == 404
+
+
 async def test_overview_orders_runs_oldest_to_newest(client, db_session):
     job = (await client.post("/api/jobs", json=FORM_PAYLOAD)).json()
     db_session.add(Run(job_id=job["id"], status="success",

@@ -399,6 +399,7 @@ function updateModelOptions() {
 
 let ovTypes = [];
 let ovSelectedType = null;
+let ovCurrentRuns = [];   // runs of the currently displayed automation (for drill-down)
 
 async function loadOverviewPage() {
   const list = document.getElementById('ov-joblist');
@@ -454,6 +455,7 @@ const OV_ICON = { done: '✓', success: '✓', running: '', failed: '✕', pendi
 
 function renderOverviewGrid(data) {
   const { job_type, task_names, runs } = data;
+  ovCurrentRuns = runs || [];
   const name = AUTO_CATALOG[job_type]?.name || job_type;
   if (!runs || !runs.length) {
     return `<div class="ov-grid-head"><h2>${escHtml(name)}</h2></div>
@@ -468,14 +470,15 @@ function renderOverviewGrid(data) {
   }).join('');
 
   const tip = r => `${escHtml(r.job_name)} · run #${r.run_id} · ${r.status} · ${new Date(r.started_at).toLocaleString()}`;
+  // Header run-cell → click shows the full run log (step -1).
   const runHead = runs.map(r =>
-    `<div class="ov-cell ov-fill-${r.status}" title="${tip(r)}">${OV_ICON[r.status] || ''}</div>`
+    `<div class="ov-cell ov-clickable ov-fill-${r.status}" data-run-id="${r.run_id}" data-step="-1" title="${tip(r)} · click for full log">${OV_ICON[r.status] || ''}</div>`
   ).join('');
 
   const rows = task_names.map((tname, ri) => {
     const cells = runs.map(r => {
       const status = r.steps[ri] ? r.steps[ri].status : 'pending';
-      return `<div class="ov-cell ov-fill-${status}" title="${escHtml(tname)} · ${escHtml(r.job_name)} · run #${r.run_id} · ${status}">${OV_ICON[status] || ''}</div>`;
+      return `<div class="ov-cell ov-clickable ov-fill-${status}" data-run-id="${r.run_id}" data-step="${ri}" title="${escHtml(tname)} · ${escHtml(r.job_name)} · run #${r.run_id} · ${status} · click for log">${OV_ICON[status] || ''}</div>`;
     }).join('');
     return `<div class="ov-row"><div class="ov-row-label" title="${escHtml(tname)}">${escHtml(tname)}</div><div class="ov-cells">${cells}</div></div>`;
   }).join('');
@@ -502,13 +505,66 @@ function renderOverviewGrid(data) {
       <span><i class="ov-cell ov-fill-failed"></i> failed</span>
       <span><i class="ov-cell ov-fill-running"></i> running</span>
       <span><i class="ov-cell ov-fill-pending"></i> pending</span>
-    </div>`;
+      <span class="ov-legend-hint">— click any cell to see that step's log</span>
+    </div>
+    <div id="ov-step-log" class="ov-step-log hidden"></div>`;
 }
 
 document.getElementById('ov-joblist').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-job-type]');
   if (btn) selectOverviewType(btn.dataset.jobType);
 });
+
+// Drill-down: click a grid cell → show that step's log below the grid.
+document.getElementById('ov-grid-wrap').addEventListener('click', (e) => {
+  const cell = e.target.closest('.ov-cell[data-run-id]');
+  if (!cell) return;
+  document.querySelectorAll('#ov-grid-wrap .ov-cell.selected').forEach(c => c.classList.remove('selected'));
+  cell.classList.add('selected');
+  showStepLog(parseInt(cell.dataset.runId, 10), parseInt(cell.dataset.step, 10));
+});
+
+async function showStepLog(runId, stepIdx) {
+  const panel = document.getElementById('ov-step-log');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  panel.innerHTML = '<div class="loading-state">Loading…</div>';
+  const run = ovCurrentRuns.find(r => r.run_id === runId);
+  const label = run ? `${escHtml(run.job_name)} · run #${runId}` : `run #${runId}`;
+  try {
+    const resp = await fetch(`/api/runs/${runId}/steps`);
+    if (!resp.ok) throw new Error('Failed to load step log');
+    const data = await resp.json();
+    let title, logs, status;
+    if (stepIdx < 0) {
+      title = 'Full run log';
+      status = data.status;
+      logs = (data.steps || []).flatMap(s => s.logs || []);
+    } else {
+      const st = (data.steps || [])[stepIdx];
+      title = st ? st.name : `step ${stepIdx + 1}`;
+      status = st ? st.status : 'pending';
+      logs = st ? (st.logs || []) : [];
+    }
+    const body = logs.length
+      ? `<ul class="ov-step-log-list">${logs.map(l =>
+          `<li><span class="ov-log-ts">${escHtml(l.ts || '')}</span> ${escHtml(l.msg || '')}</li>`).join('')}</ul>`
+      : '<div class="empty-state" style="padding:1rem">No log entries for this step.</div>';
+    panel.innerHTML = `
+      <div class="ov-step-log-head">
+        <span class="ov-cell ov-fill-${status}" style="cursor:default">${OV_ICON[status] || ''}</span>
+        <strong>${escHtml(title)}</strong>
+        <span class="muted">${label}</span>
+        <button class="btn btn-ghost btn-sm" id="ov-step-log-close" style="margin-left:auto">✕ Close</button>
+      </div>${body}`;
+    document.getElementById('ov-step-log-close').addEventListener('click', () => {
+      panel.classList.add('hidden');
+      document.querySelectorAll('#ov-grid-wrap .ov-cell.selected').forEach(c => c.classList.remove('selected'));
+    });
+  } catch (err) {
+    panel.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
+  }
+}
 
 // ══════════════════════════════════════ SCHEDULES ════════════════════════════════
 

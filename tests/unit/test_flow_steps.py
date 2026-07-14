@@ -1,6 +1,7 @@
 from src.automation.flow_steps import (
     infer_step_states,
     pipeline_step_states,
+    run_step_logs,
     step_labels,
 )
 
@@ -82,3 +83,46 @@ def test_pipeline_states_last_step_failed():
 
 def test_pipeline_states_empty_logs():
     assert pipeline_step_states([], "pending") == [{"name": "step 1", "status": "pending"}]
+
+
+# ── run_step_logs (per-step drill-down) ───────────────────────────────────────
+
+def test_run_step_logs_attributes_entries_to_steps():
+    logs = _logs(
+        "Starting web_scraper...",       # Start
+        "Payload validated",             # Validate
+        "scraper agent reading page",    # Scrape
+        "fetched 8000 chars",            # still Scrape
+        "generated summary",             # Analyze
+    )
+    steps = run_step_logs("web_scraper", logs, "running")
+    by_name = {s["name"]: s for s in steps}
+    scrape_msgs = [e["msg"] for e in by_name["Scrape"]["logs"]]
+    assert "scraper agent reading page" in scrape_msgs
+    assert "fetched 8000 chars" in scrape_msgs        # follow-on line stays in Scrape
+    assert [e["msg"] for e in by_name["Analyze"]["logs"]] == ["generated summary"]
+    assert by_name["Done"]["logs"] == []              # never reached → no logs
+
+
+def test_run_step_logs_entries_before_first_trigger_go_to_step0():
+    logs = _logs("some preamble", "Starting web_scraper...")
+    steps = run_step_logs("web_scraper", logs, "running")
+    assert steps[0]["name"] == "Start"
+    assert [e["msg"] for e in steps[0]["logs"]] == ["some preamble", "Starting web_scraper..."]
+
+
+def test_run_step_logs_pipeline_buckets_by_marker():
+    logs = _logs(
+        "[Step 1/2] Starting web_scraper...",
+        "scraping...",
+        "[Step 1/2] Completed web_scraper",
+        "[Step 2/2] Starting email_sender...",
+        "sending...",
+    )
+    steps = run_step_logs("pipeline", logs, "running")
+    assert [e["msg"] for e in steps[0]["logs"]][0] == "[Step 1/2] Starting web_scraper..."
+    assert "sending..." in [e["msg"] for e in steps[1]["logs"]]
+
+
+def test_run_step_logs_unknown_type_empty():
+    assert run_step_logs("nope", _logs("Starting"), "success") == []
