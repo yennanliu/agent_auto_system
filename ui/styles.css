@@ -878,6 +878,10 @@ html.theme-dark .hl-yv { color: #98c379; }
 .login-card .btn-primary { margin-top: 1rem; width: 100%; justify-content: center; }
 .login-error { color: var(--red); font-size: 0.82rem; margin-top: 0.5rem; background: var(--red-soft); border: 1px solid var(--red); border-radius: 6px; padding: 0.5rem 0.6rem; }
 .login-divider { display: flex; align-items: center; text-align: center; color: var(--text-muted); font-size: 0.75rem; margin: 1rem 0 0.25rem; }
+/* The `hidden` attribute must win over the display rules above (an explicit
+   `display` otherwise overrides [hidden]), so the divider/buttons stay gone
+   until SSO providers are actually configured. */
+.login-divider[hidden], .login-sso[hidden] { display: none; }
 .login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .login-divider span { padding: 0 0.6rem; }
 .login-sso { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
