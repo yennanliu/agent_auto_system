@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="meta.title">For everyone — Agent Auto System</title>
+<meta name="description" content="A plain-language guide to Agent Auto System: what it is, what it can do for you, and how to get started — no technical background needed." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='none' stroke='%232f6bff' stroke-width='8'/><circle cx='50' cy='50' r='14' fill='%2334c98a'/></svg>" />
+<style>
+  :root {
+    --bg: #ffffff; --bg-alt: #f5f6f8; --surface: #ffffff;
+    --ink: #0a0a0a; --text: #1a1c1f; --text-muted: #5b6167; --text-dim: #8a9098;
+    --border: #e6e8ec; --on-film: #ffffff;
+    --accent: #2f6bff; --accent-hover: #1c53e0; --accent-deep: #163fb0;
+    --moss: #34c98a; --moss-soft: #e6f7ef;
+    --status-wait: #f0a020;
+    --shell: 1080px; --gutter: 24px; --radius: 16px;
+    --shadow-rest: 0 2px 12px rgba(10,10,10,0.06);
+    --shadow-hover: 0 8px 24px rgba(10,10,10,0.10);
+    --ease: cubic-bezier(.22,.61,.36,1);
+    --font: "Inter", "Neue Haas Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", ui-monospace, "Menlo", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.65; font-size: 16px; overflow-x: hidden; }
+  a { color: var(--accent); text-decoration: none; transition: color .25s var(--ease); }
+  a:hover { color: var(--accent-hover); }
+  .shell { max-width: var(--shell); margin: 0 auto; padding: 0 var(--gutter); }
+
+  .btn { display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 15px; font-weight: 500;
+    padding: 12px 24px; border-radius: 999px; border: 1px solid transparent; cursor: pointer; transition: all .25s var(--ease); white-space: nowrap; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); color: #fff; transform: translateY(-1px); }
+  .btn-secondary { background: transparent; color: var(--ink); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--text-dim); color: var(--ink); }
+  .btn-on-film { background: #fff; color: var(--ink); }
+  .btn-on-film:hover { background: #fff; color: var(--accent); transform: translateY(-1px); }
+
+  .lang-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+  .lang-toggle button { font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1; color: var(--text-dim); background: transparent; border: none; cursor: pointer; padding: 7px 13px; border-radius: 999px; transition: all .2s var(--ease); }
+  .lang-toggle button:hover { color: var(--ink); }
+  .lang-toggle button.active { background: var(--ink); color: #fff; }
+
+  .promo { background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 10px 24px; font-size: 14px; flex-wrap: wrap; }
+  .promo .pill { background: var(--accent); color: #fff; padding: 5px 14px; border-radius: 999px; font-weight: 500; font-size: 13px; }
+  .promo a.pill:hover { background: var(--accent-hover); color: #fff; }
+
+  nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; padding: 16px var(--gutter);
+    background: rgba(255,255,255,0.92); backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--border); }
+  .wordmark { font-weight: 500; letter-spacing: 0.22em; font-size: 15px; text-transform: uppercase; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+  .wordmark .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--moss); box-shadow: 0 0 0 4px var(--moss-soft); }
+  .nav-links { display: flex; align-items: center; gap: 24px; }
+  .nav-links a.link { color: var(--text-muted); font-size: 14px; font-weight: 500; }
+  .nav-links a.link:hover { color: var(--ink); }
+  @media (max-width: 760px) { .nav-links .link { display: none; } }
+
+  .hero { background: var(--ink); color: #fff; padding: 88px 0 80px; position: relative; overflow: hidden; }
+  .hero .glow { position: absolute; width: 480px; height: 480px; border-radius: 50%; filter: blur(30px); opacity: .5; pointer-events: none; }
+  .hero .glow.b { background: radial-gradient(circle, rgba(47,107,255,0.30), transparent 70%); top: -160px; right: -100px; }
+  .hero .glow.m { background: radial-gradient(circle, rgba(52,201,138,0.24), transparent 70%); bottom: -200px; left: -120px; }
+  .hero .shell { position: relative; z-index: 1; }
+  .hero .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 500;
+    padding: 6px 14px; border: 1px solid rgba(255,255,255,0.25); border-radius: 999px; background: rgba(0,0,0,0.25); margin-bottom: 26px; }
+  .hero .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--moss); }
+  .hero h1 { font-weight: 300; letter-spacing: -0.02em; line-height: 1.08; font-size: clamp(32px, 6vw, 60px); max-width: 20ch; margin-bottom: 22px; }
+  .hero h1 b { font-weight: 500; }
+  .hero p.sub { color: rgba(255,255,255,0.82); font-size: clamp(16px, 2vw, 20px); max-width: 56ch; margin-bottom: 32px; line-height: 1.55; }
+  .hero-cta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  section { padding: 76px 0; }
+  section.alt { background: var(--bg-alt); }
+  .sec-head { max-width: 60ch; margin-bottom: 44px; }
+  .sec-head.center { margin-left: auto; margin-right: auto; text-align: center; }
+  .kicker { color: var(--accent); font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 12px; display: block; }
+  h2 { font-weight: 400; letter-spacing: -0.02em; font-size: clamp(26px, 4vw, 40px); line-height: 1.14; color: var(--ink); margin-bottom: 14px; }
+  h2 b { font-weight: 500; }
+  .lede { color: var(--text-muted); font-size: 18px; line-height: 1.65; }
+
+  .prose p { color: var(--text-muted); font-size: 17px; max-width: 68ch; margin: 0 auto 18px; }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose.center { text-align: center; }
+  .prose b { color: var(--text); font-weight: 600; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; box-shadow: var(--shadow-rest);
+    transition: transform .3s var(--ease), box-shadow .3s var(--ease); }
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+  .card .emoji { font-size: 28px; line-height: 1; margin-bottom: 14px; display: block; }
+  .card h3 { font-size: 18px; font-weight: 600; color: var(--ink); margin-bottom: 8px; letter-spacing: -0.01em; }
+  .card p { color: var(--text-muted); font-size: 15px; }
+
+  .steps { display: grid; gap: 16px; max-width: 760px; margin: 0 auto; }
+  .stepline { display: grid; grid-template-columns: 44px 1fr; gap: 20px; align-items: start; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; box-shadow: var(--shadow-rest); }
+  .stepline .n { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff;
+    font-family: var(--mono); font-size: 16px; font-weight: 600; }
+  .stepline:nth-child(2n) .n { background: var(--moss); }
+  .stepline h4 { font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 5px; }
+  .stepline p { color: var(--text-muted); font-size: 15px; }
+
+  .trust { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 860px) { .trust { grid-template-columns: 1fr; } }
+  .tcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; }
+  .tcard .chk { width: 34px; height: 34px; border-radius: 9px; background: var(--moss-soft); color: #1a7f56; display: grid; place-items: center; font-size: 18px; margin-bottom: 14px; }
+  .tcard h3 { font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 7px; }
+  .tcard p { color: var(--text-muted); font-size: 15px; }
+
+  .faq { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
+  .faq details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px 20px; }
+  .faq summary { cursor: pointer; font-weight: 600; color: var(--ink); font-size: 16px; padding: 16px 0; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; color: var(--accent); font-weight: 500; font-size: 22px; line-height: 1; }
+  .faq details[open] summary::after { content: "–"; }
+  .faq details p { color: var(--text-muted); font-size: 15px; padding: 0 0 18px; }
+
+  .cta-band { background: var(--ink); color: #fff; border-radius: 24px; padding: 56px 40px; text-align: center; position: relative; overflow: hidden; }
+  .cta-band h2 { color: #fff; }
+  .cta-band p { color: rgba(255,255,255,0.72); font-size: 18px; max-width: 52ch; margin: 0 auto 30px; }
+  .cta-band .glow { position: absolute; width: 440px; height: 440px; border-radius: 50%; background: radial-gradient(circle, rgba(47,107,255,0.4), transparent 70%); top: -150px; right: -110px; filter: blur(20px); }
+  .cta-band .glow.moss { background: radial-gradient(circle, rgba(52,201,138,0.32), transparent 70%); left: -130px; top: auto; bottom: -170px; right: auto; }
+  .cta-band > * { position: relative; z-index: 1; }
+  .cta-band .hero-cta { justify-content: center; }
+
+  footer { background: var(--ink); color: rgba(255,255,255,0.6); padding: 48px 0 36px; }
+  footer .wordmark { color: #fff; margin-bottom: 12px; }
+  footer a { color: rgba(255,255,255,0.7); font-size: 14px; }
+  footer a:hover { color: #fff; }
+  footer p { font-size: 14px; line-height: 1.6; max-width: 420px; }
+  footer .base { border-top: 1px solid rgba(255,255,255,0.12); padding-top: 22px; margin-top: 28px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 13px; color: rgba(255,255,255,0.5); }
+  .mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<!-- Promo -->
+<div class="promo">
+  <span data-i18n="promo.text">A friendly, no-jargon guide for everyone</span>
+  <a class="pill" href="index.html" data-i18n="promo.cta">Back to the main page ↗</a>
+</div>
+
+<!-- Nav -->
+<nav>
+  <a class="wordmark" href="index.html"><span class="dot"></span>Agent&nbsp;Auto&nbsp;System</a>
+  <div class="nav-links">
+    <a class="link" href="index.html#jobs" data-i18n="nav.jobs">What it does</a>
+    <a class="link" href="index.html#guide" data-i18n="nav.guide">Guide</a>
+    <a class="link" href="index.html" data-i18n="nav.tech">For developers</a>
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button type="button" data-lang-btn="en">EN</button>
+      <button type="button" data-lang-btn="zh">中</button>
+    </div>
+    <a class="btn btn-primary" href="#start" data-i18n="nav.cta">Get started</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="glow b"></div><div class="glow m"></div>
+  <div class="shell">
+    <span class="eyebrow"><span class="dot"></span><span data-i18n="hero.eyebrow">For everyone · no tech background needed</span></span>
+    <h1 data-i18n="hero.h1">A helper that does your <b>repetitive online tasks</b> for you.</h1>
+    <p class="sub" data-i18n="hero.sub">Think of Agent Auto System as a tireless assistant. You tell it what you need — "collect these leads", "summarize today's tech news", "fill in this form" — and it does the work in the background, then checks its own answer before handing it back. This page explains it in plain words.</p>
+    <div class="hero-cta">
+      <a class="btn btn-on-film" href="#what-it-does" data-i18n="hero.cta1">See what it can do</a>
+      <a class="btn btn-secondary" href="#start" style="color:#fff;border-color:rgba(255,255,255,0.3)" data-i18n="hero.cta2">How do I start?</a>
+    </div>
+  </div>
+</header>
+
+<!-- What is this -->
+<section id="what-is-it">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="what.kicker">In one sentence</span>
+      <h2 data-i18n="what.h2">What is Agent Auto System?</h2>
+    </div>
+    <div class="prose center">
+      <p data-i18n="what.p1">It's a tool that hands boring, repetitive computer work over to <b>AI assistants</b> — the kind of tasks you'd normally do by clicking around a browser, copying things into a spreadsheet, or sending the same email over and over.</p>
+      <p data-i18n="what.p2">You pick a task from a menu, fill in a short form, and press <b>Run</b>. The AI does the work while you get on with something else. When it's done, you see a clear result — and a <b>quality score</b> so you know how much to trust it.</p>
+      <p data-i18n="what.p3">There's nothing to learn and no code to write. If you can fill in an online form, you can use it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- What it can do -->
+<section id="what-it-does" class="alt">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="do.kicker">Things it can do for you</span>
+      <h2 data-i18n="do.h2">Everyday jobs, <b>handled automatically</b></h2>
+      <p class="lede" data-i18n="do.lede">A few of the ready-made tasks. Each one runs on its own — you just say go.</p>
+    </div>
+    <div class="grid">
+      <div class="card"><span class="emoji">📰</span><h3 data-i18n="do.c1.h">Summarize the news</h3><p data-i18n="do.c1.p">Get a tidy, themed summary of today's top tech stories — the highlights, without the scrolling.</p></div>
+      <div class="card"><span class="emoji">🔎</span><h3 data-i18n="do.c2.h">Find business leads</h3><p data-i18n="do.c2.p">Search the web for potential customers, then automatically verify, de-duplicate, and shortlist the good ones.</p></div>
+      <div class="card"><span class="emoji">📝</span><h3 data-i18n="do.c3.h">Fill in online forms</h3><p data-i18n="do.c3.p">Point it at a Google Form and it reads the questions and submits sensible answers for you.</p></div>
+      <div class="card"><span class="emoji">📄</span><h3 data-i18n="do.c4.h">Turn pages into summaries</h3><p data-i18n="do.c4.p">Give it a web page and get back the title, key points, and links — no more reading the whole thing.</p></div>
+      <div class="card"><span class="emoji">📊</span><h3 data-i18n="do.c5.h">Check your numbers</h3><p data-i18n="do.c5.p">Upload a spreadsheet and get a "profit health check" — the figures validated, corrected, and explained in a PDF.</p></div>
+      <div class="card"><span class="emoji">✉️</span><h3 data-i18n="do.c6.h">Send emails</h3><p data-i18n="do.c6.p">Send messages through your own Gmail — handy as the last step of a larger task.</p></div>
+    </div>
+    <p class="prose center" style="margin-top:34px"><span data-i18n="do.more">…and more, including collecting shop sellers and social-media posts. You can even chain several tasks together so one feeds the next.</span></p>
+  </div>
+</section>
+
+<!-- How it works -->
+<section id="how">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="how.kicker">How it works</span>
+      <h2 data-i18n="how.h2">Three simple steps</h2>
+    </div>
+    <div class="steps">
+      <div class="stepline"><div class="n">1</div><div><h4 data-i18n="how.s1.h">Choose a task and fill a short form</h4><p data-i18n="how.s1.p">Pick from the menu of ready-made tasks and answer a couple of questions — like "how many news stories?" or "which website?".</p></div></div>
+      <div class="stepline"><div class="n">2</div><div><h4 data-i18n="how.s2.h">Press Run and watch it work</h4><p data-i18n="how.s2.p">The task runs in the background. You can watch each step happen live, or come back later — it keeps going without you.</p></div></div>
+      <div class="stepline"><div class="n">3</div><div><h4 data-i18n="how.s3.h">Get a checked, scored result</h4><p data-i18n="how.s3.p">You get a clear answer, plus a quality score from a second AI that grades the work — so you know how much to trust it.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Why trust it -->
+<section id="trust" class="alt">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="trust.kicker">Why you can trust it</span>
+      <h2 data-i18n="trust.h2">It <b>double-checks itself</b></h2>
+      <p class="lede" data-i18n="trust.lede">AI can make mistakes. So the system is built to catch them before you ever see the result.</p>
+    </div>
+    <div class="trust">
+      <div class="tcard"><div class="chk">✓</div><h3 data-i18n="trust.c1.h">It checks its own work</h3><p data-i18n="trust.c1.p">Every result is inspected against a set of rules. If something looks wrong, the task is re-run automatically.</p></div>
+      <div class="tcard"><div class="chk">★</div><h3 data-i18n="trust.c2.h">A second opinion scores it</h3><p data-i18n="trust.c2.p">A different AI grades each result from 0 to 100 — never the one that produced it — so the score stays honest.</p></div>
+      <div class="tcard"><div class="chk">↺</div><h3 data-i18n="trust.c3.h">It recovers on its own</h3><p data-i18n="trust.c3.p">If one AI service is briefly unavailable, it quietly switches to another and keeps going. No lost work.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- Getting started -->
+<section id="start">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="start.kicker">Getting started</span>
+      <h2 data-i18n="start.h2">How do I try it?</h2>
+    </div>
+    <div class="prose center">
+      <p data-i18n="start.p1">Agent Auto System is a free, open-source app. Someone technical on your team can set it up in a few minutes — the step-by-step <a href="index.html#guide">Guide</a> on the main page walks through it with screenshots.</p>
+      <p data-i18n="start.p2">Once it's running, it opens in your web browser like any website. You sign in, pick a task, and go. There's nothing to install on your own computer.</p>
+      <p data-i18n="start.p3">The only thing it needs is one <b>AI key</b> (from OpenAI, Anthropic, or Google) — a bit like a password that lets the app talk to the AI. Your team's setup person adds it once.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" class="alt">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="faq.kicker">Good to know</span>
+      <h2 data-i18n="faq.h2">Common questions</h2>
+    </div>
+    <div class="faq">
+      <details><summary data-i18n="faq.q1">Do I need to know how to code?</summary><p data-i18n="faq.a1">No. Using the app is all point-and-click. Someone technical sets it up once; after that, anyone can run tasks from the browser.</p></details>
+      <details><summary data-i18n="faq.q2">Is it safe to give it my keys and data?</summary><p data-i18n="faq.a2">The app requires a login, and any saved keys are stored encrypted. It runs on your own team's server, so your data stays with you.</p></details>
+      <details><summary data-i18n="faq.q3">What if the AI gets something wrong?</summary><p data-i18n="faq.a3">The system checks each result and re-runs the task if it fails. A separate AI also scores the quality, so a low score is your signal to double-check.</p></details>
+      <details><summary data-i18n="faq.q4">How much does it cost?</summary><p data-i18n="faq.a4">The app itself is free and open-source. You only pay the AI provider for what you use, and every run shows its estimated cost so there are no surprises.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section>
+  <div class="shell">
+    <div class="cta-band">
+      <div class="glow"></div><div class="glow moss"></div>
+      <span class="kicker" style="color:var(--moss)" data-i18n="cta.kicker">Ready?</span>
+      <h2 data-i18n="cta.h2">Let AI take the busywork</h2>
+      <p data-i18n="cta.p">Share this with whoever sets up your tools, and follow the step-by-step guide to be up and running in minutes.</p>
+      <div class="hero-cta">
+        <a class="btn btn-on-film" href="index.html#guide" data-i18n="cta.b1">Open the setup guide</a>
+        <a class="btn btn-secondary" href="index.html#jobs" style="color:#fff;border-color:rgba(255,255,255,0.3)" data-i18n="cta.b2">Browse all tasks</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="shell">
+    <div class="wordmark"><span class="dot"></span>Agent&nbsp;Auto&nbsp;System</div>
+    <p data-i18n="footer.tagline">AI automation you can trust — friendly enough for everyone, powerful enough for engineers.</p>
+    <div class="base">
+      <span data-i18n="footer.built">Built by the YennJ12 Engineering Team.</span>
+      <span class="mono">MIT · agent_auto_system</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+window.I18N_ZH = {
+  "meta.title": "一般使用者專頁 — Agent Auto System",
+
+  "promo.text": "給每個人的白話說明，沒有術語",
+  "promo.cta": "回到主頁 ↗",
+
+  "nav.jobs": "能做什麼",
+  "nav.guide": "上手指南",
+  "nav.tech": "給開發者",
+  "nav.cta": "立即開始",
+
+  "hero.eyebrow": "給每個人 · 不需要技術背景",
+  "hero.h1": "一位替你完成<b>重複線上工作</b>的助手。",
+  "hero.sub": "把 Agent Auto System 想成一位不會累的助理。你告訴它需要什麼 —— 「蒐集這些名單」、「彙整今天的科技新聞」、「幫我填這張表單」 —— 它就在背景完成工作，交回前還會先檢查自己的答案。這一頁用白話說明它是什麼。",
+  "hero.cta1": "看看它能做什麼",
+  "hero.cta2": "我該怎麼開始？",
+
+  "what.kicker": "一句話說明",
+  "what.h2": "Agent Auto System 是什麼？",
+  "what.p1": "它是一個把無聊、重複的電腦工作交給 <b>AI 助手</b> 的工具 —— 就是那種你平常得在瀏覽器裡點來點去、把資料複製到試算表、或一封封重複寄的信。",
+  "what.p2": "你從選單挑一個任務、填一張簡短表單，按下 <b>Run（執行）</b>。AI 動手做，你可以去忙別的。完成後你會看到清楚的結果，還有一個 <b>品質分數</b>，讓你知道能信任它多少。",
+  "what.p3": "不用學什麼，也不用寫程式。只要你會填線上表單，就會用它。",
+
+  "do.kicker": "它能為你做的事",
+  "do.h2": "日常工作，<b>自動搞定</b>",
+  "do.lede": "以下是幾個現成任務。每一個都能獨立執行 —— 你只要說開始。",
+  "do.c1.h": "彙整新聞",
+  "do.c1.p": "拿到今天熱門科技新聞的分主題摘要 —— 只有重點，不用一直滑。",
+  "do.c2.h": "尋找商業名單",
+  "do.c2.p": "上網搜尋潛在客戶，接著自動驗證、去除重複，並篩出品質好的名單。",
+  "do.c3.h": "填寫線上表單",
+  "do.c3.p": "指定一份 Google 表單，它會讀懂題目並替你送出合理的答案。",
+  "do.c4.h": "把網頁變成摘要",
+  "do.c4.p": "給它一個網頁，換回標題、重點與連結 —— 不必再讀整篇。",
+  "do.c5.h": "檢查你的數字",
+  "do.c5.p": "上傳試算表，得到一份「利潤健檢」—— 數字經過驗證、修正，並在 PDF 中說明。",
+  "do.c6.h": "寄送 email",
+  "do.c6.p": "透過你自己的 Gmail 寄信 —— 很適合當成較大任務的最後一步。",
+  "do.more": "……還有更多，包含蒐集商店賣家與社群貼文。你甚至能把好幾個任務串起來，讓前一個的成果餵給下一個。",
+
+  "how.kicker": "運作方式",
+  "how.h2": "三個簡單步驟",
+  "how.s1.h": "挑一個任務並填簡短表單",
+  "how.s1.p": "從現成任務選單中挑選，回答一兩個問題 —— 像是「要幾則新聞？」或「哪個網站？」。",
+  "how.s2.h": "按下執行，看著它工作",
+  "how.s2.p": "任務會在背景執行。你可以即時看每個步驟，或稍後再回來 —— 沒有你它也會繼續跑。",
+  "how.s3.h": "拿到已檢查、已評分的結果",
+  "how.s3.p": "你會得到清楚的答案，加上由第二個 AI 評分的品質分數 —— 讓你知道能信任它多少。",
+
+  "trust.kicker": "為什麼可以信任它",
+  "trust.h2": "它會<b>自我複查</b>",
+  "trust.lede": "AI 也會犯錯。所以系統從一開始就設計成在你看到結果之前先抓出錯誤。",
+  "trust.c1.h": "它會檢查自己的成果",
+  "trust.c1.p": "每一筆結果都會依一組規則檢查。若看起來有問題，任務會自動重跑。",
+  "trust.c2.h": "由第二方評分",
+  "trust.c2.p": "由另一個 AI 為每筆結果打 0 到 100 分 —— 絕不是產出它的那一個 —— 讓分數保持公正。",
+  "trust.c3.h": "它會自行恢復",
+  "trust.c3.p": "若某個 AI 服務短暫無法使用，它會安靜地改用另一個並繼續 —— 不會白做工。",
+
+  "start.kicker": "開始使用",
+  "start.h2": "我要怎麼試？",
+  "start.p1": "Agent Auto System 是免費的開源應用程式。你團隊裡懂技術的人幾分鐘就能架好 —— 主頁上的逐步 <a href=\"index.html#guide\">上手指南</a> 有截圖帶你走過一遍。",
+  "start.p2": "架好之後，它像一般網站一樣在瀏覽器裡打開。你登入、挑任務、開始。你自己的電腦不用安裝任何東西。",
+  "start.p3": "它唯一需要的是一把 <b>AI 金鑰</b>（來自 OpenAI、Anthropic 或 Google）—— 有點像讓應用程式能跟 AI 對話的密碼。由團隊的架設者加入一次即可。",
+
+  "faq.kicker": "先了解一下",
+  "faq.h2": "常見問題",
+  "faq.q1": "我需要會寫程式嗎？",
+  "faq.a1": "不用。使用這個應用全都是點選操作。由懂技術的人架設一次；之後任何人都能在瀏覽器執行任務。",
+  "faq.q2": "把金鑰和資料交給它安全嗎？",
+  "faq.a2": "這個應用需要登入，任何儲存的金鑰都會加密保存。它跑在你團隊自己的伺服器上，所以你的資料留在你這邊。",
+  "faq.q3": "如果 AI 弄錯了怎麼辦？",
+  "faq.a3": "系統會檢查每筆結果，失敗就重跑任務。另一個 AI 也會為品質評分，分數偏低就是提醒你再確認一下。",
+  "faq.q4": "要花多少錢？",
+  "faq.a4": "應用本身免費且開源。你只需按用量付費給 AI 供應商，而且每次執行都會顯示估算成本，不會有意外。",
+
+  "cta.kicker": "準備好了嗎？",
+  "cta.h2": "把繁瑣工作交給 AI",
+  "cta.p": "把這頁分享給替你們架設工具的人，照著逐步指南做，幾分鐘內就能開始運作。",
+  "cta.b1": "打開架設指南",
+  "cta.b2": "瀏覽所有任務",
+
+  "footer.tagline": "值得信賴的 AI 自動化 —— 親切到人人可用，強大到工程師也滿意。",
+  "footer.built": "由 YennJ12 工程團隊打造。"
+};
+</script>
+<script src="assets/i18n.js"></script>
+
+</body>
+</html>
