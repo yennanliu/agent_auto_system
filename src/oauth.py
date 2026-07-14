@@ -149,8 +149,13 @@ def resolve_sso_user(
     trusted_email = email if email_verified else None
     username = _unique_username(session, trusted_email or name or f"{provider}-{sub}")
     user = User(
+        # Empty string (not None) marks an SSO-only account with no password:
+        # falsy, so password login/change is rejected, and it satisfies the
+        # legacy NOT NULL constraint on pre-existing SQLite DBs (which can't be
+        # dropped via ALTER). New/Postgres DBs would allow NULL, but "" keeps a
+        # single representation everywhere.
+        password_hash="",
         username=username,
-        password_hash=None,  # SSO-only: no password login
         email=trusted_email,
         oauth_provider=provider,
         oauth_sub=sub,

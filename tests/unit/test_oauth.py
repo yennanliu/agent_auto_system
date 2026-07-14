@@ -30,7 +30,7 @@ def test_provisions_new_account(db_session):
     assert user.oauth_provider == "google"
     assert user.oauth_sub == "G1"
     assert user.email == "alice@example.com"
-    assert user.password_hash is None      # SSO-only: no password login
+    assert not user.password_hash          # SSO-only: no password login (empty sentinel)
     assert user.is_admin is False          # never auto-granted admin
     assert user.allowed_automations == "[]"  # no automations until granted
 

@@ -115,8 +115,10 @@ async def test_providers_endpoint_open_without_session(anon_client):
     assert "providers" in resp.json()  # empty list when no creds configured in tests
 
 
-async def test_oauth_login_unconfigured_provider_404(anon_client):
-    resp = await anon_client.get("/api/auth/oauth/google/login")
+async def test_oauth_login_unknown_provider_404(anon_client):
+    # An unknown/unconfigured provider is rejected (google/github may be
+    # configured via the developer's .env, so use a name that never is).
+    resp = await anon_client.get("/api/auth/oauth/nonexistent/login")
     assert resp.status_code == 404
 
 
