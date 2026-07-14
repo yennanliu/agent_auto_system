@@ -877,6 +877,13 @@ html.theme-dark .hl-yv { color: #98c379; }
 .login-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .login-card .btn-primary { margin-top: 1rem; width: 100%; justify-content: center; }
 .login-error { color: var(--red); font-size: 0.82rem; margin-top: 0.5rem; background: var(--red-soft); border: 1px solid var(--red); border-radius: 6px; padding: 0.5rem 0.6rem; }
+.login-divider { display: flex; align-items: center; text-align: center; color: var(--text-muted); font-size: 0.75rem; margin: 1rem 0 0.25rem; }
+.login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.login-divider span { padding: 0 0.6rem; }
+.login-sso { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+.btn-sso { display: flex; align-items: center; justify-content: center; gap: 0.55rem; width: 100%; padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 7px; background: var(--surface2); color: var(--text); font-size: 0.88rem; font-weight: 600; font-family: var(--font-sans); cursor: pointer; text-decoration: none; transition: border-color .15s, background .15s; }
+.btn-sso:hover { border-color: var(--accent); background: var(--surface); }
+.btn-sso svg { width: 18px; height: 18px; }
 
 /* admin */
 .admin-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }

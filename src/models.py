@@ -6,7 +6,10 @@ from sqlmodel import Field, SQLModel
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True)
-    password_hash: str
+    password_hash: str | None = None  # None for SSO-only accounts (no password login)
+    email: str | None = Field(default=None, index=True)  # verified email, when known
+    oauth_provider: str | None = None  # "google" | "github" for SSO accounts
+    oauth_sub: str | None = None  # provider's stable subject id (unique per provider)
     is_admin: bool = False
     is_active: bool = True
     allowed_automations: str = "[]"  # JSON list of job_type; "*" = all
