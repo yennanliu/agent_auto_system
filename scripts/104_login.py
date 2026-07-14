@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Page, sync_playwright
 
 load_dotenv()
 
@@ -30,7 +30,7 @@ PASSWORD = os.getenv("TW104_PASSWORD", "")
 _LOGIN_URL = "https://www.104.com.tw/login"
 
 
-def _prefill(page) -> None:
+def _prefill(page: Page) -> None:
     """Best-effort: type the .env credentials into the login form so the user
     only has to solve the captcha/OTP. Silently skipped if fields aren't found."""
     if not (USERNAME and PASSWORD):

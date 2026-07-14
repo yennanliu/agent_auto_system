@@ -123,13 +123,16 @@ def _search_url(keyword: str, area: str, order: str, page_num: int) -> str:
 
 
 def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
-                       log: Callable, warnings: list) -> list[dict]:
+                       log: Callable, warnings: list) -> list[dict] | None:
     """Job cards on a single listing page. Scrolls to trigger 104's lazy load,
     then reads each card's job id / title / company / already-applied flag.
 
-    Returns [{job_id, url, title, company, applied}], deduped by job id.
-    The goto is the one unguarded external call; retry a few times before
-    giving up on the page (a transient failure must not crash the run)."""
+    Returns [{job_id, url, title, company, applied}], deduped by job id — or
+    None if the page could not be read (transient load/parse failure). None is
+    distinct from []: [] means the page loaded but had no jobs (end of results),
+    so the caller stops; None means "try the next page" — a transient blip must
+    not look like the end of the listing and abort the whole run.
+    The goto is the one unguarded external call; retry a few times first."""
     url = _search_url(keyword, area, order, page_num)
     for attempt in range(3):
         try:
@@ -140,7 +143,7 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
             if attempt == 2:
                 warnings.append(f"page {page_num}: failed to load after 3 tries ({exc})")
                 log(f"⚠ Page {page_num}: failed to load after 3 attempts ({exc})")
-                return []
+                return None
             log(f"⚠ Page {page_num}: load attempt {attempt + 1} failed, retrying ({exc})")
             page.wait_for_timeout(2000)
 
@@ -205,7 +208,7 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"page {page_num}: could not read job cards ({exc})")
         log(f"⚠ Page {page_num}: could not read job cards ({exc})")
-        return []
+        return None
 
     jobs = []
     for r in rows or []:
@@ -410,6 +413,11 @@ def run_tw104_apply(
             while len(applied) < max_applications and page_num <= max_pages:
                 jobs = _collect_page_jobs(page, keyword, area, order, page_num,
                                           log, warnings)
+                if jobs is None:
+                    # Transient load/parse failure — skip to the next page rather
+                    # than treating it as end-of-results and aborting the run.
+                    page_num += 1
+                    continue
                 new_jobs = [j for j in jobs if j["job_id"] and j["job_id"] not in seen]
                 if not new_jobs:
                     log(f"No new jobs on page {page_num}; reached the end.")
