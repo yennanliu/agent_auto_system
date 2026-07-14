@@ -114,16 +114,24 @@ def _looks_logged_out(page) -> bool:
 
 # ── search / listing ─────────────────────────────────────────────────────────
 
-def _search_url(keyword: str, area: str, order: str, page_num: int) -> str:
+def _search_url(keyword: str, area: str, order: str, page_num: int,
+                remote: bool = False, part_time: bool = False) -> str:
     from urllib.parse import urlencode
     params = {"keyword": keyword, "order": order or "1", "page": page_num}
     if area:
         params["area"] = area
+    if remote:
+        # 104's remote-work filter: 1=完全遠端, 2=部分遠端. We request fully remote.
+        params["remoteWork"] = "1"
+    if part_time:
+        # 104's 工作性質 filter (`ro`): 0=不限, 1=全職, 2=兼職. We request 兼職.
+        params["ro"] = "2"
     return f"{_SEARCH}?{urlencode(params)}"
 
 
 def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
-                       log: Callable, warnings: list) -> list[dict] | None:
+                       log: Callable, warnings: list,
+                       remote: bool = False, part_time: bool = False) -> list[dict] | None:
     """Job cards on a single listing page. Scrolls to trigger 104's lazy load,
     then reads each card's job id / title / company / already-applied flag.
 
@@ -133,7 +141,7 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     so the caller stops; None means "try the next page" — a transient blip must
     not look like the end of the listing and abort the whole run.
     The goto is the one unguarded external call; retry a few times first."""
-    url = _search_url(keyword, area, order, page_num)
+    url = _search_url(keyword, area, order, page_num, remote, part_time)
     for attempt in range(3):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -348,6 +356,8 @@ def run_tw104_apply(
     max_applications: int = 5,
     max_pages: int = 10,
     cover_letter: str = "",
+    remote: bool = False,
+    part_time: bool = False,
     dry_run: bool = True,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     log: Callable[[str], None] | None = None,
@@ -364,8 +374,8 @@ def run_tw104_apply(
     log = log or _noop
     relevance_fn = relevance_fn or (lambda _t, _m: (True, ""))
     state_path = state_path or os.getenv("TW104_STORAGE_STATE", DEFAULT_STATE_PATH)
-    max_applications = max(1, min(int(max_applications), 200))
-    max_pages = max(1, min(int(max_pages), 50))
+    max_applications = max(1, min(int(max_applications), 1000))
+    max_pages = max(1, min(int(max_pages), 500))
 
     base = {"keyword": keyword, "area": area, "dry_run": dry_run,
             "applied": [], "skipped": [], "warnings": []}
@@ -391,7 +401,7 @@ def run_tw104_apply(
         page = ctx.new_page()
         try:
             # Warm the session on the search page and confirm we're logged in.
-            first_url = _search_url(keyword, area, order, 1)
+            first_url = _search_url(keyword, area, order, 1, remote, part_time)
             log(f"Opening {first_url}")
             page.goto(first_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(1500)
@@ -412,7 +422,7 @@ def run_tw104_apply(
 
             while len(applied) < max_applications and page_num <= max_pages:
                 jobs = _collect_page_jobs(page, keyword, area, order, page_num,
-                                          log, warnings)
+                                          log, warnings, remote, part_time)
                 if jobs is None:
                     # Transient load/parse failure — skip to the next page rather
                     # than treating it as end-of-results and aborting the run.
@@ -509,6 +519,8 @@ class TW104ApplyInput(BaseModel):
     max_applications: int = 5
     max_pages: int = 10
     cover_letter: str = ""
+    remote: bool = False
+    part_time: bool = False
     dry_run: bool = True
 
 
@@ -518,19 +530,22 @@ class TW104ApplyTool(BaseTool):
         "Log in to 104.com.tw (via a saved session) and auto-apply (應徵) to open "
         "jobs matching a keyword. Args: keyword, area (104 area codes, optional), "
         "order, max_applications, max_pages, cover_letter (custom 自我推薦信 free "
-        "text, optional), dry_run. Skips already-applied jobs and submits only when "
+        "text, optional), remote (只搜完全遠端職缺), part_time (只搜兼職職缺), dry_run. "
+        "Skips already-applied jobs and submits only when "
         "dry_run is false (a confirmed /job/apply/done/ URL is required)."
     )
     args_schema: type[BaseModel] = TW104ApplyInput
 
     def _run(self, keyword: str, area: str = "", order: str = "1",
              max_applications: int = 5, max_pages: int = 10,
-             cover_letter: str = "", dry_run: bool = True) -> dict:
+             cover_letter: str = "", remote: bool = False,
+             part_time: bool = False, dry_run: bool = True) -> dict:
         try:
             return run_tw104_apply(
                 keyword=keyword, area=area, order=order,
                 max_applications=max_applications, max_pages=max_pages,
-                cover_letter=cover_letter, dry_run=dry_run,
+                cover_letter=cover_letter, remote=remote, part_time=part_time,
+                dry_run=dry_run,
             )
         except Exception as exc:  # noqa: BLE001
             return {"keyword": keyword, "applied": [], "skipped": [],

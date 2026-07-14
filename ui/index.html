@@ -542,8 +542,18 @@
           <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">可輸入縣市名稱（中／英文皆可）、簡稱或代碼；AI 會自動對應與修正成 104 地區代碼。可用逗號分隔多個地區。</div>
         </div>
         <div class="field" style="display:flex;gap:0.5rem">
-          <div style="flex:1"><label>最多應徵職缺數 (1–200)</label><input type="number" id="tw104-max" value="5" min="1" max="200" /></div>
-          <div style="flex:1"><label>最多掃描頁數 (1–50)</label><input type="number" id="tw104-max-pages" value="10" min="1" max="50" /></div>
+          <div style="flex:1"><label>最多應徵職缺數 (1–1000)</label><input type="number" id="tw104-max" value="5" min="1" max="1000" /></div>
+          <div style="flex:1"><label>最多掃描頁數 (1–500)</label><input type="number" id="tw104-max-pages" value="10" min="1" max="500" /></div>
+        </div>
+        <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="tw104-remote" style="width:auto;margin:0" />
+            <label for="tw104-remote" style="margin:0">只搜遠端職缺（完全遠端）</label>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="tw104-part-time" style="width:auto;margin:0" />
+            <label for="tw104-part-time" style="margin:0">只搜兼職職缺</label>
+          </div>
         </div>
         <div class="field">
           <label>自我推薦信（選填，最多 2000 字）</label>

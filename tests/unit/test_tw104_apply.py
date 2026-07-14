@@ -171,6 +171,19 @@ def test_search_url_builds_area_keyword_page():
     assert "area=" not in _search_url("python", "", "1", 1)
 
 
+def test_search_url_remote_and_part_time_filters():
+    from src.automation.tools.tw104_apply_tool import _search_url
+
+    # off by default — no filter params emitted
+    plain = _search_url("python", "", "1", 1)
+    assert "remoteWork=" not in plain and "ro=" not in plain
+    # remote → remoteWork=1 (完全遠端); part-time → ro=2 (工作性質: 兼職)
+    assert "remoteWork=1" in _search_url("python", "", "1", 1, remote=True)
+    assert "ro=2" in _search_url("python", "", "1", 1, part_time=True)
+    both = _search_url("python", "", "1", 1, remote=True, part_time=True)
+    assert "remoteWork=1" in both and "ro=2" in both
+
+
 def test_run_no_session_returns_error_not_raise():
     from src.automation.tools.tw104_apply_tool import run_tw104_apply
 

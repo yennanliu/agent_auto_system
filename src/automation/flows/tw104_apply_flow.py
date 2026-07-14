@@ -63,6 +63,8 @@ class TW104ApplyState(BaseModel):
     order: str = "1"                # listing sort order
     cover_letter: str = ""          # optional saved 推薦信 name; blank = site default
     task_filter: str = ""           # optional 2nd gate: LLM relevance filter (nat-lang)
+    remote: bool = False            # only search 完全遠端 jobs (104 remoteWork=1)
+    part_time: bool = False         # only search 兼職 jobs (104 工作性質 ro=2)
     max_applications: int = 5
     max_pages: int = 10
     dry_run: bool = True            # safety: don't click 確認送出 unless explicitly false
@@ -179,6 +181,8 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
             max_applications=self.state.max_applications,
             max_pages=self.state.max_pages,
             cover_letter=self.state.cover_letter,
+            remote=self.state.remote,
+            part_time=self.state.part_time,
             dry_run=self.state.dry_run,
             relevance_fn=relevance_fn,
             log=lambda m: append_log(self.state.run_id, m),
