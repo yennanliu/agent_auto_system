@@ -6,7 +6,7 @@ from src.models import Job, Run
 
 
 async def test_trigger_run_returns_202(client, seed_job, mocker):
-    mocker.patch("src.routers.runs._run_in_background", new=AsyncMock())
+    mocker.patch("src.automation.launcher._run_in_background", new=AsyncMock())
     resp = await client.post(f"/api/jobs/{seed_job.id}/run")
     assert resp.status_code == 202
     data = resp.json()
@@ -31,7 +31,7 @@ async def test_get_run_not_found(client):
 
 
 async def test_get_run_after_trigger(client, seed_job, mocker):
-    mocker.patch("src.routers.runs._run_in_background", new=AsyncMock())
+    mocker.patch("src.automation.launcher._run_in_background", new=AsyncMock())
     trig = await client.post(f"/api/jobs/{seed_job.id}/run")
     run_id = trig.json()["run_id"]
 
@@ -41,7 +41,7 @@ async def test_get_run_after_trigger(client, seed_job, mocker):
 
 
 async def test_list_runs_after_trigger(client, seed_job, mocker):
-    mocker.patch("src.routers.runs._run_in_background", new=AsyncMock())
+    mocker.patch("src.automation.launcher._run_in_background", new=AsyncMock())
     await client.post(f"/api/jobs/{seed_job.id}/run")
     await client.post(f"/api/jobs/{seed_job.id}/run")
 
@@ -54,7 +54,7 @@ async def test_run_transitions_to_success(client, seed_job, mocker):
         from src.automation.executor import _update_run
         _update_run(run_id, "success", {"digest": "Top stories today"})
 
-    mocker.patch("src.routers.runs._run_in_background", side_effect=immediate_success)
+    mocker.patch("src.automation.launcher._run_in_background", side_effect=immediate_success)
     trig = await client.post(f"/api/jobs/{seed_job.id}/run")
     assert trig.status_code == 202
     run_id = trig.json()["run_id"]
@@ -71,7 +71,7 @@ async def test_run_transitions_to_failed(client, seed_job, mocker):
         from src.automation.executor import _update_run
         _update_run(run_id, "failed", {"error": "something broke"})
 
-    mocker.patch("src.routers.runs._run_in_background", side_effect=immediate_failure)
+    mocker.patch("src.automation.launcher._run_in_background", side_effect=immediate_failure)
     trig = await client.post(f"/api/jobs/{seed_job.id}/run")
     run_id = trig.json()["run_id"]
 

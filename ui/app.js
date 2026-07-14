@@ -392,6 +392,210 @@ function updateModelOptions() {
   modelSel.innerHTML = models.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 }
 
+// ══════════════════════════════════════ TASK OVERVIEW ════════════════════════════
+// Airflow-style grid: rows = flow steps, columns = recent runs, cells = status.
+
+let ovJobs = [];
+let ovSelectedJobId = null;
+
+async function loadOverviewPage() {
+  const list = document.getElementById('ov-joblist');
+  list.innerHTML = '<div class="loading-state">Loading…</div>';
+  try {
+    const resp = await fetch('/api/jobs');
+    if (!resp.ok) throw new Error('Failed to load jobs');
+    ovJobs = await resp.json();
+  } catch (err) {
+    list.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
+    return;
+  }
+  renderOverviewJobList();
+  if (ovJobs.length) {
+    const keep = ovJobs.find(j => j.id === ovSelectedJobId);
+    selectOverviewJob((keep || ovJobs[0]).id);
+  } else {
+    document.getElementById('ov-grid-wrap').innerHTML =
+      '<div class="empty-state">No jobs yet. Run an automation first.</div>';
+  }
+}
+
+function renderOverviewJobList() {
+  const list = document.getElementById('ov-joblist');
+  if (!ovJobs.length) { list.innerHTML = '<div class="empty-state">No jobs</div>'; return; }
+  list.innerHTML = ovJobs.map(j => {
+    const meta = TYPE_META[j.job_type] || { chip: (j.job_type || '?').toUpperCase(), cls: 'chip-unknown' };
+    const active = j.id === ovSelectedJobId ? ' active' : '';
+    const sched = j.schedule ? `<span class="ov-job-cron" title="Scheduled ${escHtml(j.schedule)}">⏱</span>` : '';
+    return `<button class="ov-job${active}" data-job-id="${j.id}">
+      <span class="type-chip ${meta.cls}">${escHtml(meta.chip)}</span>
+      <span class="ov-job-name">${escHtml(j.name)}</span>${sched}
+    </button>`;
+  }).join('');
+}
+
+async function selectOverviewJob(jobId) {
+  ovSelectedJobId = jobId;
+  renderOverviewJobList();
+  const wrap = document.getElementById('ov-grid-wrap');
+  wrap.innerHTML = '<div class="loading-state">Loading…</div>';
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}/overview?limit=30`);
+    if (!resp.ok) throw new Error('Failed to load overview');
+    wrap.innerHTML = renderOverviewGrid(await resp.json());
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
+  }
+}
+
+const OV_ICON = { done: '✓', success: '✓', running: '', failed: '✕', pending: '' };
+
+function renderOverviewGrid(data) {
+  const { job, task_names, runs } = data;
+  if (!runs || !runs.length) {
+    return `<div class="ov-grid-head"><h2>${escHtml(job.name)}</h2></div>
+      <div class="empty-state">No runs for this job yet.</div>`;
+  }
+  const durs = runs.map(r => r.duration_secs || 0);
+  const maxDur = Math.max(...durs, 1);
+  const bars = runs.map(r => {
+    const d = r.duration_secs || 0;
+    const h = Math.max(3, Math.round((d / maxDur) * 46));
+    return `<div class="ov-bar ov-fill-${r.status}" style="height:${h}px" title="run #${r.run_id} · ${r.status} · ${fmtDur(d) || '—'}"></div>`;
+  }).join('');
+
+  const runHead = runs.map(r =>
+    `<div class="ov-cell ov-fill-${r.status}" title="run #${r.run_id} · ${r.status} · ${new Date(r.started_at).toLocaleString()}">${OV_ICON[r.status] || ''}</div>`
+  ).join('');
+
+  const rows = task_names.map((name, ri) => {
+    const cells = runs.map(r => {
+      const status = r.steps[ri] ? r.steps[ri].status : 'pending';
+      return `<div class="ov-cell ov-fill-${status}" title="${escHtml(name)} · run #${r.run_id} · ${status}">${OV_ICON[status] || ''}</div>`;
+    }).join('');
+    return `<div class="ov-row"><div class="ov-row-label" title="${escHtml(name)}">${escHtml(name)}</div><div class="ov-cells">${cells}</div></div>`;
+  }).join('');
+
+  const nSuccess = runs.filter(r => r.status === 'success').length;
+  const nFailed  = runs.filter(r => r.status === 'failed').length;
+
+  return `
+    <div class="ov-grid-head">
+      <h2>${escHtml(job.name)} <span class="muted" style="font-weight:400;font-size:0.8rem">${escHtml(job.job_type)}</span></h2>
+      <div class="ov-summary">
+        <span class="ov-stat"><b>${runs.length}</b> runs</span>
+        <span class="ov-stat ov-stat-ok"><b>${nSuccess}</b> ok</span>
+        <span class="ov-stat ov-stat-fail"><b>${nFailed}</b> failed</span>
+        ${job.schedule ? `<span class="ov-stat">⏱ ${escHtml(job.schedule)}</span>` : ''}
+      </div>
+    </div>
+    <div class="ov-duration-chart" title="Run duration (oldest → newest)">${bars}</div>
+    <div class="ov-grid-scroll"><div class="ov-grid">
+      <div class="ov-row ov-row-head"><div class="ov-row-label">Task \\ Run →</div><div class="ov-cells">${runHead}</div></div>
+      ${rows}
+    </div></div>
+    <div class="ov-legend">
+      <span><i class="ov-cell ov-fill-success"></i> success</span>
+      <span><i class="ov-cell ov-fill-failed"></i> failed</span>
+      <span><i class="ov-cell ov-fill-running"></i> running</span>
+      <span><i class="ov-cell ov-fill-pending"></i> pending</span>
+    </div>`;
+}
+
+document.getElementById('ov-joblist').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-job-id]');
+  if (btn) selectOverviewJob(parseInt(btn.dataset.jobId, 10));
+});
+
+// ══════════════════════════════════════ SCHEDULES ════════════════════════════════
+
+async function loadSchedulesPage() {
+  const tbody = document.getElementById('schedules-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Loading…</td></tr>';
+  try {
+    const resp = await fetch('/api/schedules');
+    if (!resp.ok) throw new Error('Failed to load schedules');
+    renderSchedules(await resp.json());
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderSchedules(rows) {
+  const tbody = document.getElementById('schedules-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No scheduled jobs. Add a Schedule in the New Run dialog.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const meta = TYPE_META[r.job_type] || { chip: (r.job_type || '?').toUpperCase(), cls: 'chip-unknown' };
+    const next = r.next_run_at ? new Date(r.next_run_at).toLocaleString() : '<span class="muted">—</span>';
+    const cronStyle = r.valid ? '' : ' style="color:var(--red)"';
+    const last = r.last_run
+      ? `<span class="badge badge-${r.last_run.status}">${r.last_run.status}</span> <span class="muted">${new Date(r.last_run.started_at).toLocaleString()}</span>`
+      : '<span class="muted">never</span>';
+    return `<tr>
+      <td><span class="job-name-text" title="${escHtml(r.name)}">${escHtml(r.name)}</span></td>
+      <td><span class="type-chip ${meta.cls}">${escHtml(meta.chip)}</span></td>
+      <td><code${cronStyle}>${escHtml(r.schedule)}</code>${r.valid ? '' : ' <span class="muted">(invalid)</span>'}</td>
+      <td>${next}</td>
+      <td>${r.run_count}</td>
+      <td>${last}</td>
+      <td class="th-actions">
+        <button class="btn btn-ghost btn-sm" data-sched-run="${r.job_id}">Run now</button>
+        <button class="btn btn-ghost btn-sm" data-sched-edit="${r.job_id}" data-cron="${escHtml(r.schedule)}">Edit</button>
+        <button class="btn btn-ghost btn-sm" data-sched-unset="${r.job_id}" data-name="${escHtml(r.name)}">Unschedule</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function editSchedule(jobId, currentCron) {
+  const next = prompt('New cron expression (min hour day month weekday, UTC):', currentCron || '');
+  if (next === null) return;  // cancelled
+  const cron = next.trim();
+  if (!cron) { showToast('Empty — use Unschedule to remove the schedule', 'error'); return; }
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: cron }),
+    });
+    if (resp.status === 400) {
+      const e = await resp.json().catch(() => ({}));
+      showToast(e.detail || 'Invalid cron expression', 'error');
+      return;
+    }
+    if (!resp.ok) throw new Error('Update failed');
+    showToast('Schedule updated', 'success');
+    loadSchedulesPage();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function unscheduleJob(jobId, name) {
+  const ok = await confirmDialog('Remove schedule', `Stop running "${name}" on a schedule? The job itself is kept.`);
+  if (!ok) return;
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: null }),
+    });
+    if (!resp.ok) throw new Error('Update failed');
+    showToast('Schedule removed', 'success');
+    loadSchedulesPage();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+document.getElementById('schedules-refresh-btn').addEventListener('click', loadSchedulesPage);
+document.getElementById('schedules-tbody').addEventListener('click', (e) => {
+  const runBtn = e.target.closest('[data-sched-run]');
+  if (runBtn) { navigate('activity'); rerun(parseInt(runBtn.dataset.schedRun, 10)); return; }
+  const editBtn = e.target.closest('[data-sched-edit]');
+  if (editBtn) { editSchedule(parseInt(editBtn.dataset.schedEdit, 10), editBtn.dataset.cron); return; }
+  const unsetBtn = e.target.closest('[data-sched-unset]');
+  if (unsetBtn) { unscheduleJob(parseInt(unsetBtn.dataset.schedUnset, 10), unsetBtn.dataset.name); return; }
+});
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let activeEventSource  = null;
@@ -434,6 +638,8 @@ function navigate(page) {
   if (page === 'system')    loadSystemPage();
   if (page === 'run')       renderAutomationsPage();
   if (page === 'analytics') loadPerformancePage();
+  if (page === 'overview')  loadOverviewPage();
+  if (page === 'schedules') loadSchedulesPage();
   if (page === 'admin')     loadAdminPage();
   if (page === 'landing')   window.scrollTo({ top: 0 });
 }
@@ -472,7 +678,7 @@ document.getElementById('lp-cta-run').addEventListener('click', () => openModal(
 document.getElementById('lp-cta-dash').addEventListener('click', () => navigate('activity'));
 
 // Navigate to the page in the hash on load, defaulting to the landing page
-const VALID_PAGES = ['landing','run','activity','system','analytics','admin'];
+const VALID_PAGES = ['landing','run','activity','overview','schedules','system','analytics','admin'];
 
 // Automations the current user may see/launch (admins see all; others get the
 // intersection of globally-enabled and their personal allowlist).
@@ -915,6 +1121,10 @@ document.getElementById('run-new-btn').addEventListener('click', () => openModal
 document.getElementById('modal-close').addEventListener('click', closeModalFn);
 document.getElementById('cancel-btn').addEventListener('click', closeModalFn);
 document.getElementById('llm-provider').addEventListener('change', updateModelOptions);
+document.getElementById('job-schedule-preset').addEventListener('change', (e) => {
+  if (e.target.value) document.getElementById('job-schedule').value = e.target.value;
+  e.target.value = '';  // reset the picker; the text field is the source of truth
+});
 document.getElementById('ph-files').addEventListener('change', renderPhClassified);
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModalFn(); });
 
@@ -1364,13 +1574,44 @@ runForm.addEventListener('submit', async (e) => {
   payload.llm_provider = document.getElementById('llm-provider').value;
   payload.llm_model    = document.getElementById('llm-model').value;
 
+  const schedule = document.getElementById('job-schedule').value.trim();
+
   closeModalFn();
   runForm.reset();
   selectJobType('google_form_fill');
   updateModelOptions();
-  navigate('activity');
-  await triggerRun(jobType, jobName, payload);
+
+  if (schedule) {
+    // Scheduled job: save it (server validates the cron) and let the scheduler
+    // run it — do NOT trigger a run now.
+    await createScheduledJob(jobType, jobName, payload, schedule);
+  } else {
+    navigate('activity');
+    await triggerRun(jobType, jobName, payload);
+  }
 });
+
+// ── Create a scheduled (cron) job without running it now ───────────────────────
+
+async function createScheduledJob(jobType, jobName, payload, schedule) {
+  try {
+    const resp = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: jobName, job_type: jobType, payload, schedule }),
+    });
+    if (resp.status === 400) {
+      const e = await resp.json().catch(() => ({}));
+      showToast(e.detail || 'Invalid cron expression', 'error');
+      return;
+    }
+    if (!resp.ok) throw new Error('Failed to save scheduled job');
+    showToast(`Scheduled "${jobName}" (${schedule})`, 'success');
+    navigate('schedules');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
 
 // ── Trigger a new run ─────────────────────────────────────────────────────────
 

@@ -924,3 +924,50 @@ html.theme-dark .hl-yv { color: #98c379; }
 .lead-conf-low    { background: #eef0f2;            color: var(--gray); }
 .lead-guessed { font-size: 0.68rem; color: var(--text-muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 0.25rem; }
 html.theme-dark .lead-conf-low { background: rgba(255,255,255,0.08); color: #9aa4af; }
+
+/* ══════════════════════════════════════ TASK OVERVIEW (Airflow-style grid) ═════════ */
+.ov-layout { display: grid; grid-template-columns: 260px 1fr; gap: 1rem; align-items: start; }
+@media (max-width: 780px) { .ov-layout { grid-template-columns: 1fr; } }
+
+.ov-joblist { display: flex; flex-direction: column; gap: 0.3rem; max-height: 72vh; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 12px; padding: 0.5rem; background: var(--surface); }
+.ov-job { display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left;
+  background: none; border: 1px solid transparent; border-radius: 8px; padding: 0.5rem 0.6rem;
+  cursor: pointer; color: var(--text); font-size: 0.85rem; }
+.ov-job:hover { background: var(--surface2); }
+.ov-job.active { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), 0.3); }
+.ov-job-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-job-cron { color: var(--accent); font-size: 0.8rem; }
+
+.ov-grid-wrap { border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.15rem; background: var(--surface); min-height: 200px; }
+.ov-grid-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.ov-grid-head h2 { font-size: 1rem; font-weight: 600; }
+.ov-summary { display: flex; gap: 0.85rem; font-size: 0.8rem; color: var(--text-muted); }
+.ov-stat b { color: var(--text); }
+.ov-stat-ok b { color: var(--green); }
+.ov-stat-fail b { color: var(--red); }
+
+.ov-duration-chart { display: flex; align-items: flex-end; gap: 3px; height: 50px; padding: 2px 0 6px;
+  border-bottom: 1px solid var(--border); margin-bottom: 0.75rem; overflow-x: auto; }
+.ov-bar { flex: 0 0 12px; border-radius: 2px 2px 0 0; background: var(--gray); }
+
+.ov-grid-scroll { overflow-x: auto; }
+.ov-grid { display: inline-block; min-width: 100%; }
+.ov-row { display: flex; align-items: center; }
+.ov-row-label { flex: 0 0 130px; font-size: 0.78rem; color: var(--text-muted); padding: 2px 8px 2px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.ov-row-head .ov-row-label { color: var(--text); font-weight: 600; }
+.ov-cells { display: flex; gap: 3px; }
+.ov-cell { flex: 0 0 16px; width: 16px; height: 16px; border-radius: 3px; font-size: 10px;
+  line-height: 16px; text-align: center; color: #fff; font-weight: 700; }
+
+/* status fills — shared by run squares, step cells, duration bars, legend */
+.ov-fill-success, .ov-fill-done { background: var(--green); }
+.ov-fill-failed  { background: var(--red); }
+.ov-fill-running { background: var(--blue); }
+.ov-fill-pending { background: #d7dbe0; color: var(--gray); }
+html.theme-dark .ov-fill-pending { background: rgba(255,255,255,0.12); }
+
+.ov-legend { display: flex; gap: 1rem; margin-top: 0.85rem; font-size: 0.75rem; color: var(--text-muted); align-items: center; }
+.ov-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ov-legend i { display: inline-block; }

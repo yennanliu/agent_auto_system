@@ -36,6 +36,8 @@
     <button class="nav-tab" data-page="landing">Home</button>
     <button class="nav-tab" data-page="run">Run</button>
     <button class="nav-tab" data-page="activity">Activity</button>
+    <button class="nav-tab" data-page="overview">Overview</button>
+    <button class="nav-tab" data-page="schedules">Schedules</button>
     <button class="nav-tab" data-page="system">System</button>
     <button class="nav-tab" data-page="analytics">Analytics</button>
     <button class="nav-tab" data-page="admin" id="nav-admin" hidden>Admin</button>
@@ -264,6 +266,55 @@
       <div class="pagination-pages" id="page-numbers"></div>
       <button class="btn btn-ghost btn-sm" id="page-next-btn">Next ›</button>
       <span class="pagination-info" id="page-info"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════ OVERVIEW ═══════════════════════════════════ -->
+<div class="page" id="page-overview">
+  <div class="page-header">
+    <h1>Task Overview</h1>
+    <p>Airflow-style grid of every step's status across recent runs, per job. Pick a job to inspect its run history as a task grid.</p>
+  </div>
+
+  <div class="section" style="padding-top:0">
+    <div class="ov-layout">
+      <aside class="ov-joblist" id="ov-joblist"><div class="loading-state">Loading…</div></aside>
+      <div class="ov-grid-wrap" id="ov-grid-wrap"><div class="empty-state">Select a job to see its task grid.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════ SCHEDULES ═════════════════════════════════ -->
+<div class="page" id="page-schedules">
+  <div class="page-header">
+    <div class="page-header-row">
+      <div>
+        <h1>Schedules</h1>
+        <p>Jobs with a cron schedule run automatically. Add a schedule from the <strong>+ New Run</strong> dialog (Schedule field), or edit one here.</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="schedules-refresh-btn">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="section" style="padding-top:0">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Type</th>
+            <th>Cron</th>
+            <th>Next run (UTC)</th>
+            <th>Runs</th>
+            <th>Last run</th>
+            <th class="th-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="schedules-tbody">
+          <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -619,9 +670,33 @@
         </div>
       </div>
 
+      <hr class="llm-config-sep" />
+      <div class="llm-config-header">Schedule (optional)</div>
+      <div class="field" style="margin-bottom:0">
+        <label for="job-schedule">Cron expression — leave blank to run once now</label>
+        <div style="display:flex;gap:0.5rem">
+          <input type="text" id="job-schedule" placeholder="e.g. 0 8 * * *" style="flex:1" autocomplete="off" spellcheck="false" />
+          <select id="job-schedule-preset" style="flex:0 0 auto;max-width:11rem">
+            <option value="">Presets…</option>
+            <option value="*/15 * * * *">Every 15 minutes</option>
+            <option value="@hourly">Every hour</option>
+            <option value="0 8 * * *">Every day at 08:00</option>
+            <option value="@daily">Every day (00:00)</option>
+            <option value="0 9 * * 1">Every Monday 09:00</option>
+            <option value="@weekly">Every week</option>
+            <option value="@monthly">Every month</option>
+          </select>
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">
+          Standard 5-field cron (<code>min hour day month weekday</code>), times in UTC.
+          When set, the job is <strong>saved and runs automatically</strong> on this schedule —
+          it does not run immediately. Manage schedules under the <strong>Schedules</strong> tab.
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="cancel-btn">Cancel</button>
-        <button type="submit" class="btn btn-primary">Run ▶</button>
+        <button type="submit" class="btn btn-primary" id="run-submit-btn">Run ▶</button>
       </div>
     </form>
   </div>

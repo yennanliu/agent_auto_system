@@ -25,7 +25,8 @@ class Job(SQLModel, table=True):
     name: str
     job_type: str = "google_form_fill"
     payload: str  # JSON string
-    schedule: str | None = None  # cron expression, e.g. "0 8 * * *"
+    schedule: str | None = None  # cron expression, e.g. "0 8 * * *"; None = manual only
+    created_by: int | None = Field(default=None, foreign_key="user.id")  # owner (scheduled-run attribution)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

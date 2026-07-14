@@ -21,6 +21,7 @@ dependencies = [
     "cryptography>=48.0.0",
     "langfuse>=4.13.0",
     "dnspython>=2.8.0",
+    "croniter>=2.0.0",
 ]
 
 [dependency-groups]

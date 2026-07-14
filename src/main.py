@@ -70,7 +70,16 @@ async def lifespan(app: FastAPI):
     stale = reconcile_stale_runs()
     if stale:
         logger.warning("Marked %d stale run(s) as failed on startup", stale)
+
+    # Cron scheduler: fires runs for jobs that carry a schedule. Opt-out via
+    # SCHEDULER_ENABLED=0 (e.g. for tests or single-shot deployments).
+    from src.automation.scheduler import scheduler
+    if os.getenv("SCHEDULER_ENABLED", "1") != "0":
+        scheduler.start()
+
     yield
+
+    await scheduler.stop()
     langfuse_tracer.flush()  # drain buffered traces on shutdown
 
 
