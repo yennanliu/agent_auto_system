@@ -392,6 +392,270 @@ function updateModelOptions() {
   modelSel.innerHTML = models.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 }
 
+// ══════════════════════════════════════ TASK OVERVIEW ════════════════════════════
+// Airflow-style grid grouped by AUTOMATION TYPE: one entry per automation, and its
+// grid shows ALL runs of that automation together (columns = runs, rows = steps),
+// so runs of the same automation can be compared side by side.
+
+let ovTypes = [];
+let ovSelectedType = null;
+let ovCurrentRuns = [];   // runs of the currently displayed automation (for drill-down)
+
+async function loadOverviewPage() {
+  const list = document.getElementById('ov-joblist');
+  list.innerHTML = '<div class="loading-state">Loading…</div>';
+  try {
+    const resp = await fetch('/api/overview');
+    if (!resp.ok) throw new Error('Failed to load overview');
+    ovTypes = await resp.json();
+  } catch (err) {
+    list.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
+    return;
+  }
+  renderOverviewTypeList();
+  if (ovTypes.length) {
+    const keep = ovTypes.find(t => t.job_type === ovSelectedType);
+    selectOverviewType((keep || ovTypes[0]).job_type);
+  } else {
+    document.getElementById('ov-grid-wrap').innerHTML =
+      '<div class="empty-state">No runs yet. Run an automation first.</div>';
+  }
+}
+
+function renderOverviewTypeList() {
+  const list = document.getElementById('ov-joblist');
+  if (!ovTypes.length) { list.innerHTML = '<div class="empty-state">No runs</div>'; return; }
+  list.innerHTML = ovTypes.map(t => {
+    const meta = TYPE_META[t.job_type] || { chip: (t.job_type || '?').toUpperCase(), cls: 'chip-unknown' };
+    const name = AUTO_CATALOG[t.job_type]?.name || t.job_type;
+    const active = t.job_type === ovSelectedType ? ' active' : '';
+    return `<button class="ov-job${active}" data-job-type="${escHtml(t.job_type)}">
+      <span class="type-chip ${meta.cls}">${escHtml(meta.chip)}</span>
+      <span class="ov-job-name">${escHtml(name)}</span>
+      <span class="ov-job-count">${t.run_count}</span>
+    </button>`;
+  }).join('');
+}
+
+async function selectOverviewType(jobType) {
+  ovSelectedType = jobType;
+  renderOverviewTypeList();
+  const wrap = document.getElementById('ov-grid-wrap');
+  wrap.innerHTML = '<div class="loading-state">Loading…</div>';
+  try {
+    const resp = await fetch(`/api/overview/${encodeURIComponent(jobType)}?limit=40`);
+    if (!resp.ok) throw new Error('Failed to load overview');
+    wrap.innerHTML = renderOverviewGrid(await resp.json());
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
+  }
+}
+
+const OV_ICON = { done: '✓', success: '✓', running: '', failed: '✕', pending: '' };
+
+function renderOverviewGrid(data) {
+  const { job_type, task_names, runs } = data;
+  ovCurrentRuns = runs || [];
+  const name = AUTO_CATALOG[job_type]?.name || job_type;
+  if (!runs || !runs.length) {
+    return `<div class="ov-grid-head"><h2>${escHtml(name)}</h2></div>
+      <div class="empty-state">No runs for this automation yet.</div>`;
+  }
+  const durs = runs.map(r => r.duration_secs || 0);
+  const maxDur = Math.max(...durs, 1);
+  const bars = runs.map(r => {
+    const d = r.duration_secs || 0;
+    const h = Math.max(3, Math.round((d / maxDur) * 46));
+    return `<div class="ov-bar ov-fill-${r.status}" style="height:${h}px" title="${escHtml(r.job_name)} · run #${r.run_id} · ${r.status} · ${fmtDur(d) || '—'}"></div>`;
+  }).join('');
+
+  const tip = r => `${escHtml(r.job_name)} · run #${r.run_id} · ${r.status} · ${new Date(r.started_at).toLocaleString()}`;
+  // Header run-cell → click shows the full run log (step -1).
+  const runHead = runs.map(r =>
+    `<div class="ov-cell ov-clickable ov-fill-${r.status}" data-run-id="${r.run_id}" data-step="-1" title="${tip(r)} · click for full log">${OV_ICON[r.status] || ''}</div>`
+  ).join('');
+
+  const rows = task_names.map((tname, ri) => {
+    const cells = runs.map(r => {
+      const status = r.steps[ri] ? r.steps[ri].status : 'pending';
+      return `<div class="ov-cell ov-clickable ov-fill-${status}" data-run-id="${r.run_id}" data-step="${ri}" title="${escHtml(tname)} · ${escHtml(r.job_name)} · run #${r.run_id} · ${status} · click for log">${OV_ICON[status] || ''}</div>`;
+    }).join('');
+    return `<div class="ov-row"><div class="ov-row-label" title="${escHtml(tname)}">${escHtml(tname)}</div><div class="ov-cells">${cells}</div></div>`;
+  }).join('');
+
+  const nSuccess = runs.filter(r => r.status === 'success').length;
+  const nFailed  = runs.filter(r => r.status === 'failed').length;
+
+  return `
+    <div class="ov-grid-head">
+      <h2>${escHtml(name)} <span class="muted" style="font-weight:400;font-size:0.8rem">${escHtml(job_type)}</span></h2>
+      <div class="ov-summary">
+        <span class="ov-stat"><b>${runs.length}</b> runs</span>
+        <span class="ov-stat ov-stat-ok"><b>${nSuccess}</b> ok</span>
+        <span class="ov-stat ov-stat-fail"><b>${nFailed}</b> failed</span>
+      </div>
+    </div>
+    <div class="ov-duration-chart" title="Run duration (oldest → newest)">${bars}</div>
+    <div class="ov-grid-scroll"><div class="ov-grid">
+      <div class="ov-row ov-row-head"><div class="ov-row-label">Task \\ Run →</div><div class="ov-cells">${runHead}</div></div>
+      ${rows}
+    </div></div>
+    <div class="ov-legend">
+      <span><i class="ov-cell ov-fill-success"></i> success</span>
+      <span><i class="ov-cell ov-fill-failed"></i> failed</span>
+      <span><i class="ov-cell ov-fill-running"></i> running</span>
+      <span><i class="ov-cell ov-fill-pending"></i> pending</span>
+      <span class="ov-legend-hint">— click any cell to see that step's log</span>
+    </div>
+    <div id="ov-step-log" class="ov-step-log hidden"></div>`;
+}
+
+document.getElementById('ov-joblist').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-job-type]');
+  if (btn) selectOverviewType(btn.dataset.jobType);
+});
+
+// Drill-down: click a grid cell → show that step's log below the grid.
+document.getElementById('ov-grid-wrap').addEventListener('click', (e) => {
+  const cell = e.target.closest('.ov-cell[data-run-id]');
+  if (!cell) return;
+  document.querySelectorAll('#ov-grid-wrap .ov-cell.selected').forEach(c => c.classList.remove('selected'));
+  cell.classList.add('selected');
+  showStepLog(parseInt(cell.dataset.runId, 10), parseInt(cell.dataset.step, 10));
+});
+
+async function showStepLog(runId, stepIdx) {
+  const panel = document.getElementById('ov-step-log');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  panel.innerHTML = '<div class="loading-state">Loading…</div>';
+  const run = ovCurrentRuns.find(r => r.run_id === runId);
+  const label = run ? `${escHtml(run.job_name)} · run #${runId}` : `run #${runId}`;
+  try {
+    const resp = await fetch(`/api/runs/${runId}/steps`);
+    if (!resp.ok) throw new Error('Failed to load step log');
+    const data = await resp.json();
+    let title, logs, status;
+    if (stepIdx < 0) {
+      title = 'Full run log';
+      status = data.status;
+      logs = (data.steps || []).flatMap(s => s.logs || []);
+    } else {
+      const st = (data.steps || [])[stepIdx];
+      title = st ? st.name : `step ${stepIdx + 1}`;
+      status = st ? st.status : 'pending';
+      logs = st ? (st.logs || []) : [];
+    }
+    const body = logs.length
+      ? `<ul class="ov-step-log-list">${logs.map(l =>
+          `<li><span class="ov-log-ts">${escHtml(l.ts || '')}</span> ${escHtml(l.msg || '')}</li>`).join('')}</ul>`
+      : '<div class="empty-state" style="padding:1rem">No log entries for this step.</div>';
+    panel.innerHTML = `
+      <div class="ov-step-log-head">
+        <span class="ov-cell ov-fill-${status}" style="cursor:default">${OV_ICON[status] || ''}</span>
+        <strong>${escHtml(title)}</strong>
+        <span class="muted">${label}</span>
+        <button class="btn btn-ghost btn-sm" id="ov-step-log-close" style="margin-left:auto">✕ Close</button>
+      </div>${body}`;
+    document.getElementById('ov-step-log-close').addEventListener('click', () => {
+      panel.classList.add('hidden');
+      document.querySelectorAll('#ov-grid-wrap .ov-cell.selected').forEach(c => c.classList.remove('selected'));
+    });
+  } catch (err) {
+    panel.innerHTML = `<div class="empty-state">${escHtml(err.message)}</div>`;
+  }
+}
+
+// ══════════════════════════════════════ SCHEDULES ════════════════════════════════
+
+async function loadSchedulesPage() {
+  const tbody = document.getElementById('schedules-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Loading…</td></tr>';
+  try {
+    const resp = await fetch('/api/schedules');
+    if (!resp.ok) throw new Error('Failed to load schedules');
+    renderSchedules(await resp.json());
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderSchedules(rows) {
+  const tbody = document.getElementById('schedules-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No scheduled jobs. Add a Schedule in the New Run dialog.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const meta = TYPE_META[r.job_type] || { chip: (r.job_type || '?').toUpperCase(), cls: 'chip-unknown' };
+    const next = r.next_run_at ? new Date(r.next_run_at).toLocaleString() : '<span class="muted">—</span>';
+    const cronStyle = r.valid ? '' : ' style="color:var(--red)"';
+    const last = r.last_run
+      ? `<span class="badge badge-${r.last_run.status}">${r.last_run.status}</span> <span class="muted">${new Date(r.last_run.started_at).toLocaleString()}</span>`
+      : '<span class="muted">never</span>';
+    return `<tr>
+      <td><span class="job-name-text" title="${escHtml(r.name)}">${escHtml(r.name)}</span></td>
+      <td><span class="type-chip ${meta.cls}">${escHtml(meta.chip)}</span></td>
+      <td><code${cronStyle}>${escHtml(r.schedule)}</code>${r.valid ? '' : ' <span class="muted">(invalid)</span>'}</td>
+      <td>${next}</td>
+      <td>${r.run_count}</td>
+      <td>${last}</td>
+      <td class="th-actions">
+        <button class="btn btn-ghost btn-sm" data-sched-run="${r.job_id}">Run now</button>
+        <button class="btn btn-ghost btn-sm" data-sched-edit="${r.job_id}" data-cron="${escHtml(r.schedule)}">Edit</button>
+        <button class="btn btn-ghost btn-sm" data-sched-unset="${r.job_id}" data-name="${escHtml(r.name)}">Unschedule</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function editSchedule(jobId, currentCron) {
+  const next = prompt('New cron expression (min hour day month weekday, UTC):', currentCron || '');
+  if (next === null) return;  // cancelled
+  const cron = next.trim();
+  if (!cron) { showToast('Empty — use Unschedule to remove the schedule', 'error'); return; }
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: cron }),
+    });
+    if (resp.status === 400) {
+      const e = await resp.json().catch(() => ({}));
+      showToast(e.detail || 'Invalid cron expression', 'error');
+      return;
+    }
+    if (!resp.ok) throw new Error('Update failed');
+    showToast('Schedule updated', 'success');
+    loadSchedulesPage();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function unscheduleJob(jobId, name) {
+  const ok = await confirmDialog('Remove schedule', `Stop running "${name}" on a schedule? The job itself is kept.`);
+  if (!ok) return;
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: null }),
+    });
+    if (!resp.ok) throw new Error('Update failed');
+    showToast('Schedule removed', 'success');
+    loadSchedulesPage();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+document.getElementById('schedules-refresh-btn').addEventListener('click', loadSchedulesPage);
+document.getElementById('schedules-tbody').addEventListener('click', (e) => {
+  const runBtn = e.target.closest('[data-sched-run]');
+  if (runBtn) { navigate('activity'); rerun(parseInt(runBtn.dataset.schedRun, 10)); return; }
+  const editBtn = e.target.closest('[data-sched-edit]');
+  if (editBtn) { editSchedule(parseInt(editBtn.dataset.schedEdit, 10), editBtn.dataset.cron); return; }
+  const unsetBtn = e.target.closest('[data-sched-unset]');
+  if (unsetBtn) { unscheduleJob(parseInt(unsetBtn.dataset.schedUnset, 10), unsetBtn.dataset.name); return; }
+});
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let activeEventSource  = null;
@@ -434,6 +698,8 @@ function navigate(page) {
   if (page === 'system')    loadSystemPage();
   if (page === 'run')       renderAutomationsPage();
   if (page === 'analytics') loadPerformancePage();
+  if (page === 'overview')  loadOverviewPage();
+  if (page === 'schedules') loadSchedulesPage();
   if (page === 'admin')     loadAdminPage();
   if (page === 'landing')   window.scrollTo({ top: 0 });
 }
@@ -472,7 +738,7 @@ document.getElementById('lp-cta-run').addEventListener('click', () => openModal(
 document.getElementById('lp-cta-dash').addEventListener('click', () => navigate('activity'));
 
 // Navigate to the page in the hash on load, defaulting to the landing page
-const VALID_PAGES = ['landing','run','activity','system','analytics','admin'];
+const VALID_PAGES = ['landing','run','activity','overview','schedules','system','analytics','admin'];
 
 // Automations the current user may see/launch (admins see all; others get the
 // intersection of globally-enabled and their personal allowlist).
@@ -915,6 +1181,10 @@ document.getElementById('run-new-btn').addEventListener('click', () => openModal
 document.getElementById('modal-close').addEventListener('click', closeModalFn);
 document.getElementById('cancel-btn').addEventListener('click', closeModalFn);
 document.getElementById('llm-provider').addEventListener('change', updateModelOptions);
+document.getElementById('job-schedule-preset').addEventListener('change', (e) => {
+  if (e.target.value) document.getElementById('job-schedule').value = e.target.value;
+  e.target.value = '';  // reset the picker; the text field is the source of truth
+});
 document.getElementById('ph-files').addEventListener('change', renderPhClassified);
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModalFn(); });
 
@@ -1364,13 +1634,44 @@ runForm.addEventListener('submit', async (e) => {
   payload.llm_provider = document.getElementById('llm-provider').value;
   payload.llm_model    = document.getElementById('llm-model').value;
 
+  const schedule = document.getElementById('job-schedule').value.trim();
+
   closeModalFn();
   runForm.reset();
   selectJobType('google_form_fill');
   updateModelOptions();
-  navigate('activity');
-  await triggerRun(jobType, jobName, payload);
+
+  if (schedule) {
+    // Scheduled job: save it (server validates the cron) and let the scheduler
+    // run it — do NOT trigger a run now.
+    await createScheduledJob(jobType, jobName, payload, schedule);
+  } else {
+    navigate('activity');
+    await triggerRun(jobType, jobName, payload);
+  }
 });
+
+// ── Create a scheduled (cron) job without running it now ───────────────────────
+
+async function createScheduledJob(jobType, jobName, payload, schedule) {
+  try {
+    const resp = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: jobName, job_type: jobType, payload, schedule }),
+    });
+    if (resp.status === 400) {
+      const e = await resp.json().catch(() => ({}));
+      showToast(e.detail || 'Invalid cron expression', 'error');
+      return;
+    }
+    if (!resp.ok) throw new Error('Failed to save scheduled job');
+    showToast(`Scheduled "${jobName}" (${schedule})`, 'success');
+    navigate('schedules');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
 
 // ── Trigger a new run ─────────────────────────────────────────────────────────
 

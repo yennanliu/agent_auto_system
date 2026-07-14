@@ -20,14 +20,20 @@ uv run python scripts/tasker_login.py                # persist a tasker.com.tw s
 ## Architecture
 
 ```
-POST /api/jobs           → create Job row (stores payload JSON)
-POST /api/jobs/{id}/run  → create Run (pending), asyncio.create_task → 202
+POST /api/jobs           → create Job row (stores payload JSON, optional cron `schedule`)
+POST /api/jobs/{id}/run  → launcher.launch_run() → Run (pending), asyncio.create_task → 202
 Background task          → executor.execute_run() → Flow → Crew → Tool(s)
 GET /api/runs/{id}/stream → SSE, polls DB every 0.5 s until terminal status
+Cron scheduler           → ticks every SCHEDULER_INTERVAL s, fires due schedules via launch_run
+GET /api/schedules        → scheduled jobs + next_run_at + last-run summary
+GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step status
 ```
 
 | Layer | File(s) | Role |
 |---|---|---|
+| Launcher | `src/automation/launcher.py` | `launch_run()` — the single create-Run → task → register path shared by the HTTP trigger and the scheduler |
+| Scheduler | `src/automation/scheduler.py` | `CronScheduler` (started in `main.lifespan`); `_sync_and_collect()` is the pure, unit-tested due-detection core. `cron_utils.py` wraps croniter (macros, validation, next-fire). Disable with `SCHEDULER_ENABLED=0` |
+| Overview | `src/automation/flow_steps.py` | Canonical flow-step definitions + `infer_step_states()`; source of truth for the `/jobs/{id}/overview` grid (mirrors `ui/app.js` `FLOW_STEPS`) |
 | Executor | `src/automation/executor.py` | `_FLOW_MAP` dispatch, retry loop + cross-model fallback, validate → evaluate → Langfuse trace, `_update_run()` |
 | Harness | `src/automation/harness/` | `provider.py` (LLM + `fallback_sequence`), `validator.py` (quality gate), `evaluator.py` (independent LLM-as-judge), `costs.py` (pricing), `langfuse_tracer.py` (per-run trace, no-op unless keyed) |
 | Flows | `src/automation/flows/*_flow.py` | `crewai.Flow[StateModel]`; each calls `harness.provider.resolve()` at a job-specific `temperature` |

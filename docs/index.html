@@ -249,6 +249,43 @@
     html { scroll-behavior: auto; }
   }
 
+  /* ── Architecture (dark interlude) ── */
+  .arch { background: var(--ink); position: relative; overflow: hidden; }
+  .arch .glow { position: absolute; width: 520px; height: 520px; border-radius: 50%; filter: blur(30px); opacity: 0.5; pointer-events: none; }
+  .arch .glow.b { background: radial-gradient(circle, rgba(47,107,255,0.28), transparent 70%); top: -180px; right: -120px; }
+  .arch .glow.m { background: radial-gradient(circle, rgba(52,201,138,0.22), transparent 70%); bottom: -200px; left: -140px; }
+  .arch .shell { position: relative; z-index: 1; }
+  .arch h2 { color: #fff; }
+  .arch .kicker { color: var(--moss); }
+  .arch .lede { color: rgba(255,255,255,0.72); }
+
+  .diagram { display: grid; gap: 0; max-width: 940px; margin: 0 auto; }
+  .layer {
+    background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.14); border-radius: 14px;
+    padding: 20px 22px; backdrop-filter: blur(2px);
+  }
+  .layer .lname { display: flex; align-items: baseline; gap: 10px; color: #fff; font-weight: 500; font-size: 16px; letter-spacing: -0.01em; }
+  .layer .lname .tag { font-family: var(--mono); font-size: 11px; color: var(--moss); font-weight: 400; letter-spacing: 0; }
+  .layer .ldesc { color: rgba(255,255,255,0.55); font-size: 13.5px; margin: 4px 0 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { font-family: var(--mono); font-size: 12px; color: #cdd3da; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); padding: 4px 9px; border-radius: 7px; white-space: nowrap; }
+  .chip.b { color: #bcd0ff; border-color: rgba(47,107,255,0.4); background: rgba(47,107,255,0.14); }
+  .chip.m { color: #b6f0d6; border-color: rgba(52,201,138,0.4); background: rgba(52,201,138,0.14); }
+  .conn { justify-self: center; display: flex; flex-direction: column; align-items: center; padding: 7px 0; }
+  .conn .line { width: 2px; height: 18px; background: linear-gradient(180deg, rgba(52,201,138,0.7), rgba(255,255,255,0.15)); }
+  .conn .clabel { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.45); margin: 5px 0 2px; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .split { grid-template-columns: 1fr; } }
+
+  .arch-notes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px 40px; max-width: 940px; margin: 52px auto 0; }
+  @media (max-width: 760px) { .arch-notes { grid-template-columns: 1fr; } }
+  .anote { display: flex; gap: 14px; }
+  .anote .d { width: 9px; height: 9px; border-radius: 50%; background: var(--moss); flex-shrink: 0; margin-top: 6px; box-shadow: 0 0 0 4px rgba(52,201,138,0.14); }
+  .anote:nth-child(2n) .d { background: var(--accent); box-shadow: 0 0 0 4px rgba(47,107,255,0.16); }
+  .anote h4 { color: #fff; font-size: 15px; font-weight: 500; margin-bottom: 4px; letter-spacing: -0.01em; }
+  .anote p { color: rgba(255,255,255,0.6); font-size: 14px; line-height: 1.55; }
+  .anote code { font-family: var(--mono); font-size: 0.86em; color: #bcd0ff; background: rgba(47,107,255,0.14); padding: 1px 6px; border-radius: 5px; }
+
   /* ── Guide ── */
   .guide-part { margin-bottom: 64px; }
   .guide-part:last-child { margin-bottom: 0; }
@@ -323,6 +360,7 @@
 <nav id="nav">
   <a class="wordmark" href="#top"><span class="dot"></span>Agent&nbsp;Auto&nbsp;System</a>
   <div class="nav-links">
+    <a class="link" href="#architecture">Architecture</a>
     <a class="link" href="#harness">Harness</a>
     <a class="link" href="#jobs">Automations</a>
     <a class="link" href="#flow">How it runs</a>
@@ -355,6 +393,74 @@
       <div class="stat reveal"><div class="num">3</div><div class="label">LLM providers — OpenAI, Anthropic, Gemini — chosen per run</div></div>
       <div class="stat reveal"><div class="num">380</div><div class="label">Unit &amp; integration tests, with CI + Docker smoke checks</div></div>
       <div class="stat reveal"><div class="num">~450<small>MB</small></div><div class="label">Slim runtime image; secrets injected only at runtime</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="architecture" class="arch">
+  <div class="glow b"></div><div class="glow m"></div>
+  <div class="shell">
+    <div class="sec-head center reveal">
+      <span class="kicker">Architecture</span>
+      <h2>One request, <b>six clean layers</b></h2>
+      <p class="lede">A FastAPI front door returns instantly and runs each job in the background. The harness sits between the executor and CrewAI, owning everything cross-cutting — so flows, crews, and tools stay pure.</p>
+    </div>
+
+    <div class="diagram reveal">
+      <div class="layer">
+        <div class="lname">Browser UI <span class="tag">HTML + vanilla JS · login-gated</span></div>
+        <div class="ldesc">Automation picker &amp; per-job form, live SSE progress + step graph, run history, usage/eval, analytics, admin, CSV/PDF exports.</div>
+        <div class="chips"><span class="chip">automation picker</span><span class="chip">live progress</span><span class="chip">run history</span><span class="chip">analytics</span><span class="chip">admin</span></div>
+      </div>
+
+      <div class="conn"><span class="line"></span><span class="clabel">HTTP / SSE · cookie auth</span><span class="line"></span></div>
+
+      <div class="layer">
+        <div class="lname">FastAPI <span class="tag">src/main.py · lifespan: init_db + reconcile_stale_runs</span></div>
+        <div class="ldesc">Six routers. <code style="font-family:var(--mono);font-size:12px;color:#b6f0d6">POST /api/jobs/{id}/run</code> creates a run and returns <b>202</b>, then runs the flow in an <code style="font-family:var(--mono);font-size:12px;color:#bcd0ff">asyncio.create_task</code>.</div>
+        <div class="chips"><span class="chip b">auth</span><span class="chip b">admin</span><span class="chip b">jobs</span><span class="chip b">runs</span><span class="chip b">system</span><span class="chip b">uploads</span></div>
+      </div>
+
+      <div class="conn"><span class="line"></span><span class="clabel">dispatch job_type → Flow</span><span class="line"></span></div>
+
+      <div class="split">
+        <div class="layer">
+          <div class="lname">SQLite / Postgres <span class="tag">SQLModel</span></div>
+          <div class="ldesc">Single-node by default; set <code style="font-family:var(--mono);font-size:12px;color:#bcd0ff">DATABASE_URL</code> for prod.</div>
+          <div class="chips"><span class="chip">users · settings</span><span class="chip">jobs · runs</span><span class="chip m">tokens · cost</span><span class="chip m">eval_score</span></div>
+        </div>
+        <div class="layer">
+          <div class="lname">Harness Executor</div>
+          <div class="ldesc">The retry/fallback/eval loop around every kickoff.</div>
+          <div class="chips"><span class="chip">normalize</span><span class="chip">dispatch</span><span class="chip">validate</span><span class="chip b">retry + fallback</span><span class="chip m">evaluate</span><span class="chip">trace</span></div>
+        </div>
+      </div>
+
+      <div class="conn"><span class="line"></span><span class="clabel">resolve(provider, model, temperature)</span><span class="line"></span></div>
+
+      <div class="layer">
+        <div class="lname">Flows → Crews → Tools <span class="tag">per-flow temperature · plain classes, no @CrewBase</span></div>
+        <div class="ldesc">Each flow builds a fresh Agent/Task/Crew per run and drives its tools to structured JSON.</div>
+        <div class="chips"><span class="chip">form_fill</span><span class="chip">web_scraper</span><span class="chip">hn_digest</span><span class="chip">x_scraper</span><span class="chip">email_collect</span><span class="chip">shopee</span><span class="chip">profit_health</span><span class="chip">tasker_apply</span><span class="chip">pipeline</span></div>
+      </div>
+
+      <div class="conn"><span class="line"></span><span class="clabel">cross-cutting services</span><span class="line"></span></div>
+
+      <div class="layer">
+        <div class="lname">src/automation/harness/ <span class="tag">the control plane</span></div>
+        <div class="ldesc">Owns LLM selection, validation, evaluation, cost, and tracing — business logic never touches it.</div>
+        <div class="chips"><span class="chip b">provider.py</span><span class="chip">validator.py</span><span class="chip m">evaluator.py</span><span class="chip">costs.py</span><span class="chip">langfuse_tracer.py</span><span class="chip">registry.py</span></div>
+      </div>
+    </div>
+
+    <div class="arch-notes reveal">
+      <div class="anote"><span class="d"></span><div><h4>Non-blocking by design</h4><p>The API returns <code>202</code> immediately; flows run in a registered <code>asyncio</code> task so any run can be cancelled mid-flight.</p></div></div>
+      <div class="anote"><span class="d"></span><div><h4>Live, cheap streaming</h4><p><code>/stream</code> polls the DB every 0.5&nbsp;s; <code>append_log</code> uses <code>json_insert</code> to append atomically — no read-modify-write.</p></div></div>
+      <div class="anote"><span class="d"></span><div><h4>No <code>@CrewBase</code></h4><p>The decorator's <code>id(self)</code> memoize serves stale LLMs after GC reuses addresses. Crews are plain classes, rebuilt each run.</p></div></div>
+      <div class="anote"><span class="d"></span><div><h4>normalize vs. resolve</h4><p><code>normalize()</code> picks <code>(provider, model)</code> with no API call; <code>resolve()</code> builds the LLM only when a crew needs it.</p></div></div>
+      <div class="anote"><span class="d"></span><div><h4>Resilient startup</h4><p><code>reconcile_stale_runs()</code> marks orphaned <code>running</code>/<code>pending</code> rows as <code>failed</code> on every boot.</p></div></div>
+      <div class="anote"><span class="d"></span><div><h4>Scales down and up</h4><p>SQLite for a single node; point <code>DATABASE_URL</code> at Postgres for production — same code, same migrations.</p></div></div>
     </div>
   </div>
 </section>

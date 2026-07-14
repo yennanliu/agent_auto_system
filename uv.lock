@@ -15,6 +15,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bcrypt" },
     { name = "crewai", extra = ["google-genai", "tools"] },
+    { name = "croniter" },
     { name = "cryptography" },
     { name = "dnspython" },
     { name = "fastapi" },
@@ -48,6 +49,7 @@ dev = [
 requires-dist = [
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "crewai", extras = ["tools", "google-genai"], specifier = ">=0.80.0" },
+    { name = "croniter", specifier = ">=2.0.0" },
     { name = "cryptography", specifier = ">=48.0.0" },
     { name = "dnspython", specifier = ">=2.8.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
@@ -905,6 +907,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b2/ea/97b6a0e61b2117f9bd2dc9adf1af1f190cd5e69cebf10c5f4fe51d5c82af/crewai_tools-1.14.4.tar.gz", hash = "sha256:fe257e63a6fbc80f834543e033b2e5799446e32d471177397496d44d73a5a7d6", size = 896834, upload-time = "2026-04-30T19:12:46.114Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2f/3d/e6a15b9521b3127a1716fa56e83b65274b661871cd2d611c3655d54a8301/crewai_tools-1.14.4-py3-none-any.whl", hash = "sha256:675af68f85b4a8c5d958767d408970a30f3c19f2f8b727fb63ef72e649ea5970", size = 811057, upload-time = "2026-04-30T19:12:43.668Z" },
+]
+
+[[package]]
+name = "croniter"
+version = "6.2.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/37/57/2e2a65aee2a70483cb28e2b7e15a072d00a523207593b44400d4717bb100/croniter-6.2.4.tar.gz", hash = "sha256:fc124f751b1b04805c2a04b061898b436b45ab2320b045e1e052ea895de65189", size = 166267, upload-time = "2026-07-10T09:52:59.955Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/ba/d678e5bd329646ca51d3c92addbc77804e86d21f4b6b6a027218e6abb010/croniter-6.2.4-py3-none-any.whl", hash = "sha256:8ef3d544107a5c05a150a2d78f8bf5a8eb9c5c4d93405a736b824109574e3f4d", size = 46677, upload-time = "2026-07-10T09:52:58.425Z" },
 ]
 
 [[package]]

@@ -117,7 +117,7 @@ async def test_bulk_delete_only_removes_own(anon_client, test_engine):
 # ── Triggering records the owner ──────────────────────────────────────────────
 
 async def test_trigger_records_owner(anon_client, test_engine, mocker):
-    mocker.patch("src.routers.runs._run_in_background", new=AsyncMock())
+    mocker.patch("src.automation.launcher._run_in_background", new=AsyncMock())
     alice = _user(test_engine, "alice")
     job = _job(test_engine)
 

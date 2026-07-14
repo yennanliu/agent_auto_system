@@ -11,8 +11,8 @@ from sqlalchemy import func, text
 from sqlmodel import Session, select
 
 from src.auth import assert_can_run, require_user
+from src.automation.launcher import launch_run
 from src.automation.registry import cancel as cancel_task
-from src.automation.registry import register, unregister
 from src.automation.report_render import REPORTS_ROOT
 from src.database import get_engine, get_session
 from src.models import Job, Run, User
@@ -38,15 +38,8 @@ async def trigger_run(
         raise HTTPException(status_code=404, detail="Job not found")
     assert_can_run(user, job.job_type)
 
-    run = Run(job_id=job_id, status="pending", user_id=user.id)
-    session.add(run)
-    session.commit()
-    session.refresh(run)
-    run_id = run.id
-
     payload = json.loads(job.payload)
-    task = asyncio.create_task(_run_in_background(run_id, job.job_type, payload))
-    register(run_id, task)
+    run_id = launch_run(job_id, job.job_type, payload, user_id=user.id, trigger="manual")
     logger.info("Triggered run_id=%d for job_id=%d (%s)", run_id, job_id, job.job_type)
 
     return {"run_id": run_id, "status": "pending"}
@@ -97,6 +90,7 @@ def list_runs(
     offset: int = 0,
     limit: int = 50,
     job_type: str | None = None,
+    job_id: int | None = None,
     status: str | None = None,
     started_after: str | None = None,
     started_before: str | None = None,
@@ -108,6 +102,8 @@ def list_runs(
         stmt = stmt.where(Run.user_id == user.id)  # users see only their own runs
     if status:
         stmt = stmt.where(Run.status == status)
+    if job_id is not None:
+        stmt = stmt.where(Run.job_id == job_id)
     if job_type:
         # Run has no job_type column; filter via the jobs of that type.
         stmt = stmt.where(Run.job_id.in_(select(Job.id).where(Job.job_type == job_type)))
@@ -646,11 +642,3 @@ def _empty_stats(days: int = 7):
         "total_tokens_in": 0, "total_tokens_out": 0, "total_tokens": 0,
         "total_cost_usd": 0.0, "by_provider": {}, "by_model": {},
     }
-
-
-async def _run_in_background(run_id: int, job_type: str, payload: dict):
-    from src.automation.executor import execute_run
-    try:
-        await execute_run(run_id, job_type, payload)
-    finally:
-        unregister(run_id)

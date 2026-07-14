@@ -362,7 +362,7 @@ async def test_stats_by_model_cost_efficiency(client, db_session):
 
 
 async def test_stats_active_count(client, db_session, mocker):
-    mocker.patch("src.routers.runs._run_in_background", new=AsyncMock())
+    mocker.patch("src.automation.launcher._run_in_background", new=AsyncMock())
     job = _make_job(db_session)
     _make_run(db_session, job.id, "running")
     _make_run(db_session, job.id, "pending")

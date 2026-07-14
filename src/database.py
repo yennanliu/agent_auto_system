@@ -41,6 +41,7 @@ def init_db():
             "ALTER TABLE run ADD COLUMN eval_method VARCHAR",
             "ALTER TABLE run ADD COLUMN user_id INTEGER",
             "ALTER TABLE job ADD COLUMN schedule VARCHAR",
+            "ALTER TABLE job ADD COLUMN created_by INTEGER",
             # Indexes for common query patterns
             "CREATE INDEX IF NOT EXISTS ix_run_job_id ON run(job_id)",
             "CREATE INDEX IF NOT EXISTS ix_run_status ON run(status)",
