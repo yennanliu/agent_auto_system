@@ -59,6 +59,37 @@ def _tasker_logged_in(page) -> bool:
     return not _looks_logged_out(page)
 
 
+# 104's login lives on dedicated hosts (login./signin.104.com.tw, plus the
+# corporate OIDC flow). A plain "URL no longer contains /login" check is wrong
+# here: those hosts don't have "/login" in the path, so it would fire the
+# instant the page loads and slam the window shut before you can type. We also
+# can't just invert the scraper's _looks_logged_out — on 104's current homepage
+# the header login link is hidden in a collapsed menu, so that heuristic
+# false-positives as "logged in". Instead require a *positive* account marker
+# (logout / 我的104 / avatar / mylife) that is only present once authenticated.
+_TW104_LOGIN_HOSTS = ("login.104.com.tw", "signin.104.com.tw", "/oidc/")
+_TW104_AUTHED_SELECTORS = (
+    ':text("登出")', ':text("我的104")', 'img[alt*="頭像"]',
+    'a[href*="/mylife"]', 'a[href*="logout"]',
+)
+
+
+def _tw104_logged_in(page) -> bool:
+    try:
+        url = page.url or ""
+    except Exception:  # noqa: BLE001 — page may be mid-navigation
+        return False
+    if any(h in url for h in _TW104_LOGIN_HOSTS):
+        return False
+    for sel in _TW104_AUTHED_SELECTORS:
+        try:
+            if page.locator(sel).count() > 0:
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
 def _url_left_login(login_marker: str) -> Callable[[object], bool]:
     """Generic check: authenticated once the page has navigated away from the
     login route. Good enough for sites that redirect to a dashboard on success."""
@@ -84,8 +115,8 @@ _SPECS: dict[str, SessionSpec] = {
         label="104.com.tw",
         state_env="TW104_STORAGE_STATE",
         default_state_path="data/tw104_state.json",
-        login_url="https://www.104.com.tw/login",
-        is_logged_in=_url_left_login("/login"),
+        login_url="https://login.104.com.tw/login",
+        is_logged_in=_tw104_logged_in,
     ),
     "shopee": SessionSpec(
         name="shopee",

@@ -29,7 +29,7 @@ load_dotenv()
 STATE_PATH = os.getenv("TW104_STORAGE_STATE", "data/tw104_state.json")
 USERNAME = os.getenv("TW104_USERNAME", "")
 PASSWORD = os.getenv("TW104_PASSWORD", "")
-_LOGIN_URL = "https://www.104.com.tw/login"
+_LOGIN_URL = "https://login.104.com.tw/login"
 
 
 def _prefill(page: Page) -> None:
@@ -39,9 +39,10 @@ def _prefill(page: Page) -> None:
         return
     filled = False
     for sel in (
-        'input[name*="account" i]', 'input[name*="email" i]',
+        'input[name="identity"]', 'input[name*="account" i]', 'input[name*="email" i]',
         'input[type="email"]', 'input[name*="username" i]',
-        'input[placeholder*="帳號"]', 'input[placeholder*="email" i]',
+        'input[placeholder*="身分證"]', 'input[placeholder*="帳號"]',
+        'input[placeholder*="Email" i]',
     ):
         try:
             loc = page.locator(sel).first
