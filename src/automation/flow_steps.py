@@ -8,62 +8,13 @@ present is the furthest the run reached. This mirrors the client-side
 """
 from __future__ import annotations
 
-# Validation + LLM-as-judge run centrally in the executor after every job.
-_QA = [("Verify", "Validating result"), ("Evaluate", "Evaluation complete")]
-_DONE = ("Done", "completed successfully")
+from src.automation.spec import step_map
 
-FLOW_STEPS: dict[str, list[tuple[str, str]]] = {
-    "google_form_fill": [
-        ("Start", "Starting"), ("Validate", "Payload validated"),
-        ("Inspect Form", "Inspecting Google Form"), ("Submit", "Form submission attempted"),
-        *_QA, _DONE,
-    ],
-    "web_scraper": [
-        ("Start", "Starting"), ("Validate", "Payload validated"),
-        ("Scrape", "scraper agent reading"), ("Analyze", "generated summary"),
-        *_QA, _DONE,
-    ],
-    "hacker_news_digest": [
-        ("Start", "Starting"), ("Validate", "Fetching top"),
-        ("Digest", "Digest generated"), *_QA, _DONE,
-    ],
-    "x_scraper": [
-        ("Start", "Starting"), ("Validate", "Validated payload"),
-        ("Fetch", "Fetching posts"), ("Analyze", "Analysis complete"), *_QA, _DONE,
-    ],
-    "email_sender": [
-        ("Start", "Starting"), ("Validate", "Sending to"),
-        ("Send", "Connecting to Gmail"), *_QA, _DONE,
-    ],
-    "google_sheet_reader": [
-        ("Start", "Starting"), ("Validate", "Validated sheet URL"),
-        ("Fetch", "Fetching Google Sheet"), ("Analyze", "Analyzing sheet data"), *_QA, _DONE,
-    ],
-    "shopee_seller_scraper": [
-        ("Start", "Starting"), ("Validate", "Validated payload for keyword"),
-        ("Search", "Loading Shopee session"), ("Collect", "Seller collection complete"),
-        *_QA, _DONE,
-    ],
-    "profit_health_check": [
-        ("Start", "Starting"), ("Load CSV", "Loaded CSVs"),
-        ("驗證", "蝦皮資料驗證員"), ("修正", "蝦皮資料修正員"),
-        ("分析", "蝦皮利潤分析師"), ("建議", "蝦皮營運行動建議員"),
-        ("PDF", "PDF 報告"), *_QA, _DONE,
-    ],
-    "tasker_apply": [
-        ("Start", "Starting"), ("Validate", "Payload validated"),
-        ("Login", "Loading tasker.com.tw session"), ("Apply", "run complete"), *_QA, _DONE,
-    ],
-    "tw104_apply": [
-        ("Start", "Starting"), ("Validate", "Payload validated"),
-        ("Login", "Loading 104.com.tw session"), ("Apply", "run complete"), *_QA, _DONE,
-    ],
-    "email_collect": [
-        ("Start", "Starting"), ("Validate", "Payload validated"),
-        ("Discover", "Discovering businesses"), ("Extract", "Extracting email"),
-        ("Collect", "Collected"), ("Qualify", "Qualifying"), *_QA, _DONE,
-    ],
-}
+# Canonical per-job-type step graph, derived from the automation registry (SSOT).
+# job_type → ordered [(label, trigger)]. ``trigger`` is a substring searched for
+# in a run's progress log. Kept identical to the client-side FLOW_STEPS in
+# ui/app.js (Phase 2 will serve both from a manifest). See src/automation/spec.py.
+FLOW_STEPS: dict[str, list[tuple[str, str]]] = step_map()
 
 
 def step_labels(job_type: str) -> list[str]:

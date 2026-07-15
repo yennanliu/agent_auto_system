@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session
 
+from src.automation import spec
 from src.automation.harness import langfuse_tracer
 from src.automation.harness.costs import estimate_cost
 from src.automation.harness.evaluator import evaluate
@@ -66,19 +67,10 @@ def _parse_result(result_str: str) -> dict:
     return {"message": result_str}
 
 
-_FLOW_MAP = {
-    "google_form_fill":    ("src.automation.flows.form_fill_flow",      "FormFillFlow",      "Launching form fill agent..."),
-    "web_scraper":         ("src.automation.flows.web_scraper_flow",     "WebScraperFlow",    "Launching web scraper agent..."),
-    "email_sender":        ("src.automation.flows.email_sender_flow",    "EmailSenderFlow",   "Preparing email delivery..."),
-    "hacker_news_digest":  ("src.automation.flows.hn_digest_flow",       "HNDigestFlow",      "Contacting Hacker News API..."),
-    "x_scraper":           ("src.automation.flows.x_scraper_flow",       "XScraperFlow",      "Connecting to X profile scraper..."),
-    "google_sheet_reader": ("src.automation.flows.google_sheet_flow",    "GoogleSheetFlow",   "Connecting to Google Sheets..."),
-    "shopee_seller_scraper": ("src.automation.flows.shopee_seller_flow",  "ShopeeSellerFlow",  "Loading Shopee session..."),
-    "profit_health_check":   ("src.automation.flows.profit_health_flow",   "ProfitHealthFlow",  "解析 CSV，計算利潤健檢..."),
-    "tasker_apply":          ("src.automation.flows.tasker_apply_flow",    "TaskerApplyFlow",   "Loading tasker.com.tw session..."),
-    "tw104_apply":           ("src.automation.flows.tw104_apply_flow",     "TW104ApplyFlow",    "Loading 104.com.tw session..."),
-    "email_collect":          ("src.automation.flows.email_collect_flow",    "EmailCollectFlow",   "Starting lead-collection funnel..."),
-}
+# Dispatch table, derived from the automation registry (single source of truth).
+# job_type → (flow_module, flow_class, start_log). "pipeline" has no flow entry;
+# it is handled directly below. See src/automation/spec.py.
+_FLOW_MAP = spec.flow_map()
 
 
 async def _run_flow(run_id: int, job_type: str, payload: dict, effective_provider: str, effective_model: str):

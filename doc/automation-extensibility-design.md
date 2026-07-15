@@ -1,11 +1,13 @@
 # Automation Extensibility & Maintainability — Design Options
 
-> Status: **proposal / RFC** · Audience: maintainers · Scope: how new automations are
-> defined, registered, surfaced, and (eventually) authored by end users.
+> Status: **Phase 1 implemented** (Options A + B + C shipped) · Audience: maintainers ·
+> Scope: how new automations are defined, registered, surfaced, and (eventually) authored
+> by end users.
 >
 > This document maps how adding an automation works **today**, names the concrete
 > pain points, then lays out a menu of design options with **effort, pros, and cons**
-> for each — and a recommended phased roadmap.
+> for each — and a recommended phased roadmap. See [§8 Implementation status](#8-implementation-status)
+> for what has landed.
 
 ---
 
@@ -278,12 +280,12 @@ Add-an-automation cost, before vs. after:
 
 ## 5. Recommended roadmap
 
-**Phase 1 — Consolidate (highest ROI, low risk): A + C + B.**
+**Phase 1 — Consolidate (highest ROI, low risk): A + C + B. ✅ DONE.**
 Introduce `AutomationSpec` + registry, derive the five server dicts, build the System
 catalog from YAML, and add `BaseAutomationFlow`. Migrate automations one at a time behind a
 "registry is authoritative" test. Net effect: the "6 files" really becomes ~2, and
 forgetting a step becomes a boot/test error instead of a silent gap. Update `CLAUDE.md`
-"Adding a New Job Type" to the new flow. **~1 week.**
+"Adding a New Job Type" to the new flow. **~1 week.** — *Shipped; see [§8](#8-implementation-status).*
 
 **Phase 2 — Derive the UI: D (+E folds in).**
 Ship `GET /api/automations/manifest` and render picker/form/pipeline/steps from it. After
@@ -325,3 +327,62 @@ mistakes fail silently. The fix is a **single declarative `AutomationSpec` regis
 that everything derives from — do that first (with B + C), then **derive the UI from a
 manifest** (D). Only after that foundation is in place should we consider **plugins** (F) or
 true **no-code, user-authored automations** (G), the latter gated by a real security review.
+
+---
+
+## 8. Implementation status
+
+### Phase 1 — shipped (Options A + B + C)
+
+**A — `AutomationSpec` registry (SSOT).** New pure-data module `src/automation/spec.py`
+declares every job type once (`register(AutomationSpec(...))`) with name, icon, flow
+module/class, `start_log`, `temperature`, `steps`, `validate`, and `rubric`. Five consumers
+now *derive* their tables instead of hand-maintaining them:
+
+| Consumer (symbol) | Now derived from |
+|---|---|
+| `executor._FLOW_MAP` | `spec.flow_map()` |
+| `settings_store.ALL_AUTOMATIONS` | `spec.job_types()` |
+| `validator._CHECKS` | `spec.checks()` |
+| `evaluator._RUBRICS` | `spec.rubrics()` |
+| `flow_steps.FLOW_STEPS` | `spec.step_map()` |
+
+Symbol names and shapes are unchanged, so nothing downstream (or in tests that
+`patch.dict(_FLOW_MAP, …)`) had to change. `spec.py` imports nothing heavy (flows are
+referenced by `module:class` strings and imported lazily by the executor), so it is safe to
+import from low-level modules like `settings_store` with no import cycle. Kills duplication
+hazards **#1 (steps, was duplicated Python↔JS server-side)** and **#4 (job_type list)**.
+
+**Fail-loud guard.** `tests/unit/test_spec_registry.py` (19 tests) asserts the registry is
+internally consistent, matches every derived table, and that **every flow-backed spec's
+`(module, class)` actually imports** — so a misregistered automation is a red test, not a
+silent gap.
+
+**B — `FlowMixin._run_crew`.** The identical `resolve → kickoff → extract_usage →
+raw-extract` boilerplate in the six single-crew flows (`hn_digest`, `web_scraper`,
+`x_scraper`, `google_sheet`, `shopee_seller`, `form_fill`) collapsed to one call; each
+`execute_crew` is now ~6 lines. Implemented as a **mixin helper, not a Flow base class**:
+a probe confirmed the doc's warning — CrewAI's Flow metaclass does not route `kickoff`
+results through inherited `@start`/`@listen` methods (returns `None`). Deterministic /
+non-single-crew flows (`email_sender`, `email_collect`, `tasker_apply`, `tw104_apply`,
+`profit_health`) were intentionally left as-is.
+
+**C — System catalog agents from YAML.** `system.py` no longer hand-copies agent
+`role`/`goal`/`backstory`; a compact `_AGENT_DEFS` table (structural facts only) is merged
+with those fields read live from each crew's `agents.yaml` by `_build_agents()`. Kills
+duplication hazard **#2** — the System tab can no longer drift from the real agent config.
+
+**Invariants preserved:** no `@CrewBase`; constructor LLM injection; Pydantic
+`llm_provider`/`llm_model` on state; eval/trace still degrade gracefully; `get_stats()`
+single pass. Full suite green (**562 passed**, was 543 + 19 new registry tests); lint clean.
+
+**Docs:** `CLAUDE.md` "Adding a New Job Type" rewritten to the registry flow.
+
+### Not yet done
+
+- **Phase 2 (D + E):** manifest endpoint + schema-driven UI. The `AutomationSpec.fields`
+  slot exists but is intentionally unpopulated — form fields stay authoritative in
+  `ui/index.html` + `ui/app.js` until the UI is wired from a manifest (avoids introducing a
+  *new* unsynced copy in the meantime). Duplication hazard #3 (fields ×3) remains until then.
+- **Phase 3 (F / G):** plugin entry points and no-code user-authored automations — unchanged
+  from the proposal; the Phase 1 registry is the foundation they build on.
