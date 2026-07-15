@@ -92,6 +92,17 @@ are **derived from one declaration**. To add a job type:
 Run `pytest tests/unit/test_spec_registry.py` to confirm the new spec is consistent and its
 flow imports.
 
+**Manifest-driven UI (Phase 2).** `GET /api/automations/manifest` (`spec.manifest()`) drives
+the browser's picker, run form, and step graph. A spec with `custom_ui=False` + declared
+`fields` renders its form generically — **no UI edits needed**. Set `custom_ui=True` to keep a
+bespoke hand-written `#fields-<type>` form (file upload, pipeline, multi-field flows).
+
+**Custom & plugin automations (Phase 3).** Admins author no-code automations (`custom:<slug>`)
+in Admin → Custom; they are DB-backed (`src/custom_automations.py`), run as a single **no-tools**
+LLM agent (`DynamicCrew`) through the harness, and appear in the picker via the manifest.
+External packages can register specs via entry points — `spec.load_plugins()`, opt-in with
+`AUTOMATION_PLUGINS_ENABLED=1`. See [doc/automation-extensibility-design.md](doc/automation-extensibility-design.md).
+
 **Deterministic-funnel flows** (e.g. `email_collect`, `tasker_apply`) — drive the tools directly in the flow (fast/cheap/reliable) and use the crew only for the LLM-judgement step; don't make the agent orchestrate many tool calls. Return partial results + a `warnings` list from scraper tools instead of raising.
 
 **File-upload job types** (e.g. `profit_health_check`) — the UI POSTs files to `POST /api/uploads` (multipart, saved under `uploads/<uuid>/`), then creates the job with a small `{upload_id}` payload; the flow reads the files from disk. Keeps the payload JSON-only and re-runnable. See [doc/profit-health-check-design.md](doc/profit-health-check-design.md).

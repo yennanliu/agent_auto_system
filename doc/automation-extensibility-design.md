@@ -1,8 +1,8 @@
 # Automation Extensibility & Maintainability — Design Options
 
-> Status: **Phase 1 implemented** (Options A + B + C shipped) · Audience: maintainers ·
-> Scope: how new automations are defined, registered, surfaced, and (eventually) authored
-> by end users.
+> Status: **Phases 1–3 implemented** (Options A–G shipped; Phase 3G is a safe, admin-only,
+> LLM-only MVP — see §8) · Audience: maintainers · Scope: how new automations are defined,
+> registered, surfaced, and authored by end users.
 >
 > This document maps how adding an automation works **today**, names the concrete
 > pain points, then lays out a menu of design options with **effort, pros, and cons**
@@ -287,15 +287,16 @@ catalog from YAML, and add `BaseAutomationFlow`. Migrate automations one at a ti
 forgetting a step becomes a boot/test error instead of a silent gap. Update `CLAUDE.md`
 "Adding a New Job Type" to the new flow. **~1 week.** — *Shipped; see [§8](#8-implementation-status).*
 
-**Phase 2 — Derive the UI: D (+E folds in).**
-Ship `GET /api/automations/manifest` and render picker/form/pipeline/steps from it. After
-this, adding an automation touches **no** front-end code and the client can't drift from the
-server. **~1 week.**
+**Phase 2 — Derive the UI: D (+E folds in). ✅ DONE.**
+Ship `GET /api/automations/manifest` and render picker/form/steps from it. After
+this, adding a *standard* automation touches **no** front-end code and the client can't drift
+from the server. Bespoke forms stay as escape hatches. **~1 week.** — *Shipped; see [§8](#8-implementation-status).*
 
-**Phase 3 — Open it up: F and/or G, product-driven.**
-If third parties/tenants need private automations → **F**. If the goal is non-devs authoring
-automations in the browser → **G**, scoped to a safe single-crew template with a tool
-allowlist, cost caps, and a security review. **Weeks, with review.**
+**Phase 3 — Open it up: F and/or G, product-driven. ✅ DONE (G as a safe MVP).**
+Third-party/tenant automations → **F** (entry-point plugins, opt-in). Non-devs authoring in
+the browser → **G**, scoped to a safe single-crew template (admin-only, LLM-only/no tools).
+Richer G (tools, cost caps, non-admin authoring) still needs the security review. — *Shipped;
+see [§8](#8-implementation-status).*
 
 Phases 1–2 are pure maintainability wins with no user-visible behavior change. Phase 3 is a
 genuine product bet — do it only once the internal shape (Phase 1–2) makes it cheap and safe.
@@ -378,11 +379,53 @@ single pass. Full suite green (**562 passed**, was 543 + 19 new registry tests);
 
 **Docs:** `CLAUDE.md` "Adding a New Job Type" rewritten to the registry flow.
 
-### Not yet done
+### Phase 2 — shipped (Options D + E)
 
-- **Phase 2 (D + E):** manifest endpoint + schema-driven UI. The `AutomationSpec.fields`
-  slot exists but is intentionally unpopulated — form fields stay authoritative in
-  `ui/index.html` + `ui/app.js` until the UI is wired from a manifest (avoids introducing a
-  *new* unsynced copy in the meantime). Duplication hazard #3 (fields ×3) remains until then.
-- **Phase 3 (F / G):** plugin entry points and no-code user-authored automations — unchanged
-  from the proposal; the Phase 1 registry is the foundation they build on.
+**Manifest.** `GET /api/automations/manifest` (gated) serializes the registry via
+`spec.manifest()` — name, icon, desc, browser, custom_ui, name_template, help_note,
+`fields[]`, and `steps[[label,trigger]]`. `AutomationSpec` gained `fields`, `name_template`,
+`custom_ui`, `help_note`, `desc`.
+
+**Manifest-driven UI.** The browser loads the manifest at boot/login and now derives the
+picker tiles, the run form + payload for `custom_ui=false` automations (a generic renderer +
+`collectGenericPayload`), and the live step graph `FLOW_STEPS`. The 4 standard automations
+(`web_scraper`, `hacker_news_digest`, `google_sheet_reader`, `shopee_seller_scraper`) lost
+their hand-written `#fields-*` HTML and per-type submit branches — they render from the spec.
+The 8 with bespoke widgets (file upload, pipeline builder, multi-field flows) are flagged
+`custom_ui=True` and keep their forms (the escape hatch D calls for).
+
+**Net:** a new *standard* automation needs **zero UI edits**. Kills the client↔server
+step-def duplication (#1) and the standard form-field duplication; #3 remains only for the
+bespoke escape-hatch forms. Verified end-to-end in a browser.
+
+### Phase 3 — shipped (Options F + G)
+
+**F — Plugins.** `spec.load_plugins()` discovers automations from external packages via
+`importlib.metadata` entry points (group `agent_auto_system.automations`). OFF unless
+`AUTOMATION_PLUGINS_ENABLED=1` — third-party code runs at import, so it's an explicit trust
+opt-in. A plugin exposes `def setup(register): register(AutomationSpec(...))`.
+
+**G — No-code, user-authored automations (safe MVP).** Admins create automations from the
+**Admin → Custom** tab with no code: name, icon, inputs, instructions, expected output,
+temperature (`CustomAutomation` table + `src/custom_automations.py`). They become
+`custom:<slug>` and — because the UI is manifest-driven (D) — render a picker tile and run
+form automatically. They run through the full harness (validate / evaluate / cost).
+
+Security posture (MVP): **admin-only** authoring; **LLM-only — a single agent with an empty
+tool list** (`DynamicCrew`), so no network/filesystem/secret access and no code execution;
+per-input and instruction length caps. Broadening this (giving custom automations tools, or
+opening authoring to non-admins) is the part that needs the dedicated **security review**
+this RFC called for, and is deliberately left out of the MVP.
+
+Known limitation: newly created/deleted custom automations appear in the picker after a page
+reload (the manifest is fetched at boot); the create flow refreshes it in-session.
+
+**Invariants preserved** across Phases 2–3 (no `@CrewBase`, constructor LLM injection,
+graceful eval/trace, single-pass stats). **576 tests pass**; lint clean.
+
+### Still open (future work)
+
+- Fully retire duplication hazard #3 for the *bespoke* forms (tasker/tw104/profit/pipeline)
+  by extending the manifest field vocabulary (file upload, saved templates, dynamic selects).
+- The security review gating richer Phase-3G capabilities (tool allowlists, per-user cost
+  caps, non-admin authoring, definition versioning).

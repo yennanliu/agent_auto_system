@@ -22,8 +22,12 @@ crew, and (until Phase 2 wires the UI from a manifest) the UI form. See
 """
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 # Quality-assurance + terminal steps run centrally in the executor after every
 # job, so every flow's step graph ends with these. Mirrors flow_steps._QA/_DONE.
@@ -91,6 +95,38 @@ def register(spec: AutomationSpec) -> AutomationSpec:
         raise ValueError(f"duplicate automation registered: {spec.job_type!r}")
     REGISTRY[spec.job_type] = spec
     return spec
+
+
+PLUGIN_GROUP = "agent_auto_system.automations"
+
+
+def load_plugins() -> list[str]:
+    """Register automations from external packages via importlib entry points.
+
+    A plugin package exposes an entry point in group ``agent_auto_system.automations``
+    pointing at a callable ``def setup(register): register(AutomationSpec(...))``.
+
+    OFF unless ``AUTOMATION_PLUGINS_ENABLED=1``: third-party code executes at
+    import, so enabling plugins is an explicit trust decision (see Option F in
+    doc/automation-extensibility-design.md). Returns the names loaded.
+    """
+    if os.getenv("AUTOMATION_PLUGINS_ENABLED", "0") != "1":
+        return []
+    try:
+        from importlib.metadata import entry_points
+        eps = list(entry_points(group=PLUGIN_GROUP))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("automation plugin discovery failed: %s", exc)
+        return []
+    loaded: list[str] = []
+    for ep in eps:
+        try:
+            ep.load()(register)  # the plugin calls register() for each spec
+            loaded.append(ep.name)
+            logger.info("loaded automation plugin %r", ep.name)
+        except Exception as exc:  # noqa: BLE001 — a bad plugin must not crash boot
+            logger.warning("automation plugin %r failed to load: %s", ep.name, exc)
+    return loaded
 
 
 # ── Derivation helpers ──────────────────────────────────────────────────────
@@ -360,3 +396,8 @@ register(AutomationSpec(
     rubric="Each declared step ran and produced non-empty, on-topic output.",
     validate=lambda r: (bool(r.get("steps")), "pipeline completed no steps"),
 ))
+
+
+# Third-party automations (opt-in via AUTOMATION_PLUGINS_ENABLED=1). Runs after the
+# built-ins above so plugin specs are present before any consumer derives its table.
+load_plugins()

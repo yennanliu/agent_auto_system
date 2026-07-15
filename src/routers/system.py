@@ -804,7 +804,9 @@ def get_system():
 @router.get("/automations/manifest")
 def get_automations_manifest():
     """Declarative manifest of every automation, for the browser to render the
-    picker, run forms, and step graph from — see src/automation/spec.py."""
+    picker, run forms, and step graph from — see src/automation/spec.py. Includes
+    admin-authored custom automations (Phase 3G) so they render with no extra UI."""
+    from src import custom_automations
     from src.automation import spec
 
-    return {"automations": spec.manifest()}
+    return {"automations": spec.manifest() + custom_automations.manifest_entries()}

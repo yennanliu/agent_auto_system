@@ -262,3 +262,53 @@ def set_eval_judge(data: EvalJudgeUpdate):
         raise HTTPException(status_code=400, detail="Unknown model for provider")
     settings_store.set_eval_judge(provider, model)
     return _eval_judge_payload()
+
+
+# ── Custom (no-code) automations — Phase 3G ─────────────────────────────────────
+
+class CustomAutomationCreate(BaseModel):
+    name: str
+    instructions: str
+    icon: str = "✨"
+    description: str = ""
+    output_hint: str = ""
+    fields: list[dict] = []
+    temperature: float = 0.3
+
+
+@router.get("/admin/custom-automations")
+def list_custom_automations():
+    from src import custom_automations
+    return [custom_automations.to_public(r) for r in custom_automations.list_all()]
+
+
+@router.post("/admin/custom-automations", status_code=201)
+def create_custom_automation(
+    data: CustomAutomationCreate, admin: User = Depends(require_admin)
+):
+    from src import custom_automations
+    try:
+        row = custom_automations.create(
+            name=data.name, instructions=data.instructions, icon=data.icon,
+            description=data.description, output_hint=data.output_hint,
+            fields=data.fields, temperature=data.temperature, created_by=admin.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return custom_automations.to_public(row)
+
+
+@router.patch("/admin/custom-automations/{automation_id}")
+def toggle_custom_automation(automation_id: int, data: dict):
+    from src import custom_automations
+    row = custom_automations.set_enabled(automation_id, bool(data.get("enabled", True)))
+    if not row:
+        raise HTTPException(status_code=404, detail="Custom automation not found")
+    return custom_automations.to_public(row)
+
+
+@router.delete("/admin/custom-automations/{automation_id}", status_code=204)
+def delete_custom_automation(automation_id: int):
+    from src import custom_automations
+    if not custom_automations.delete(automation_id):
+        raise HTTPException(status_code=404, detail="Custom automation not found")

@@ -668,6 +668,9 @@ function visibleTypeSet() {
   // The global enabled set applies to everyone (disabled = blocked for all,
   // including admins). Admins bypass only the per-user allowlist.
   const enabled = new Set(CURRENT_USER.enabled_automations || ALL_TYPES);
+  // Custom (no-code) automations present in the manifest are enabled by definition
+  // (the manifest only lists enabled ones); the server still gates running them.
+  ALL_TYPES.forEach(t => { if (t.startsWith('custom:')) enabled.add(t); });
   if (CURRENT_USER.is_admin) return new Set(ALL_TYPES.filter(t => enabled.has(t)));
   const allowed = CURRENT_USER.allowed_automations;
   const allowAll = allowed === '*';
@@ -830,12 +833,125 @@ function adminSwitch(tab) {
   document.getElementById('admin-keys').hidden  = tab !== 'keys';
   document.getElementById('admin-judge').hidden = tab !== 'judge';
   document.getElementById('admin-autos').hidden = tab !== 'autos';
+  document.getElementById('admin-custom').hidden = tab !== 'custom';
   document.getElementById('admin-sessions').hidden = tab !== 'sessions';
   if (tab === 'users') renderAdminUsers();
   if (tab === 'keys')  renderAdminKeys();
   if (tab === 'judge') renderAdminJudge();
   if (tab === 'autos') renderAdminAutos();
+  if (tab === 'custom') renderAdminCustom();
   if (tab === 'sessions') renderAdminSessions();
+}
+
+// ── Custom (no-code) automations — Phase 3G ─────────────────────────────────────
+async function renderAdminCustom() {
+  const el = document.getElementById('admin-custom');
+  let rows = [];
+  try {
+    const resp = await fetch('/api/admin/custom-automations');
+    rows = resp.ok ? await resp.json() : [];
+  } catch (_) { /* show the empty form anyway */ }
+
+  const list = rows.length ? rows.map(r => `
+    <tr>
+      <td>${escHtml(r.icon)} <strong>${escHtml(r.name)}</strong><div class="muted" style="font-size:0.75rem">custom:${escHtml(r.slug)}</div></td>
+      <td>${escHtml(r.description || '—')}</td>
+      <td>${(r.fields || []).map(f => escHtml(f.name)).join(', ') || '—'}</td>
+      <td><span class="pill ${r.enabled ? 'pill-ok' : ''}">${r.enabled ? 'enabled' : 'disabled'}</span></td>
+      <td style="text-align:right">
+        <button class="btn-sm" data-cust-toggle="${r.id}" data-enabled="${r.enabled}">${r.enabled ? 'Disable' : 'Enable'}</button>
+        <button class="btn-sm" style="color:var(--red)" data-cust-del="${r.id}">Delete</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="5" class="muted" style="padding:1rem">No custom automations yet — create one below.</td></tr>`;
+
+  el.innerHTML = `
+    <p class="muted" style="margin-bottom:0.75rem">
+      Admin-authored, no-code automations. They run as a <strong>single LLM agent with no tools</strong>
+      (it only transforms the inputs you declare into JSON) through the normal harness — validated, scored, and cost-tracked.
+      They appear in the picker automatically after a page reload.
+    </p>
+    <table class="admin-table" style="margin-bottom:1.5rem">
+      <thead><tr><th>Automation</th><th>Description</th><th>Inputs</th><th>Status</th><th></th></tr></thead>
+      <tbody>${list}</tbody>
+    </table>
+
+    <h3 style="font-size:0.95rem;margin-bottom:0.5rem">New custom automation</h3>
+    <div class="field" style="display:flex;gap:0.5rem">
+      <div style="flex:3"><label>Name</label><input type="text" id="cust-name" placeholder="e.g. Tagline Writer" /></div>
+      <div style="flex:1"><label>Icon</label><input type="text" id="cust-icon" value="✨" maxlength="4" /></div>
+      <div style="flex:1"><label>Temp</label><input type="number" id="cust-temp" value="0.3" min="0" max="1" step="0.1" /></div>
+    </div>
+    <div class="field"><label>Short description</label><input type="text" id="cust-desc" placeholder="Shown on the picker tile" /></div>
+    <div class="field"><label>Instructions (what the agent should produce)</label>
+      <textarea id="cust-instructions" rows="4" placeholder="e.g. Write a punchy one-line marketing tagline for the given product. Return JSON: {&quot;tagline&quot;: &quot;…&quot;}"></textarea></div>
+    <div class="field"><label>Expected output (optional hint for the grader)</label>
+      <input type="text" id="cust-output" placeholder="e.g. A JSON object with a 'tagline' string" /></div>
+    <div class="field">
+      <label>Inputs</label>
+      <div id="cust-fields"></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="cust-add-field" style="margin-top:0.4rem">+ Add input</button>
+    </div>
+    <button type="button" class="btn btn-primary" id="cust-create">Create automation</button>
+  `;
+
+  const fieldsBox = el.querySelector('#cust-fields');
+  const addField = (name = '', label = '') => {
+    const row = document.createElement('div');
+    row.className = 'cust-field-row';
+    row.style = 'display:flex;gap:0.5rem;margin-bottom:0.4rem';
+    row.innerHTML = `
+      <input type="text" class="cf-name" placeholder="key (e.g. product)" value="${escHtml(name)}" style="flex:1" />
+      <input type="text" class="cf-label" placeholder="Label" value="${escHtml(label)}" style="flex:1" />
+      <select class="cf-type" style="flex:0 0 auto"><option value="text">text</option><option value="textarea">textarea</option><option value="number">number</option></select>
+      <button type="button" class="btn-sm cf-del">✕</button>`;
+    row.querySelector('.cf-del').onclick = () => row.remove();
+    fieldsBox.appendChild(row);
+  };
+  addField('product', 'Product');
+  el.querySelector('#cust-add-field').onclick = () => addField();
+
+  el.querySelectorAll('[data-cust-del]').forEach(b => b.onclick = async () => {
+    if (!await confirmDialog('Delete Custom Automation', 'Delete this custom automation?')) return;
+    await fetch(`/api/admin/custom-automations/${b.dataset.custDel}`, { method: 'DELETE' });
+    renderAdminCustom();
+  });
+  el.querySelectorAll('[data-cust-toggle]').forEach(b => b.onclick = async () => {
+    await fetch(`/api/admin/custom-automations/${b.dataset.custToggle}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: b.dataset.enabled !== 'true' }),
+    });
+    renderAdminCustom();
+  });
+
+  el.querySelector('#cust-create').onclick = async () => {
+    const fields = [...fieldsBox.querySelectorAll('.cust-field-row')].map(r => ({
+      name: r.querySelector('.cf-name').value.trim(),
+      label: r.querySelector('.cf-label').value.trim(),
+      type: r.querySelector('.cf-type').value,
+      required: true,
+    })).filter(f => f.name);
+    const body = {
+      name: document.getElementById('cust-name').value.trim(),
+      icon: document.getElementById('cust-icon').value.trim() || '✨',
+      description: document.getElementById('cust-desc').value.trim(),
+      instructions: document.getElementById('cust-instructions').value.trim(),
+      output_hint: document.getElementById('cust-output').value.trim(),
+      temperature: parseFloat(document.getElementById('cust-temp').value) || 0.3,
+      fields,
+    };
+    if (!body.name || !body.instructions) { showToast('Name and instructions are required', 'error'); return; }
+    const resp = await fetch('/api/admin/custom-automations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (resp.status === 201) {
+      showToast('Custom automation created — reload to see it in the picker', 'success');
+      await loadManifest(); renderTypeCards();
+      renderAdminCustom();
+    } else {
+      const e = await resp.json().catch(() => ({}));
+      showToast(e.detail || 'Create failed', 'error');
+    }
+  };
 }
 
 // Human "3 days ago" from an epoch-seconds mtime.

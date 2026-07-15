@@ -83,3 +83,34 @@ def test_manifest_shape():
     # A bespoke automation is flagged custom_ui so the UI shows its hand-written form.
     assert by["profit_health_check"]["custom_ui"] is True
     assert by["pipeline"]["custom_ui"] is True
+
+
+def test_plugins_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("AUTOMATION_PLUGINS_ENABLED", raising=False)
+    assert spec.load_plugins() == []
+
+
+def test_plugin_can_register_an_automation(monkeypatch):
+    """A third-party entry point registers a spec when plugins are enabled."""
+    monkeypatch.setenv("AUTOMATION_PLUGINS_ENABLED", "1")
+
+    def _setup(register):
+        register(spec.AutomationSpec(
+            job_type="plugin_demo", name="Plugin Demo", icon="🔌",
+            desc="from a plugin", rubric="demo",
+            validate=lambda r: (True, ""),
+        ))
+
+    class _EP:
+        name = "demo"
+        def load(self):  # noqa: D401
+            return _setup
+
+    monkeypatch.setattr("importlib.metadata.entry_points", lambda group=None: [_EP()])
+    try:
+        loaded = spec.load_plugins()
+        assert "demo" in loaded
+        assert "plugin_demo" in spec.REGISTRY
+        assert spec.manifest()[-1]["job_type"] in spec.REGISTRY  # serializes cleanly
+    finally:
+        spec.REGISTRY.pop("plugin_demo", None)

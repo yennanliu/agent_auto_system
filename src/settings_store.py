@@ -156,7 +156,14 @@ def set_enabled_automations(job_types: list[str]) -> None:
 
 
 def is_automation_enabled(job_type: str) -> bool:
-    return job_type in get_enabled_automations()
+    if job_type in get_enabled_automations():
+        return True
+    # Admin-authored custom automations (custom:<slug>) are gated by their own
+    # enabled flag, not the built-in allowlist. See src/custom_automations.py.
+    if job_type.startswith("custom:"):
+        from src import custom_automations
+        return custom_automations.is_enabled(job_type)
+    return False
 
 
 # ── Evaluation judge (LLM-as-judge model) ─────────────────────────────────────

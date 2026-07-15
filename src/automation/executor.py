@@ -137,6 +137,43 @@ async def _run_flow(run_id: int, job_type: str, payload: dict, effective_provide
     raise last_exc  # exhausted retries + fallbacks (unreachable: loop raises first)
 
 
+async def _run_custom(run_id: int, job_type: str, payload: dict,
+                      effective_provider: str, effective_model: str):
+    """Run an admin-authored, no-code custom automation (custom:<slug>).
+
+    A single LLM agent with no tools transforms the declared inputs into JSON,
+    at the definition's temperature. Everything else (validate/evaluate/cost) is
+    the same harness as built-in flows. See src/custom_automations.py.
+    """
+    from src import custom_automations
+    from src.automation.crews.dynamic_crew import DynamicCrew
+    from src.automation.flows.utils import extract_usage
+    from src.automation.harness.provider import resolve as resolve_llm
+
+    definition = custom_automations.get_by_job_type(job_type)
+    if not definition or not definition.enabled:
+        raise ValueError(f"Unknown or disabled custom automation: {job_type}")
+
+    prev = payload.get("previous_error", "")
+    inputs = {k: v for k, v in payload.items() if k != "previous_error"}
+    append_log(run_id, f"Custom agent for '{definition.name}' working...")
+
+    llm, _, eff_model = resolve_llm(
+        effective_provider or None, effective_model or None,
+        temperature=definition.temperature,
+    )
+
+    def _kick():
+        return DynamicCrew(definition, inputs, previous_error=prev, llm=llm).crew().kickoff()
+
+    raw = await asyncio.to_thread(_kick)
+    result_str = raw.raw if hasattr(raw, "raw") else str(raw)
+    result = _parse_result(result_str)
+    usage = extract_usage(raw)
+    serve = {"served_model": eff_model, "models_attempted": 1, "fallback_used": False}
+    return result, usage, serve
+
+
 async def execute_run(run_id: int, job_type: str, payload: dict):
     logger.info("Starting run_id=%d job_type=%s", run_id, job_type)
     _update_run(run_id, "running")
@@ -188,6 +225,8 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
                 pipeline_steps = current_payload.get("steps", [])
                 result, usage = await execute_pipeline(run_id, pipeline_steps, effective_provider, effective_model)
                 serve = {"served_model": effective_model, "models_attempted": 1, "fallback_used": False}
+            elif job_type.startswith("custom:"):
+                result, usage, serve = await _run_custom(run_id, job_type, current_payload, effective_provider, effective_model)
             else:
                 result, usage, serve = await _run_flow(run_id, job_type, current_payload, effective_provider, effective_model)
 
