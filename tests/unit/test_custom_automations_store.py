@@ -43,10 +43,31 @@ def test_duplicate_rejected(store):
         store.create(name="Dup", instructions="y")
 
 
-@pytest.mark.parametrize("name,instructions", [("", "x"), ("X", ""), ("!!!", "x")])
+@pytest.mark.parametrize("name,instructions", [("", "x"), ("X", ""), ("   ", "x")])
 def test_invalid_definitions_rejected(store, name, instructions):
     with pytest.raises(ValueError):
         store.create(name=name, instructions=instructions)
+
+
+def test_cjk_name_gets_stable_nonempty_slug(store):
+    """A non-ASCII name (e.g. '利潤健檢') must still produce a valid, stable slug."""
+    assert ca.slugify("利潤健檢")  # non-empty
+    assert ca.slugify("利潤健檢") == ca.slugify("利潤健檢")  # stable
+    row = store.create(name="利潤健檢", instructions="分析利潤")
+    assert row.slug and store.get_by_job_type(f"custom:{row.slug}").name == "利潤健檢"
+    # same name → same slug → duplicate rejected
+    with pytest.raises(ValueError, match="already exists"):
+        store.create(name="利潤健檢", instructions="again")
+
+
+def test_duplicate_field_names_deduped(store):
+    row = store.create(name="Dupe Fields", instructions="x", fields=[
+        {"name": "product", "label": "First", "type": "text"},
+        {"name": "product", "label": "Second (dup)", "type": "text"},
+        {"name": "region", "label": "Region", "type": "text"},
+    ])
+    names = [f["name"] for f in json.loads(row.fields_json)]
+    assert names == ["product", "region"]  # second 'product' dropped
 
 
 def test_fields_normalized_and_capped(store):

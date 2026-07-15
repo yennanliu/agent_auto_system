@@ -276,6 +276,10 @@ class CustomAutomationCreate(BaseModel):
     temperature: float = 0.3
 
 
+class CustomAutomationUpdate(BaseModel):
+    enabled: bool = True
+
+
 @router.get("/admin/custom-automations")
 def list_custom_automations():
     from src import custom_automations
@@ -299,9 +303,9 @@ def create_custom_automation(
 
 
 @router.patch("/admin/custom-automations/{automation_id}")
-def toggle_custom_automation(automation_id: int, data: dict):
+def toggle_custom_automation(automation_id: int, data: CustomAutomationUpdate):
     from src import custom_automations
-    row = custom_automations.set_enabled(automation_id, bool(data.get("enabled", True)))
+    row = custom_automations.set_enabled(automation_id, data.enabled)
     if not row:
         raise HTTPException(status_code=404, detail="Custom automation not found")
     return custom_automations.to_public(row)

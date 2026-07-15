@@ -12,6 +12,7 @@ RFC calls for — see doc/automation-extensibility-design.md §8.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -38,7 +39,16 @@ STEPS = [
 
 
 def slugify(name: str) -> str:
-    return _SLUG_RE.sub("_", name.strip().lower()).strip("_")[:40]
+    """A URL-safe slug from a display name.
+
+    Non-ASCII / CJK names (e.g. '利潤健檢') collapse to empty after stripping
+    non-[a-z0-9_] chars, so fall back to a short stable hash of the name — the
+    slug is internal (job_type = custom:<slug>); the display name is separate.
+    """
+    slug = _SLUG_RE.sub("_", name.strip().lower()).strip("_")[:40]
+    if not slug:
+        slug = "a" + hashlib.md5(name.strip().encode("utf-8")).hexdigest()[:10]
+    return slug
 
 
 def job_type_for(slug: str) -> str:
@@ -52,10 +62,12 @@ def is_custom(job_type: str) -> bool:
 def _clean_fields(fields: list[dict]) -> list[dict]:
     """Validate/normalize the declared inputs (defensive — admin-authored)."""
     out = []
+    seen: set[str] = set()
     for f in (fields or [])[:MAX_FIELDS]:
         name = _SLUG_RE.sub("_", str(f.get("name", "")).strip().lower()).strip("_")
-        if not name:
-            continue
+        if not name or name in seen:
+            continue  # skip empty and duplicate names (client reads the first only)
+        seen.add(name)
         ftype = f.get("type") if f.get("type") in _ALLOWED_FIELD_TYPES else "text"
         out.append({
             "name": name,
@@ -93,9 +105,7 @@ def create(*, name: str, instructions: str, icon: str = "✨", description: str 
         raise ValueError("name is required")
     if not instructions:
         raise ValueError("instructions are required")
-    slug = slugify(name)
-    if not slug:
-        raise ValueError("name must contain letters or digits")
+    slug = slugify(name)  # always non-empty (hash fallback for non-ASCII names)
     row = CustomAutomation(
         slug=slug, name=name[:80], icon=(icon or "✨")[:8],
         description=description.strip()[:200], instructions=instructions,
