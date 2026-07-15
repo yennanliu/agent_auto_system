@@ -9,9 +9,12 @@ uv run playwright install chromium                   # browser jobs: form_fill, 
 uv run uvicorn src.main:app --reload --port 8000     # dev server
 kill -9 $(lsof -ti:8000)                             # kill port 8000
 
-uv run pytest tests/unit tests/integration -v        # all tests (380)
+uv run pytest tests/unit tests/integration -v        # all tests
 uv run pytest tests/unit/test_flow.py::test_name -v  # single test
 uv run pytest tests/unit tests/integration -v -m "not e2e"  # skip e2e
+
+uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
+uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)

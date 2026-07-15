@@ -29,7 +29,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Lint (ruff)
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/ scripts/
 
       - name: Run unit tests
         run: uv run pytest tests/unit -v --tb=short
@@ -127,109 +127,12 @@ jobs:
           docker logs ags-ci
           exit 1
 
-      # ── Authenticate (the API is gated behind login) ─────────────────────────
-      - name: "POST /api/auth/login → cookie jar"
-        run: |
-          curl -s -c /tmp/ci_cookies.txt -X POST http://localhost:8000/api/auth/login \
-            -H "Content-Type: application/json" \
-            -d '{"username":"admin","password":"admin"}' \
-            | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          assert d.get('is_admin') is True, f'login failed: {d}'
-          print('✓ logged in as admin')
-          "
+      # ── Smoke tests (reuse the standalone script; --no-run: CI has no real key) ──
+      - name: Install httpx (smoke-test client)
+        run: python3 -m pip install --quiet httpx
 
-      # ── Smoke tests ───────────────────────────────────────────────────────────
-      - name: "GET /health → {status: ok}"
-        run: |
-          curl -sf http://localhost:8000/health \
-            | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          assert d['status'] == 'ok', f'unexpected: {d}'
-          print('✓ /health ok')
-          "
-
-      - name: "GET / → UI HTML served"
-        run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/)
-          [ "$STATUS" = "200" ] && echo "✓ UI served (HTTP $STATUS)" \
-            || { echo "✗ Expected 200, got $STATUS"; exit 1; }
-
-      - name: "GET /api/system → catalog completeness"
-        run: |
-          curl -sf -b /tmp/ci_cookies.txt http://localhost:8000/api/system \
-            | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          assert len(d['agents'])    >= 6, f'agents: {len(d[\"agents\"])}'
-          assert len(d['tools'])     >= 7, f'tools: {len(d[\"tools\"])}'
-          assert len(d['crews'])     >= 6, f'crews: {len(d[\"crews\"])}'
-          assert len(d['workflows']) >= 7, f'workflows: {len(d[\"workflows\"])}'
-          agent_ids = {a['id'] for a in d['agents']}
-          tool_ids  = {t['id'] for t in d['tools']}
-          assert 'email_sender_agent'  in agent_ids,  'email_sender_agent missing'
-          assert 'gmail_send_email'    in tool_ids,   'gmail_send_email missing'
-          assert 'web_scraper_agent'   in agent_ids,  'web_scraper_agent missing'
-          assert 'google_sheet_agent'  in agent_ids,  'google_sheet_agent missing'
-          assert 'google_sheet_reader' in tool_ids,   'google_sheet_reader missing'
-          print(f'✓ catalog ok — {len(d[\"agents\"])} agents, {len(d[\"tools\"])} tools,'
-                f' {len(d[\"crews\"])} crews, {len(d[\"workflows\"])} workflows')
-          "
-
-      - name: "POST /api/jobs → create hacker_news_digest job"
-        run: |
-          JOB=$(curl -sf -b /tmp/ci_cookies.txt -X POST http://localhost:8000/api/jobs \
-            -H "Content-Type: application/json" \
-            -d '{"name":"CI smoke test","job_type":"hacker_news_digest","payload":{"limit":3}}')
-          echo "$JOB" | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          assert d.get('id') is not None,         'id missing'
-          assert d['job_type'] == 'hacker_news_digest'
-          assert d['name'] == 'CI smoke test'
-          print(f'✓ job created: id={d[\"id\"]}, type={d[\"job_type\"]}')
-          "
-
-      - name: "GET /api/jobs → non-empty list"
-        run: |
-          curl -sf -b /tmp/ci_cookies.txt http://localhost:8000/api/jobs \
-            | python3 -c "
-          import sys, json
-          jobs = json.load(sys.stdin)
-          assert isinstance(jobs, list) and len(jobs) >= 1, f'expected ≥1 job, got {jobs}'
-          print(f'✓ {len(jobs)} job(s) in list')
-          "
-
-      - name: "GET /api/stats → shape & 7-day trend"
-        run: |
-          curl -sf -b /tmp/ci_cookies.txt http://localhost:8000/api/stats \
-            | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          for key in ('total_runs','success','failed','active','success_rate',
-                      'avg_duration_secs','by_type','trend'):
-              assert key in d, f'key missing: {key}'
-          assert len(d['trend']) == 7, f'trend should have 7 days, got {len(d[\"trend\"])}'
-          print(f'✓ stats ok — total_runs={d[\"total_runs\"]}, trend_days={len(d[\"trend\"])}')
-          "
-
-      - name: "DELETE /api/runs?delete_all=true → zero deleted (no runs yet)"
-        run: |
-          curl -sf -b /tmp/ci_cookies.txt -X DELETE "http://localhost:8000/api/runs?delete_all=true" \
-            | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          assert d['deleted'] == 0, f'expected 0, got {d}'
-          print(f'✓ bulk delete ok: {d[\"deleted\"]} deleted')
-          "
-
-      - name: "GET /docs → OpenAPI UI available"
-        run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)
-          [ "$STATUS" = "200" ] && echo "✓ /docs served (HTTP $STATUS)" \
-            || { echo "✗ Expected 200, got $STATUS"; exit 1; }
+      - name: Run smoke test against the container
+        run: python3 scripts/smoke_test.py --base-url http://localhost:8000 --no-run
 
       # ── Cleanup ───────────────────────────────────────────────────────────────
       - name: Print container logs on failure
