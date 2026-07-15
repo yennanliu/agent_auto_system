@@ -317,7 +317,7 @@
   }
   .toc-n.moss { background: var(--moss); }
   .toc-n.ink { background: var(--ink); }
-  .guide-part { margin-bottom: 64px; }
+  .guide-part { margin-bottom: 64px; scroll-margin-top: 84px; }
   .guide-part:last-child { margin-bottom: 0; }
   .part-label {
     display: inline-flex; align-items: center; gap: 8px; margin-bottom: 24px;
@@ -616,14 +616,14 @@
 
     <!-- Contents -->
     <div class="guide-toc reveal">
-      <a href="#guide" class="toc-item"><span class="toc-n">1</span><span data-i18n="guide.toc.1">Set up &amp; launch</span></a>
-      <a href="#guide" class="toc-item"><span class="toc-n moss">2</span><span data-i18n="guide.toc.2">Run your first automation</span></a>
-      <a href="#guide" class="toc-item"><span class="toc-n">3</span><span data-i18n="guide.toc.3">Track, retry &amp; schedule</span></a>
-      <a href="#guide" class="toc-item"><span class="toc-n ink">4</span><span data-i18n="guide.toc.4">Administer &amp; explore</span></a>
+      <a href="#guide-part-1" class="toc-item"><span class="toc-n">1</span><span data-i18n="guide.toc.1">Set up &amp; launch</span></a>
+      <a href="#guide-part-2" class="toc-item"><span class="toc-n moss">2</span><span data-i18n="guide.toc.2">Run your first automation</span></a>
+      <a href="#guide-part-3" class="toc-item"><span class="toc-n">3</span><span data-i18n="guide.toc.3">Track, retry &amp; schedule</span></a>
+      <a href="#guide-part-4" class="toc-item"><span class="toc-n ink">4</span><span data-i18n="guide.toc.4">Administer &amp; explore</span></a>
     </div>
 
     <!-- Part 1 — Setup -->
-    <div class="guide-part reveal">
+    <div class="guide-part reveal" id="guide-part-1">
       <div class="part-label"><span class="pill-n">1</span><h3 data-i18n="guide.p1.label">Set up &amp; launch</h3></div>
       <div class="gsteps">
         <div class="gstep">
@@ -669,7 +669,7 @@
     </div>
 
     <!-- Part 2 — First run -->
-    <div class="guide-part reveal">
+    <div class="guide-part reveal" id="guide-part-2">
       <div class="part-label"><span class="pill-n moss">2</span><h3 data-i18n="guide.p2.label">Run your first automation</h3></div>
       <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p2.intro">We'll run the <b>Hacker News Digest</b> — no external accounts needed, just an AI key. It reads the top HN stories and returns a themed, structured summary.</p>
       <div class="gsteps">
@@ -711,7 +711,7 @@
     </div>
 
     <!-- Part 3 — Track, retry & schedule -->
-    <div class="guide-part reveal">
+    <div class="guide-part reveal" id="guide-part-3">
       <div class="part-label"><span class="pill-n ink">3</span><h3 data-i18n="guide.p3.label">Track, retry &amp; schedule</h3></div>
       <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p3.intro">A few runs in, the operational side comes alive: browse history, compare runs at a glance, and put a job on a cron so it runs itself.</p>
       <div class="gsteps">
@@ -743,7 +743,7 @@
     </div>
 
     <!-- Part 4 — Administer & explore -->
-    <div class="guide-part reveal">
+    <div class="guide-part reveal" id="guide-part-4">
       <div class="part-label"><span class="pill-n">4</span><h3 data-i18n="guide.p4.label">Administer &amp; explore</h3></div>
       <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p4.intro">The <b>Admin</b> and <b>System</b> tabs are where you manage people, keys, and which tasks are live — and see exactly how each automation is wired.</p>
       <div class="gsteps">
