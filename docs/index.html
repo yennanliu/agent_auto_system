@@ -353,6 +353,7 @@
   .code .c { color: #7f868f; }              /* comment */
   .code .p { color: var(--moss); }          /* prompt $ */
   .code .k { color: #8fb6ff; }              /* keyword/flag */
+  .code .s { color: #b6f0d6; }              /* string */
   .code code { all: unset; }
 
   .figure { margin: 18px 0 4px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-rest); background: var(--surface); }
@@ -563,7 +564,7 @@
       <div class="job reveal"><span class="tag">tasker_apply</span><div class="body"><h4 data-i18n="job.9.h">Tasker auto-apply</h4><p data-i18n="job.9.p">Logs in and proposes to open cases with an AI-written pitch.</p></div></div>
       <div class="job reveal"><span class="tag">email_sender</span><div class="body"><h4 data-i18n="job.10.h">Email sender</h4><p data-i18n="job.10.p">Sends mail via Gmail — no AI required.</p></div></div>
       <div class="job reveal"><span class="tag">pipeline</span><div class="body"><h4 data-i18n="job.11.h">Pipeline</h4><p data-i18n="job.11.p">Chains any tasks together; later steps read <span class="mono">{{steps.N.result}}</span>.</p></div></div>
-      <div class="job reveal" style="border-style:dashed;background:var(--bg-alt)"><span class="tag" style="background:var(--moss-soft);color:#1a7f56">+ your job</span><div class="body"><h4 data-i18n="job.12.h">Extensible</h4><p data-i18n="job.12.p">Add a new task type by touching just 6 files.</p></div></div>
+      <div class="job reveal" style="border-style:dashed;background:var(--bg-alt)"><span class="tag" style="background:var(--moss-soft);color:#1a7f56">+ your job</span><div class="body"><h4 data-i18n="job.12.h">Extensible</h4><p data-i18n="job.12.p">Author one no-code in the browser, or add a task type from a single declaration.</p></div></div>
     </div>
   </div>
 </section>
@@ -611,7 +612,7 @@
     <div class="sec-head center reveal">
       <span class="kicker" data-i18n="guide.kicker">Guide</span>
       <h2 data-i18n="guide.h2">From zero to your <b>first scored run</b></h2>
-      <p class="lede" data-i18n="guide.lede">Download it, add a single AI key, and run a real automation in a few minutes — then learn to schedule, track, and administer it. Every step below uses real screenshots of the running app.</p>
+      <p class="lede" data-i18n="guide.lede">Download it, add a single AI key, and run a real automation in a few minutes — then learn to schedule, track, administer, and even <b>build your own</b>. Every step below uses real screenshots of the running app.</p>
     </div>
 
     <!-- Contents -->
@@ -620,6 +621,7 @@
       <a href="#guide-part-2" class="toc-item"><span class="toc-n moss">2</span><span data-i18n="guide.toc.2">Run your first automation</span></a>
       <a href="#guide-part-3" class="toc-item"><span class="toc-n">3</span><span data-i18n="guide.toc.3">Track, retry &amp; schedule</span></a>
       <a href="#guide-part-4" class="toc-item"><span class="toc-n ink">4</span><span data-i18n="guide.toc.4">Administer &amp; explore</span></a>
+      <a href="#guide-part-5" class="toc-item"><span class="toc-n moss">5</span><span data-i18n="guide.toc.5">Add your own automation</span></a>
     </div>
 
     <!-- Part 1 — Setup -->
@@ -781,6 +783,92 @@
         </div>
       </div>
       <div class="note" style="margin-top:24px"><span class="ni">🐳</span><span data-i18n="guide.p4.docker">Prefer containers? One command: <code>docker compose up --build -d</code>, then open <code>http://localhost:7000</code>. See the repo's <a href="https://github.com/yennanliu/agent_auto_system#docker-quick-start">Docker quick start</a> and <a href="https://github.com/yennanliu/agent_auto_system/blob/main/doc/aws-ecs-fargate-deployment.md">AWS ECS Fargate guide</a>.</span></div>
+    </div>
+
+    <!-- Part 5 — Add your own automation -->
+    <div class="guide-part reveal" id="guide-part-5">
+      <div class="part-label"><span class="pill-n moss">5</span><h3 data-i18n="guide.p5.label">Add your own automation</h3></div>
+      <p class="lede" style="margin-bottom:20px;max-width:66ch" data-i18n="guide.p5.intro">After a recent refactor, every automation is declared <b>once</b> — a single <em>source of truth</em> — and everything else (dispatch, the allowlist, the validator, the score rubric, the step graph, and the run form) is <b>derived</b> from it. That opens two ways to add one: author it <b>no-code in the browser</b>, or declare it <b>in one place in code</b>.</p>
+      <div class="note" style="margin-bottom:28px"><span class="ni">🧭</span><span data-i18n="guide.p5.tracks"><b>Two tracks below.</b> <b>Track A</b> is no-code, admin-only, and runs a single LLM agent — perfect for prompt-shaped tasks (rewrite, summarize, classify, extract). <b>Track B</b> is the developer path for automations that drive tools or a multi-agent crew.</span></div>
+
+      <!-- Track A — no-code -->
+      <p class="lede" style="margin:8px 0 22px;max-width:60ch;font-size:18px" data-i18n="guide.p5.a.label"><b>Track A · No code</b> — author one from <b>Admin → Custom</b></p>
+      <div class="gsteps">
+        <div class="gstep">
+          <div class="gnum">1</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.a1.h">Open Admin → Custom</h4>
+            <p data-i18n="guide.p5.a1.p">On the <b>Admin</b> page, open the <b>Custom</b> tab. Custom automations run as a <b>single LLM agent with no tools</b> — the model only turns the inputs you declare into JSON — through the very same harness as the built-ins, so they're validated, scored by an independent judge, and cost-tracked like everything else.</p>
+            <figure class="figure"><img src="assets/guide/15-custom-intro.png" alt="Admin Custom tab with an empty automation list and the create form" loading="lazy"/><figcaption data-i18n="guide.p5.a1.cap">Admin → Custom — the no-code authoring form; nothing created yet</figcaption></figure>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">2</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.a2.h">Describe what the agent should produce</h4>
+            <p data-i18n="guide.p5.a2.p">Give it a <b>name</b> and <b>icon</b>, a one-line <b>description</b> for the picker tile, and the <b>instructions</b> — what to produce and the JSON shape to return. Add an <b>expected-output</b> hint to ground the judge, set a <b>temperature</b>, and declare the <b>inputs</b> your run form should ask for (here, a single <code>product</code> field).</p>
+            <figure class="figure"><img src="assets/guide/16-custom-form.png" alt="Filled-in custom automation form for a Tagline Writer" loading="lazy"/><figcaption data-i18n="guide.p5.a2.cap">A "Tagline Writer" — instructions return <code>{"tagline": "…"}</code>, one <code>product</code> input</figcaption></figure>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">3</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.a3.h">Create it — it's registered instantly</h4>
+            <p data-i18n="guide.p5.a3.p">Hit <b>Create automation</b> and it's saved to the database as <code>custom:&lt;slug&gt;</code> and listed right away. From here you can <b>Disable</b> it (it stays authored but can't be run) or <b>Delete</b> it. No deploy, no restart.</p>
+            <figure class="figure"><img src="assets/guide/17-custom-created.png" alt="Custom automations table showing the new Tagline Writer, enabled" loading="lazy"/><figcaption data-i18n="guide.p5.a3.cap">Registered as <code>custom:tagline_writer</code> — enabled, with its input and controls</figcaption></figure>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">4</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.a4.h">Reload — it's in the picker, with a form built for it</h4>
+            <p data-i18n="guide.p5.a4.p">Reload the page and your automation shows up as a tile in <b>+ New Run</b> alongside the built-ins. Because the UI is <b>manifest-driven</b>, its run form — your <code>product</code> input plus the standard provider/model and schedule controls — is generated automatically. <b>No front-end code was written.</b> Fill it in and <b>Run ▶</b>, just like any built-in task.</p>
+            <figure class="figure"><img src="assets/guide/18-custom-picker.png" alt="New run picker with the Tagline Writer tile selected and its auto-generated form" loading="lazy"/><figcaption data-i18n="guide.p5.a4.cap">Selected in the picker — the <code>Product</code> field and model/schedule controls are auto-generated from the spec</figcaption></figure>
+          </div>
+        </div>
+      </div>
+
+      <!-- Track B — code -->
+      <p class="lede" style="margin:44px 0 22px;max-width:64ch;font-size:18px" data-i18n="guide.p5.b.label"><b>Track B · In code</b> — one declaration drives everything</p>
+      <p class="lede" style="margin-bottom:22px;max-width:64ch" data-i18n="guide.p5.b.intro">For automations that call real tools or a multi-agent crew, declare an <code>AutomationSpec</code> in <code>src/automation/spec.py</code>. That one entry drives the dispatch map, the allowlist, the validator, the score rubric, and the step graph — the tables that used to be hand-synced in a dozen places.</p>
+      <div class="gsteps">
+        <div class="gstep">
+          <div class="gnum">1</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.b1.h">Declare it once in the registry</h4>
+            <p data-i18n="guide.p5.b1.p">Add a single <code>register(AutomationSpec(…))</code> call: name, icon, the flow to run, its temperature and steps, a one-line <b>validate</b> rule (the quality gate), the judge <b>rubric</b>, and the input <b>fields</b> that drive the form.</p>
+            <pre class="code"><span class="c"># src/automation/spec.py</span>
+register(AutomationSpec(
+    job_type=<span class="s">"hacker_news_digest"</span>, name=<span class="s">"HN Digest"</span>, icon=<span class="s">"🔶"</span>,
+    flow_module=<span class="s">"src.automation.flows.hn_digest_flow"</span>, flow_class=<span class="s">"HNDigestFlow"</span>,
+    start_log=<span class="s">"Contacting Hacker News API..."</span>, temperature=<span class="k">0.4</span>,
+    steps=((<span class="s">"Start"</span>,<span class="s">"Starting"</span>),(<span class="s">"Digest"</span>,<span class="s">"Digest generated"</span>), *_QA, _DONE),
+    validate=<span class="k">lambda</span> r: (<span class="k">bool</span>(r.get(<span class="s">"stories"</span>)), <span class="s">"no stories in result"</span>),
+    rubric=<span class="s">"Real HN stories are present with titles and a useful digest."</span>,
+    fields=(Field(<span class="s">"limit"</span>,<span class="s">"number"</span>,<span class="s">"Number of Stories (1–10)"</span>, default=<span class="k">5</span>, min=<span class="k">1</span>, max=<span class="k">10</span>),),
+))</pre>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">2</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.b2.h">Add the flow and its crew</h4>
+            <p data-i18n="guide.p5.b2.p">Write the <code>Flow[StateModel]</code> subclass the spec points at, plus its crew directory (YAML config + a plain <code>crew.py</code> class — <b>never</b> <code>@CrewBase</code>). For a single-crew flow, <code>execute_crew</code> is one call to <code>self._run_crew(…)</code>. Add one structural row to <code>_AGENT_DEFS</code> in <code>system.py</code> so the System catalog reads role/goal/backstory straight from your YAML.</p>
+            <pre class="code"><span class="p">src/automation/</span>
+<span class="p">├─</span> flows/hn_digest_flow.py     <span class="c"># Flow[StateModel] — self._run_crew(...)</span>
+<span class="p">└─</span> crews/hn_digest_crew/       <span class="c"># agents.yaml · tasks.yaml · crew.py</span></pre>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">3</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p5.b3.h">Everything else is derived — no UI edits, one test</h4>
+            <p data-i18n="guide.p5.b3.p">That's it. A <b>standard</b> automation needs <b>zero front-end changes</b>: the browser reads the same manifest and renders your tile, form, and step graph. A boot-and-test guard proves the spec is consistent and that its flow imports — a misregistered automation is a red test, not a task that silently vanishes from a dropdown. Only file-upload or multi-field forms need a bespoke UI (set <code>custom_ui=True</code>).</p>
+            <pre class="code"><span class="p">$</span> uv run pytest tests/unit/test_spec_registry.py <span class="k">-v</span>   <span class="c"># spec is consistent & flow imports</span></pre>
+            <div class="note"><span class="ni">🧩</span><span data-i18n="guide.p5.b3.note">Shipping automations for another team or tenant <b>without forking</b>? An external package can register its own specs via entry points — opt in with <code>AUTOMATION_PLUGINS_ENABLED=1</code>. See the <a href="https://github.com/yennanliu/agent_auto_system/blob/main/doc/automation-extensibility-design.md">extensibility design</a> for the full picture.</span></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
