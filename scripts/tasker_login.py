@@ -22,6 +22,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
+from src.automation.browser_session import open_login_context, profile_dir
+
 load_dotenv()
 
 STATE_PATH = os.getenv("TASKER_STORAGE_STATE", "data/tasker_state.json")
@@ -66,9 +68,10 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        ctx = browser.new_context(locale="zh-TW", viewport={"width": 1366, "height": 900})
-        page = ctx.new_page()
+        ctx = open_login_context(
+            pw, user_data_dir=profile_dir("tasker", STATE_PATH), on_progress=print
+        )
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(_LOGIN_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
         _prefill(page)
@@ -89,7 +92,7 @@ def main() -> int:
             return 1
         finally:
             try:
-                browser.close()
+                ctx.close()
             except Exception:
                 pass
     return 0

@@ -389,7 +389,11 @@ def run_tw104_apply(
     warnings: list[str] = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            headless=True,
+            # 104 serves headless browsers an empty result list, so runs report
+            # "found 0 jobs" while the site has thousands. A visible window
+            # renders results reliably. (Headless needs a virtual display, e.g.
+            # Xvfb, on a server.)
+            headless=False,
             args=["--disable-blink-features=AutomationControlled"],
         )
         ctx = browser.new_context(

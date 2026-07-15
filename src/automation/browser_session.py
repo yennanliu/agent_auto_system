@@ -59,6 +59,37 @@ def _tasker_logged_in(page) -> bool:
     return not _looks_logged_out(page)
 
 
+# 104's login lives on dedicated hosts (login./signin.104.com.tw, plus the
+# corporate OIDC flow). A plain "URL no longer contains /login" check is wrong
+# here: those hosts don't have "/login" in the path, so it would fire the
+# instant the page loads and slam the window shut before you can type. We also
+# can't just invert the scraper's _looks_logged_out — on 104's current homepage
+# the header login link is hidden in a collapsed menu, so that heuristic
+# false-positives as "logged in". Instead require a *positive* account marker
+# (logout / 我的104 / avatar / mylife) that is only present once authenticated.
+_TW104_LOGIN_HOSTS = ("login.104.com.tw", "signin.104.com.tw", "/oidc/")
+_TW104_AUTHED_SELECTORS = (
+    ':text("登出")', ':text("我的104")', 'img[alt*="頭像"]',
+    'a[href*="/mylife"]', 'a[href*="logout"]',
+)
+
+
+def _tw104_logged_in(page) -> bool:
+    try:
+        url = page.url or ""
+    except Exception:  # noqa: BLE001 — page may be mid-navigation
+        return False
+    if any(h in url for h in _TW104_LOGIN_HOSTS):
+        return False
+    for sel in _TW104_AUTHED_SELECTORS:
+        try:
+            if page.locator(sel).count() > 0:
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
 def _url_left_login(login_marker: str) -> Callable[[object], bool]:
     """Generic check: authenticated once the page has navigated away from the
     login route. Good enough for sites that redirect to a dashboard on success."""
@@ -84,8 +115,8 @@ _SPECS: dict[str, SessionSpec] = {
         label="104.com.tw",
         state_env="TW104_STORAGE_STATE",
         default_state_path="data/tw104_state.json",
-        login_url="https://www.104.com.tw/login",
-        is_logged_in=_url_left_login("/login"),
+        login_url="https://login.104.com.tw/login",
+        is_logged_in=_tw104_logged_in,
     ),
     "shopee": SessionSpec(
         name="shopee",
@@ -108,6 +139,51 @@ def all_specs() -> list[SessionSpec]:
 
 def state_path(spec: SessionSpec) -> str:
     return os.getenv(spec.state_env) or spec.default_state_path
+
+
+def profile_dir(name: str, state_path_str: str) -> str:
+    """Persistent user-data-dir for the headed login browser.
+
+    A warm profile keeps Cloudflare's ``cf_clearance`` cookie between logins, so
+    after you solve the Turnstile challenge once, later refreshes reuse the
+    cleared profile instead of being re-challenged. Defaults next to the session
+    JSON (e.g. ``data/tw104_profile``) so the UI refresh and the terminal login
+    script share ONE profile; override with ``<NAME>_USER_DATA_DIR``."""
+    env = os.getenv(f"{name.upper()}_USER_DATA_DIR")
+    return env or str(Path(state_path_str).parent / f"{name}_profile")
+
+
+# Anti-bot-detection launch config — mirrors the scraper tools, plus strips the
+# "controlled by automation" switch/banner that Cloudflare Turnstile keys on.
+_STEALTH_ARGS = ["--disable-blink-features=AutomationControlled"]
+_STEALTH_IGNORE = ["--enable-automation"]
+
+
+def open_login_context(pw, *, user_data_dir, locale="zh-TW", viewport=None, on_progress=None):
+    """Open a headed, persistent Chromium context tuned to clear Cloudflare
+    Turnstile: a warm ``user_data_dir`` profile plus automation-flag suppression.
+    Prefers the real installed Chrome (``channel="chrome"``) — its fingerprint
+    passes Turnstile far more reliably than bundled Chromium — and falls back to
+    bundled Chromium when Chrome isn't installed. Returns a ``BrowserContext``;
+    the caller is responsible for closing it."""
+    note = on_progress or (lambda _m: None)
+    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+    kwargs = dict(
+        user_data_dir=user_data_dir,
+        headless=False,
+        locale=locale,
+        viewport=viewport or {"width": 1366, "height": 900},
+        args=_STEALTH_ARGS,
+        ignore_default_args=_STEALTH_IGNORE,
+    )
+    try:
+        return pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
+    except Exception as exc:  # noqa: BLE001 — Chrome not usable (often not installed)
+        # Most commonly system Chrome isn't installed; could also be a locked
+        # profile or a launch crash. Don't assert the cause — just retry with
+        # bundled Chromium, and if that fails too its exception propagates.
+        note(f"Chrome launch failed ({type(exc).__name__}); retrying with bundled Chromium.")
+        return pw.chromium.launch_persistent_context(**kwargs)
 
 
 def login_enabled() -> bool:
@@ -259,25 +335,22 @@ def _browser_login(  # pragma: no cover - drives a real browser
     spec: SessionSpec, on_progress: Callable[[str], None], timeout: int
 ) -> dict:
     """Open a headed Chromium at the login page, poll until the site reports an
-    authenticated session, then persist the storage_state. Reuses any existing
-    session file so a still-valid cookie set logs in instantly."""
+    authenticated session, then persist the storage_state.
+
+    Uses a persistent ``user_data_dir`` profile (see ``open_login_context``) so
+    the browser keeps Cloudflare's clearance cookie between logins and stops
+    getting stuck on the Turnstile "verify you are human" challenge. Downstream
+    scrapers still read the exported ``storage_state`` JSON — unchanged."""
     from playwright.sync_api import sync_playwright
 
     path = state_path(spec)
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    # Only reuse a non-empty file — Playwright errors on a 0-byte storage_state
-    # (e.g. an interrupted write), which would crash the browser launch.
-    existing = str(out) if out.is_file() and out.stat().st_size > 0 else None
+    udd = profile_dir(spec.name, path)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        ctx = browser.new_context(
-            storage_state=existing,
-            locale="zh-TW",
-            viewport={"width": 1366, "height": 900},
-        )
-        page = ctx.new_page()
+        ctx = open_login_context(pw, user_data_dir=udd, on_progress=on_progress)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             page.goto(spec.login_url, wait_until="domcontentloaded", timeout=30000)
             on_progress(f"Log in to {spec.label} in the browser window…")
@@ -312,6 +385,6 @@ def _browser_login(  # pragma: no cover - drives a real browser
             }
         finally:
             try:
-                browser.close()
+                ctx.close()
             except Exception:  # noqa: BLE001
                 pass

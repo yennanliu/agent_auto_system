@@ -22,12 +22,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 from playwright.sync_api import Page, sync_playwright
 
+from src.automation.browser_session import open_login_context, profile_dir
+
 load_dotenv()
 
 STATE_PATH = os.getenv("TW104_STORAGE_STATE", "data/tw104_state.json")
 USERNAME = os.getenv("TW104_USERNAME", "")
 PASSWORD = os.getenv("TW104_PASSWORD", "")
-_LOGIN_URL = "https://www.104.com.tw/login"
+_LOGIN_URL = "https://login.104.com.tw/login"
 
 
 def _prefill(page: Page) -> None:
@@ -37,9 +39,10 @@ def _prefill(page: Page) -> None:
         return
     filled = False
     for sel in (
-        'input[name*="account" i]', 'input[name*="email" i]',
+        'input[name="identity"]', 'input[name*="account" i]', 'input[name*="email" i]',
         'input[type="email"]', 'input[name*="username" i]',
-        'input[placeholder*="帳號"]', 'input[placeholder*="email" i]',
+        'input[placeholder*="身分證"]', 'input[placeholder*="帳號"]',
+        'input[placeholder*="Email" i]',
     ):
         try:
             loc = page.locator(sel).first
@@ -65,9 +68,10 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        ctx = browser.new_context(locale="zh-TW", viewport={"width": 1366, "height": 900})
-        page = ctx.new_page()
+        ctx = open_login_context(
+            pw, user_data_dir=profile_dir("tw104", STATE_PATH), on_progress=print
+        )
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(_LOGIN_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
         _prefill(page)
@@ -88,7 +92,7 @@ def main() -> int:
             return 1
         finally:
             try:
-                browser.close()
+                ctx.close()
             except Exception:
                 pass
     return 0
