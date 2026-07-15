@@ -17,6 +17,29 @@ class User(SQLModel, table=True):
     last_login_at: datetime | None = None
 
 
+class CustomAutomation(SQLModel, table=True):
+    """An admin-authored, no-code automation (Phase 3G of the extensibility RFC).
+
+    Runs as a single LLM agent with **no tools** — it transforms the declared
+    text inputs into a JSON result per ``instructions``. The job type is
+    ``custom:<slug>``. Everything flows through the normal harness (validate /
+    evaluate / retry / cost). See doc/automation-extensibility-design.md §8.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    slug: str = Field(index=True, unique=True)  # job_type == f"custom:{slug}"
+    name: str
+    icon: str = "✨"
+    description: str = ""
+    instructions: str  # the agent's task (what to produce from the inputs)
+    output_hint: str = ""  # expected_output description for the judge + agent
+    fields_json: str = "[]"  # JSON list of {name, label, type}
+    temperature: float = 0.3
+    enabled: bool = True
+    created_by: int | None = Field(default=None, foreign_key="user.id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class Setting(SQLModel, table=True):
     key: str = Field(primary_key=True)  # e.g. "llm_key:openai", "enabled_automations"
     value: str  # JSON string; API-key values are Fernet-encrypted
