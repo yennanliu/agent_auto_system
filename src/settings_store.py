@@ -21,16 +21,27 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
-from src.automation.spec import job_types as _job_types
 from src.database import get_engine
 from src.models import Setting
 
 logger = logging.getLogger(__name__)
 
-# Canonical automation job types — the allowlist that gates both UI visibility
-# and server-side running. Derived from the automation registry (SSOT) so it can
-# never drift from the dispatch/validator/rubric tables. See src/automation/spec.py.
-ALL_AUTOMATIONS = _job_types()
+# Canonical automation job types. Kept in sync by hand with executor._FLOW_MAP
+# (+ "pipeline") and ui/app.js ALL_TYPES — same pattern as the other catalogs.
+ALL_AUTOMATIONS = [
+    "google_form_fill",
+    "web_scraper",
+    "hacker_news_digest",
+    "x_scraper",
+    "email_sender",
+    "google_sheet_reader",
+    "shopee_seller_scraper",
+    "profit_health_check",
+    "tasker_apply",
+    "tw104_apply",
+    "email_collect",
+    "pipeline",
+]
 
 _ENABLED_KEY = "enabled_automations"
 _LLM_KEY_PREFIX = "llm_key:"
@@ -156,14 +167,7 @@ def set_enabled_automations(job_types: list[str]) -> None:
 
 
 def is_automation_enabled(job_type: str) -> bool:
-    if job_type in get_enabled_automations():
-        return True
-    # Admin-authored custom automations (custom:<slug>) are gated by their own
-    # enabled flag, not the built-in allowlist. See src/custom_automations.py.
-    if job_type.startswith("custom:"):
-        from src import custom_automations
-        return custom_automations.is_enabled(job_type)
-    return False
+    return job_type in get_enabled_automations()
 
 
 # ── Evaluation judge (LLM-as-judge model) ─────────────────────────────────────

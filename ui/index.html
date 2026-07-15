@@ -381,7 +381,6 @@
     <button class="cat-tab" data-adm="keys">LLM Keys</button>
     <button class="cat-tab" data-adm="judge">Verification LLM</button>
     <button class="cat-tab" data-adm="autos">Automations</button>
-    <button class="cat-tab" data-adm="custom">Custom</button>
     <button class="cat-tab" data-adm="sessions">Sessions</button>
   </div>
 
@@ -390,7 +389,6 @@
     <div id="admin-keys" class="admin-panel" hidden><div class="loading-state">Loading…</div></div>
     <div id="admin-judge" class="admin-panel" hidden><div class="loading-state">Loading…</div></div>
     <div id="admin-autos" class="admin-panel" hidden><div class="loading-state">Loading…</div></div>
-    <div id="admin-custom" class="admin-panel" hidden><div class="loading-state">Loading…</div></div>
     <div id="admin-sessions" class="admin-panel" hidden><div class="loading-state">Loading…</div></div>
   </div>
 </div>
@@ -437,11 +435,57 @@
       <button class="modal-close" id="modal-close">&times;</button>
     </div>
     <form id="run-form">
-      <div class="type-grid" id="type-grid"></div>
+      <div class="type-grid" id="type-grid">
+        <div class="type-card active" data-type="google_form_fill">
+          <div class="type-card-header"><span class="type-card-icon">📋</span><span class="type-card-name">Form Fill</span></div>
+          <div class="type-card-desc">Auto-fill any Google Form</div>
+        </div>
+        <div class="type-card" data-type="web_scraper">
+          <div class="type-card-header"><span class="type-card-icon">🌐</span><span class="type-card-name">Web Scraper</span></div>
+          <div class="type-card-desc">Scrape full page content &amp; summary</div>
+        </div>
+        <div class="type-card" data-type="hacker_news_digest">
+          <div class="type-card-header"><span class="type-card-icon">🔶</span><span class="type-card-name">HN Digest</span></div>
+          <div class="type-card-desc">Top HN stories with AI summary</div>
+        </div>
+        <div class="type-card" data-type="x_scraper">
+          <div class="type-card-header"><span class="type-card-icon">✕</span><span class="type-card-name">X Scraper</span></div>
+          <div class="type-card-desc">Recent posts from any X profile</div>
+        </div>
+        <div class="type-card" data-type="email_sender">
+          <div class="type-card-header"><span class="type-card-icon">✉️</span><span class="type-card-name">Email Sender</span></div>
+          <div class="type-card-desc">Send email to multiple recipients</div>
+        </div>
+        <div class="type-card" data-type="google_sheet_reader">
+          <div class="type-card-header"><span class="type-card-icon">📊</span><span class="type-card-name">Sheet Reader</span></div>
+          <div class="type-card-desc">Fetch &amp; analyze Google Sheets</div>
+        </div>
+        <div class="type-card" data-type="shopee_seller_scraper">
+          <div class="type-card-header"><span class="type-card-icon">🛒</span><span class="type-card-name">Shopee Sellers</span></div>
+          <div class="type-card-desc">Collect sellers from top products</div>
+        </div>
+        <div class="type-card" data-type="profit_health_check">
+          <div class="type-card-header"><span class="type-card-icon">🧾</span><span class="type-card-name">利潤健檢</span></div>
+          <div class="type-card-desc">Upload Shopee CSVs → profit report</div>
+        </div>
+        <div class="type-card" data-type="tasker_apply">
+          <div class="type-card-header"><span class="type-card-icon">🧰</span><span class="type-card-name">Tasker 自動提案</span></div>
+          <div class="type-card-desc">Auto-apply to tasker.com.tw cases</div>
+        </div>
+        <div class="type-card" data-type="tw104_apply">
+          <div class="type-card-header"><span class="type-card-icon">💼</span><span class="type-card-name">104 自動應徵</span></div>
+          <div class="type-card-desc">Auto-apply to 104.com.tw job openings</div>
+        </div>
+        <div class="type-card" data-type="email_collect">
+          <div class="type-card-header"><span class="type-card-icon">📧</span><span class="type-card-name">Email Collector</span></div>
+          <div class="type-card-desc">Find businesses & collect their emails</div>
+        </div>
+        <div class="type-card" data-type="pipeline">
+          <div class="type-card-header"><span class="type-card-icon">🔗</span><span class="type-card-name">Pipeline</span></div>
+          <div class="type-card-desc">Chain automations in sequence</div>
+        </div>
+      </div>
       <input type="hidden" id="job-type" value="google_form_fill" />
-
-      <!-- Manifest-rendered form for custom_ui=false automations (spec.py fields) -->
-      <div id="generic-fields" class="hidden"></div>
 
       <div id="fields-google_form_fill">
         <div class="field"><label>Company Name</label><input type="text" id="company-name" placeholder="e.g. Acme Corp" /></div>
@@ -455,6 +499,12 @@
           </select>
         </div>
         <div class="field"><label>AI Problem to Solve</label><textarea id="ai-problem" placeholder="Describe what you want AI to solve…"></textarea></div>
+      </div>
+      <div id="fields-web_scraper" class="hidden">
+        <div class="field"><label>URL to Scrape</label><input type="url" id="scrape-url" placeholder="https://example.com" /></div>
+      </div>
+      <div id="fields-hacker_news_digest" class="hidden">
+        <div class="field"><label>Number of Stories (1–10)</label><input type="number" id="hn-limit" value="5" min="1" max="10" /></div>
       </div>
       <div id="fields-x_scraper" class="hidden">
         <div class="field"><label>X Username</label><input type="text" id="x-username" placeholder="e.g. elonmusk (without @)" /></div>
@@ -481,7 +531,25 @@
         </div>
       </div>
 
+      <div id="fields-google_sheet_reader" class="hidden">
+        <div class="field">
+          <label>Google Sheet URL</label>
+          <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/…" />
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">Paste any Google Sheets URL — the share link, edit link, or the export CSV URL</div>
+        </div>
+        <div class="field">
+          <label>Max Rows (1–500)</label>
+          <input type="number" id="sheet-limit" value="200" min="1" max="500" />
+        </div>
+      </div>
 
+      <div id="fields-shopee_seller_scraper" class="hidden">
+        <div class="field"><label>Search Keyword</label><input type="text" id="shopee-keyword" placeholder="e.g. 無線耳機 / wireless earbuds" /></div>
+        <div class="field"><label>Number of Products (1–100)</label><input type="number" id="shopee-limit" value="5" min="1" max="100" /></div>
+        <div style="font-size:0.75rem;color:var(--text-muted);background:rgba(238,77,45,0.08);border:1px solid rgba(238,77,45,0.2);border-radius:6px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
+          Requires a saved Shopee login session. Run <code style="font-family:ui-monospace,monospace">uv run python scripts/shopee_login.py</code> once, then set <code style="font-family:ui-monospace,monospace">SHOPEE_STORAGE_STATE</code> in <code style="font-family:ui-monospace,monospace">.env</code>.
+        </div>
+      </div>
 
       <div id="fields-profit_health_check" class="hidden">
         <div class="field">

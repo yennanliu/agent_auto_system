@@ -9,12 +9,9 @@ uv run playwright install chromium                   # browser jobs: form_fill, 
 uv run uvicorn src.main:app --reload --port 8000     # dev server
 kill -9 $(lsof -ti:8000)                             # kill port 8000
 
-uv run pytest tests/unit tests/integration -v        # all tests
+uv run pytest tests/unit tests/integration -v        # all tests (380)
 uv run pytest tests/unit/test_flow.py::test_name -v  # single test
 uv run pytest tests/unit tests/integration -v -m "not e2e"  # skip e2e
-
-uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
-uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
@@ -67,7 +64,7 @@ class MyCrew:
 
 **Stats** — `get_stats()` does a single SQL pass; keep it that way.
 
-**Automation registry (SSOT)** — every job type is declared once as an `AutomationSpec` in `src/automation/spec.py`. The allowlist (`settings_store.ALL_AUTOMATIONS`), dispatch (`executor._FLOW_MAP`), validator (`_CHECKS`), rubrics (`_RUBRICS`), and step graph (`flow_steps.FLOW_STEPS`) are all **derived** from it — do not hand-edit those tables. `test_spec_registry.py` fails loud if a spec is inconsistent or its flow can't import. The allowlist still gates both UI visibility (`enabled_automations`) and server-side running (`assert_can_run` → `is_automation_enabled`).
+**Automation allowlist** — every job type must be in `settings_store.ALL_AUTOMATIONS`. It gates both UI visibility (`enabled_automations`) and server-side running (`assert_can_run` → `is_automation_enabled`); a type missing from it is silently invisible **and** un-runnable.
 
 **Eval judge independence** — `evaluator.py` must never score with the same model that produced the output (self-grading inflates scores). Preserve the fallback order: configured/independent judge → a sibling model in the run's provider → the run's own model only as a last resort.
 
@@ -75,36 +72,18 @@ class MyCrew:
 
 ## Adding a New Job Type
 
-Since Phase 1 of the [extensibility RFC](doc/automation-extensibility-design.md), the
-per-job-type tables (`_FLOW_MAP`, `ALL_AUTOMATIONS`, `_CHECKS`, `_RUBRICS`, `FLOW_STEPS`)
-are **derived from one declaration**. To add a job type:
+Touch exactly these 6 files:
 
-1. `src/automation/spec.py` — add one `register(AutomationSpec(...))` (name, icon, flow
-   module/class, `start_log`, `temperature`, `steps`, `validate`, `rubric`). This single
-   entry drives dispatch, the allowlist, the validator, the rubric, and the step graph.
-2. `src/automation/flows/<name>_flow.py` — `Flow[StateModel]` subclass. For a single-crew
-   flow, `execute_crew` is one call to `self._run_crew(Crew, temperature=…, inputs=…,
-   working_log=…, done_log=…)` (see `hn_digest_flow.py`).
-3. `src/automation/crews/<name>_crew/` — YAML configs + `crew.py`.
-4. `src/routers/system.py` — add a row to `_AGENT_DEFS` (structural facts only; role/goal/
-   backstory are read from your `agents.yaml` automatically).
-5. `ui/app.js` (+ `ui/index.html` fields) — add to the UI form. *(Phase 2 of the RFC will
-   derive this from a manifest; until then the form is still hand-written.)*
+1. `src/automation/executor.py` — add to `_FLOW_MAP`
+2. `src/automation/flows/<name>_flow.py` — `Flow[StateModel]` subclass
+3. `src/automation/crews/<name>_crew/` — YAML configs + `crew.py`
+4. `src/routers/system.py` — add to `_CATALOG`
+5. `ui/app.js` (+ `ui/index.html` fields) — add to the UI form
+6. `src/settings_store.py` — add to `ALL_AUTOMATIONS` (**required or the job type is
+   invisible in the UI and blocked server-side** by `is_automation_enabled` /
+   `assert_can_run` — this list is the allowlist, not just docs)
 
-`_CHECKS`/`_RUBRICS`/`FLOW_STEPS` are no longer edited directly — they come from the spec.
-Run `pytest tests/unit/test_spec_registry.py` to confirm the new spec is consistent and its
-flow imports.
-
-**Manifest-driven UI (Phase 2).** `GET /api/automations/manifest` (`spec.manifest()`) drives
-the browser's picker, run form, and step graph. A spec with `custom_ui=False` + declared
-`fields` renders its form generically — **no UI edits needed**. Set `custom_ui=True` to keep a
-bespoke hand-written `#fields-<type>` form (file upload, pipeline, multi-field flows).
-
-**Custom & plugin automations (Phase 3).** Admins author no-code automations (`custom:<slug>`)
-in Admin → Custom; they are DB-backed (`src/custom_automations.py`), run as a single **no-tools**
-LLM agent (`DynamicCrew`) through the harness, and appear in the picker via the manifest.
-External packages can register specs via entry points — `spec.load_plugins()`, opt-in with
-`AUTOMATION_PLUGINS_ENABLED=1`. See [doc/automation-extensibility-design.md](doc/automation-extensibility-design.md).
+**Recommended (optional):** add a rule to `harness/validator.py` `_CHECKS` and a rubric to `harness/evaluator.py` `_RUBRICS` for the new `job_type`. Both fall back to a generic check/rubric if omitted, so the job still runs — but a specific rule gives you a real quality gate and grounded eval scores.
 
 **Deterministic-funnel flows** (e.g. `email_collect`, `tasker_apply`) — drive the tools directly in the flow (fast/cheap/reliable) and use the crew only for the LLM-judgement step; don't make the agent orchestrate many tool calls. Return partial results + a `warnings` list from scraper tools instead of raising.
 

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from src.automation.crews.shopee_seller_crew.crew import ShopeeSellerCrew
 from src.automation.flows.base import FlowMixin
+from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
 
 
@@ -26,9 +27,19 @@ class ShopeeSellerFlow(FlowMixin, Flow[ShopeeSellerState]):
 
     @listen(validate_payload)
     def execute_crew(self, _):
-        return self._run_crew(
-            ShopeeSellerCrew, temperature=0.2,
-            inputs={"keyword": self.state.keyword, "limit": self.state.limit},
-            working_log="Loading Shopee session and searching products...",
-            done_log="Seller collection complete, formatting result...",
+        from src.automation.harness.provider import resolve as resolve_llm
+        llm, _, _ = resolve_llm(
+            self.state.llm_provider or None,
+            self.state.llm_model or None,
+            temperature=0.2,
         )
+        append_log(self.state.run_id, "Loading Shopee session and searching products...")
+        crew = ShopeeSellerCrew(llm=llm)
+        result = crew.crew().kickoff(inputs={
+            "keyword": self.state.keyword,
+            "limit": self.state.limit,
+            "previous_error": self.state.previous_error,
+        })
+        self.state.usage = extract_usage(result)
+        append_log(self.state.run_id, "Seller collection complete, formatting result...")
+        return result.raw if hasattr(result, "raw") else str(result)
