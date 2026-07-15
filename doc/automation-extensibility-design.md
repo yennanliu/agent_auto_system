@@ -90,73 +90,88 @@ knows the codebase. Risk is the chance of regressing a working automation.
 
 ### Option A — Declarative `AutomationSpec` registry (SSOT)
 
-**Idea.** Define each automation once as a data object and register it via a decorator.
-Derive `_FLOW_MAP`, `ALL_AUTOMATIONS`, `_CHECKS`, `_RUBRICS`, step defs, and (later) the
-UI manifest from the registry.
+**Idea.** Define each automation once as a data object in one registry module and
+*derive* `_FLOW_MAP`, `ALL_AUTOMATIONS`, `_CHECKS`, `_RUBRICS`, step defs, and (later) the
+UI manifest from it.
+
+> **Implemented as `src/automation/spec.py`** (see §8). The sketch below matches the
+> shipped design. Two deliberate choices worth calling out for reviewers:
+> - The flow is referenced by **`flow_module` / `flow_class` strings**, not a `flow: type`
+>   field, and registration is a plain **`register()`** call (not a class decorator). This
+>   keeps `spec.py` *pure data* with no heavy imports, so low-level modules like
+>   `settings_store` can import it with **no circular-import risk**, and the executor
+>   imports the flow class lazily (exactly as the old `_FLOW_MAP` did). A decorator that
+>   binds the flow class (`@automation(...)` on `class HNDigestFlow`) reads nicer but forces
+>   `spec.py` to import every flow (→ crewai, tools, cycles) at module load — rejected.
+> - `pipeline` (and custom automations) have **no flow**, so `flow_module`/`flow_class` are
+>   optional and default to `None`; such entries simply contribute no `_FLOW_MAP` row.
 
 ```python
-# src/automation/registry_spec.py  (new)
+# src/automation/spec.py
 @dataclass(frozen=True)
 class Field:
     name: str; type: str; label: str
-    required: bool = False; default: Any = None
+    required: bool = False; default: object = None
     min: float | None = None; max: float | None = None
+    placeholder: str = ""; help: str = ""
 
 @dataclass(frozen=True)
 class AutomationSpec:
     job_type: str
-    name: str                     # UI display name
-    icon: str                     # emoji for the tile
-    flow: type                    # the Flow subclass
-    fields: list[Field]           # inputs → drives form + payload + pipeline
-    steps: list[tuple[str, str]]  # (label, log-trigger) → drives both step graphs
-    validate: Callable            # replaces _CHECKS entry
-    rubric: str                   # replaces _RUBRICS entry
-    default_temperature: float = 0.4
-    browser: bool = False         # needs Playwright / a saved session
+    name: str                       # UI display name
+    icon: str                       # emoji for the tile
+    rubric: str                     # replaces the _RUBRICS entry
+    validate: Callable              # replaces the _CHECKS entry
+    steps: tuple[tuple[str, str], ...] = ()  # (label, log-trigger)
+    flow_module: str | None = None  # lazy ref — None for pipeline/custom
+    flow_class: str | None = None
     start_log: str = ""
+    temperature: float = 0.7
+    browser: bool = False
+    fields: tuple[Field, ...] = ()  # drives the manifest form (Phase 2/D)
+    name_template: str = ""; custom_ui: bool = False; desc: str = ""
 
 REGISTRY: dict[str, AutomationSpec] = {}
 
-def automation(spec: AutomationSpec):
+def register(spec: AutomationSpec) -> AutomationSpec:
     if spec.job_type in REGISTRY:
-        raise ValueError(f"duplicate automation {spec.job_type}")
+        raise ValueError(f"duplicate automation {spec.job_type!r}")
     REGISTRY[spec.job_type] = spec
     return spec
 ```
 
-Registration sits next to each flow:
+One `register()` call per automation (in `spec.py`, alongside the others):
 
 ```python
-# src/automation/flows/hn_digest_flow.py
-automation(AutomationSpec(
+register(AutomationSpec(
     job_type="hacker_news_digest", name="HN Digest", icon="🔶",
-    flow=HNDigestFlow,
-    fields=[Field("limit", "int", "Number of Stories (1–10)", default=5, min=1, max=10)],
-    steps=[("Start","Starting"),("Validate","Fetching top"),("Digest","Digest generated")],
-    validate=lambda r: (bool(r.get("stories")), "no stories in digest"),
+    flow_module="src.automation.flows.hn_digest_flow", flow_class="HNDigestFlow",
+    start_log="Contacting Hacker News API...", temperature=0.4,
+    steps=(("Start","Starting"),("Validate","Fetching top"),("Digest","Digest generated"), *_QA, _DONE),
+    validate=lambda r: (bool(r.get("stories")), "no stories in result"),
     rubric="Several real HN stories are present with titles and a useful digest.",
+    fields=(Field("limit","number","Number of Stories (1–10)", default=5, min=1, max=10),),
 ))
 ```
 
-Then the old dicts become one-liners:
+Then the old tables become one-liners the consumers import (keeping their names/shapes):
 
 ```python
-_FLOW_MAP        = {s.job_type: (s.flow, s.start_log) for s in REGISTRY.values()}
-ALL_AUTOMATIONS  = list(REGISTRY)
-_CHECKS          = {jt: s.validate for jt, s in REGISTRY.items()}
-_RUBRICS         = {jt: s.rubric   for jt, s in REGISTRY.items()}
-FLOW_STEPS       = {jt: s.steps    for jt, s in REGISTRY.items()}
+_FLOW_MAP       = {jt: (s.flow_module, s.flow_class, s.start_log)
+                   for jt, s in REGISTRY.items() if s.flow_module}
+ALL_AUTOMATIONS = list(REGISTRY)
+_CHECKS         = {jt: s.validate for jt, s in REGISTRY.items()}
+_RUBRICS        = {jt: s.rubric   for jt, s in REGISTRY.items()}
+FLOW_STEPS      = {jt: list(s.steps) for jt, s in REGISTRY.items() if s.steps}
 ```
 
 - **Effort:** M (≈3–4 days). Add registry + specs, rewire 5 consumers, migrate 11
-  automations, keep a startup assertion that every registered flow imports cleanly.
+  automations, add a test that every registered flow imports cleanly.
 - **Pros:** Collapses 5–6 of the 11 touch points into 1. Duplication hazards #1, #4 gone;
-  #2 shrinks (see C). "Forgot to register" becomes a boot-time error. Enables the manifest
+  #2 shrinks (see C). "Forgot to register" becomes a test/boot-time error. Enables the manifest
   endpoint (D) for free.
-- **Cons:** A one-time churn across many files. Specs must import their flow class, so mind
-  import order / cycles (lazy-import the flow inside the spec if needed). Doesn't by itself
-  touch the UI.
+- **Cons:** A one-time churn across many files. Doesn't by itself touch the UI. (Import
+  cycles are avoided by the string flow-refs above rather than importing flow classes here.)
 - **Risk:** Low–medium — pure re-plumbing, well covered by existing 380 tests + a new
   "every spec resolves" test.
 
@@ -186,13 +201,17 @@ class BaseAutomationFlow(FlowMixin, Flow[S]):
 ### Option C — Derive the System catalog from YAML + specs
 
 **Idea.** Stop hand-copying agent metadata into `system.py` `_CATALOG`. Build it by reading
-each crew's `config/*.yaml` (already the source of truth) plus the spec's job_type/name.
+each crew's `config/*.yaml` (already the source of truth) for the prose (role/goal/backstory),
+keeping only the structural facts (id, crew, task, job_type, tools, YAML path) in code.
 
 - **Effort:** S (≈1–2 days).
 - **Pros:** Kills duplication hazard #2 outright; the System tab can never drift from the
   real agent config again. Removes a large hand-maintained literal from `system.py`.
-- **Cons:** Needs a small convention (which YAML → which job_type) — trivial once A exists
-  (the spec names the crew). Tool/workflow descriptions may still need a short annotation.
+- **Cons:** Needs a small mapping of which YAML entry → which agent. *(As shipped, this
+  lives in a compact `_AGENT_DEFS` table in `system.py` — one row per agent with its
+  `source_file`/`yaml_key` — rather than a `crew` field on `AutomationSpec`, since several
+  agents can belong to one job type. Tool/workflow descriptions still need a short
+  annotation.)*
 - **Risk:** Low.
 
 ### Option D — Automation manifest endpoint + schema-driven UI
