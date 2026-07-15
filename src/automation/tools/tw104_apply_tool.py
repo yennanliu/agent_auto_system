@@ -54,28 +54,6 @@ _UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
-# 104's job-search results are client-rendered and gated by bot detection: a
-# plain headless browser is reliably served an empty list ("共 0 筆"), which is
-# why runs reported "No open jobs found" while the site has 1000+ hits. Two
-# mitigations, both needed:
-#   1. Run headed by default — headless is intermittently soft-blocked even with
-#      stealth; a real window renders results reliably. Override with
-#      TW104_HEADLESS=1 (e.g. under Xvfb) where a display is unavailable.
-#   2. Mask the residual automation signals (navigator.webdriver, missing
-#      window.chrome, empty plugins/languages) via an init script.
-_HEADLESS = os.getenv("TW104_HEADLESS", "0") == "1"
-_STEALTH_JS = """
-Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-window.chrome = { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} };
-Object.defineProperty(navigator, 'languages', {get: () => ['zh-TW','zh','en-US','en']});
-Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-const _q = navigator.permissions && navigator.permissions.query;
-if (_q) navigator.permissions.query = (p) =>
-  p && p.name === 'notifications'
-    ? Promise.resolve({state: Notification.permission})
-    : _q(p);
-"""
-
 # Job ids (/job/<id>) and the 已應徵 "already applied" flag are extracted inside
 # the page.evaluate() block in _collect_page_jobs (JS-side), not with Python
 # regex/string constants — see that function.
@@ -139,10 +117,7 @@ def _looks_logged_out(page) -> bool:
 def _search_url(keyword: str, area: str, order: str, page_num: int,
                 remote: bool = False, part_time: bool = False) -> str:
     from urllib.parse import urlencode
-    # mode=s / jobsource mirror the site's own search form; without them 104
-    # sometimes returns an empty result set for an otherwise valid keyword.
-    params = {"jobsource": "joblist_search", "keyword": keyword,
-              "mode": "s", "order": order or "15", "page": page_num}
+    params = {"keyword": keyword, "order": order or "1", "page": page_num}
     if area:
         params["area"] = area
     if remote:
@@ -152,21 +127,6 @@ def _search_url(keyword: str, area: str, order: str, page_num: int,
         # 104's 工作性質 filter (`ro`): 0=不限, 1=全職, 2=兼職. We request 兼職.
         params["ro"] = "2"
     return f"{_SEARCH}?{urlencode(params)}"
-
-
-def _reports_zero_results(page) -> bool:
-    """True only when the page's result counter explicitly reads "共 0 筆".
-
-    Lets us tell a genuinely-empty search (stop paging) apart from a bot-blocked
-    empty render, where the counter is absent or still shows "共 1000+ 筆" while
-    no cards loaded (retry)."""
-    import re
-    try:
-        txt = page.inner_text("body")
-    except Exception:  # noqa: BLE001
-        return False
-    m = re.search(r"共\s*([\d,]+)\+?\s*筆", txt)
-    return bool(m) and m.group(1).replace(",", "") == "0"
 
 
 def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
@@ -180,63 +140,38 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     distinct from []: [] means the page loaded but had no jobs (end of results),
     so the caller stops; None means "try the next page" — a transient blip must
     not look like the end of the listing and abort the whole run.
-    The goto is the one unguarded external call; retry a few times first. A page
-    that loads with zero job cards while the site still reports results is
-    treated as a transient soft-block and reloaded, not as end-of-listing."""
+    The goto is the one unguarded external call; retry a few times first."""
     url = _search_url(keyword, area, order, page_num, remote, part_time)
-    last_exc: Exception | None = None
-    count = 0
     for attempt in range(3):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(1800)
+            page.wait_for_timeout(1500)
+            break
         except Exception as exc:  # noqa: BLE001
-            last_exc = exc
+            if attempt == 2:
+                warnings.append(f"page {page_num}: failed to load after 3 tries ({exc})")
+                log(f"⚠ Page {page_num}: failed to load after 3 attempts ({exc})")
+                return None
             log(f"⚠ Page {page_num}: load attempt {attempt + 1} failed, retrying ({exc})")
             page.wait_for_timeout(2000)
-            continue
 
-        # Scroll to trigger 104's lazy load, counting job anchors until stable.
-        prev = -1
-        count = 0
-        for _ in range(8):
-            try:
-                count = page.locator("a[href*='/job/']").count()
-            except Exception:  # noqa: BLE001
-                count = 0
-            if count and count == prev:
-                break
-            prev = count
-            try:
-                page.evaluate("() => window.scrollBy(0, 3000)")
-            except Exception:  # noqa: BLE001
-                try:
-                    page.mouse.wheel(0, 3000)
-                except Exception:  # noqa: BLE001
-                    pass
-            page.wait_for_timeout(1000)
-
-        if count > 0:
+    prev = -1
+    for _ in range(8):
+        try:
+            count = page.locator("a[href*='/job/']").count()
+        except Exception:  # noqa: BLE001
+            count = 0
+        if count == prev:
             break
-        # Loaded but no cards. If the site says there are genuinely 0 results,
-        # that's the real end of the listing — stop. Otherwise it's a bot-block
-        # (empty render); reload and try again.
-        if _reports_zero_results(page):
-            log(f"Page {page_num}: site reports 0 results.")
-            return []
-        if attempt < 2:
-            log(f"⚠ Page {page_num}: 0 job cards but results exist "
-                f"(bot-block?) — reloading (attempt {attempt + 1})")
-            page.wait_for_timeout(1500)
-            continue
-        warnings.append(f"page {page_num}: 0 job cards after 3 loads (possible bot-block; "
-                        "try TW104_HEADLESS unset so a real window renders)")
-        log(f"⚠ Page {page_num}: still 0 job cards after 3 loads — treating as transient.")
-        return None
-    else:
-        warnings.append(f"page {page_num}: failed to load after 3 tries ({last_exc})")
-        log(f"⚠ Page {page_num}: failed to load after 3 attempts ({last_exc})")
-        return None
+        prev = count
+        try:
+            page.evaluate("() => window.scrollBy(0, 3000)")
+        except Exception:  # noqa: BLE001
+            try:
+                page.mouse.wheel(0, 3000)
+            except Exception:  # noqa: BLE001
+                pass
+        page.wait_for_timeout(1000)
 
     # Extract one row per job link, reading the enclosing card for company +
     # 已應徵 state. Done in the page context in one pass for speed/robustness.
@@ -454,9 +389,8 @@ def run_tw104_apply(
     warnings: list[str] = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            headless=_HEADLESS,
+            headless=True,
             args=["--disable-blink-features=AutomationControlled"],
-            ignore_default_args=["--enable-automation"],
         )
         ctx = browser.new_context(
             storage_state=state_path,
@@ -464,7 +398,6 @@ def run_tw104_apply(
             locale="zh-TW",
             viewport={"width": 1366, "height": 900},
         )
-        ctx.add_init_script(_STEALTH_JS)
         page = ctx.new_page()
         try:
             # Warm the session on the search page and confirm we're logged in.
