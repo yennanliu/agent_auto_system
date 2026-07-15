@@ -129,17 +129,36 @@ def load_plugins() -> list[str]:
     return loaded
 
 
+_plugins_loaded = False
+
+
+def ensure_plugins_loaded() -> None:
+    """Load plugins on first use (idempotent), not at import.
+
+    Keeps this module's import a pure, side-effect-free data load (so low-level
+    importers like settings_store stay safe), and defers any third-party code to
+    the first time a derived table is built. A no-op when plugins are disabled.
+    """
+    global _plugins_loaded
+    if not _plugins_loaded:
+        _plugins_loaded = True
+        load_plugins()
+
+
 # ── Derivation helpers ──────────────────────────────────────────────────────
 # Each returns a plain dict/list with the exact shape its consumer expects, so
-# the consumer keeps its public symbol name and behavior unchanged.
+# the consumer keeps its public symbol name and behavior unchanged. Each triggers
+# a one-time plugin load first, so plugin-registered specs are always included.
 
 def job_types() -> list[str]:
     """Every registered job type — the allowlist (ALL_AUTOMATIONS)."""
+    ensure_plugins_loaded()
     return list(REGISTRY)
 
 
 def flow_map() -> dict[str, tuple[str, str, str]]:
     """job_type → (flow_module, flow_class, start_log) for flow-backed types."""
+    ensure_plugins_loaded()
     return {
         jt: (s.flow_module, s.flow_class, s.start_log)
         for jt, s in REGISTRY.items()
@@ -149,16 +168,19 @@ def flow_map() -> dict[str, tuple[str, str, str]]:
 
 def checks() -> dict[str, Callable[[dict], tuple[bool, str]]]:
     """job_type → validation predicate (validator._CHECKS)."""
+    ensure_plugins_loaded()
     return {jt: s.validate for jt, s in REGISTRY.items()}
 
 
 def rubrics() -> dict[str, str]:
     """job_type → LLM-judge rubric (evaluator._RUBRICS)."""
+    ensure_plugins_loaded()
     return {jt: s.rubric for jt, s in REGISTRY.items()}
 
 
 def step_map() -> dict[str, list[tuple[str, str]]]:
     """job_type → ordered [(label, trigger)] for types that define steps."""
+    ensure_plugins_loaded()
     return {jt: list(s.steps) for jt, s in REGISTRY.items() if s.steps}
 
 
@@ -169,6 +191,7 @@ def manifest() -> list[dict]:
     live step graph — so a new automation with standard fields needs no UI edits.
     ``custom_ui`` types still ship a hand-written form; the UI shows that instead.
     """
+    ensure_plugins_loaded()
     out = []
     for jt, s in REGISTRY.items():
         out.append({
@@ -200,6 +223,7 @@ def validate_registry() -> list[str]:
     Used by a startup check / test so a misregistered automation fails loud
     instead of silently vanishing from a dropdown.
     """
+    ensure_plugins_loaded()
     problems: list[str] = []
     for jt, s in REGISTRY.items():
         if s.job_type != jt:
@@ -398,6 +422,6 @@ register(AutomationSpec(
 ))
 
 
-# Third-party automations (opt-in via AUTOMATION_PLUGINS_ENABLED=1). Runs after the
-# built-ins above so plugin specs are present before any consumer derives its table.
-load_plugins()
+# Third-party automations (opt-in via AUTOMATION_PLUGINS_ENABLED=1) are loaded
+# lazily by ensure_plugins_loaded() on first table derivation — NOT at import —
+# so importing this module stays a pure, side-effect-free data load.

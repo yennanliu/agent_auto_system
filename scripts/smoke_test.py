@@ -162,9 +162,11 @@ def main() -> int:
             created["jobs"].append(hn_job["id"])
             return f"job #{hn_job['id']}"
         r.check("POST /api/jobs (hacker_news_digest)", _create_job)
-        r.check("GET /api/jobs (list)", lambda: (
-            None if any(j["id"] == hn_job.get("id") for j in c.get("/api/jobs").json())
-            else (_ for _ in ()).throw(AssertionError("created job not in list"))))
+
+        def _job_in_list():
+            if not any(j["id"] == hn_job.get("id") for j in c.get("/api/jobs").json()):
+                raise AssertionError("created job not in list")
+        r.check("GET /api/jobs (list)", _job_in_list)
         r.check("GET /api/jobs/{id}", lambda: _eq(
             c.get(f"/api/jobs/{hn_job['id']}").json()["job_type"], "hacker_news_digest", "job_type"))
 

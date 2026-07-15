@@ -90,6 +90,28 @@ def test_plugins_disabled_by_default(monkeypatch):
     assert spec.load_plugins() == []
 
 
+def test_ensure_plugins_loaded_runs_once(monkeypatch):
+    """Plugins load lazily on first table derivation, and only once."""
+    calls = []
+    monkeypatch.setattr(spec, "_plugins_loaded", False)
+    monkeypatch.setattr(spec, "load_plugins", lambda: calls.append(1))
+    spec.ensure_plugins_loaded()
+    spec.ensure_plugins_loaded()
+    spec.job_types()  # a derivation helper — must not re-trigger
+    assert calls == [1]
+
+
+def test_importing_spec_does_not_load_plugins(monkeypatch):
+    """Import is pure data: merely importing spec must not trigger plugin loading.
+
+    (Enforced by construction — load_plugins() is not called at module scope.)
+    """
+    import pathlib
+    src = pathlib.Path(spec.__file__).read_text()
+    # the only call sites are inside ensure_plugins_loaded()/tests, never top-level
+    assert "\nload_plugins()" not in src
+
+
 def test_plugin_can_register_an_automation(monkeypatch):
     """A third-party entry point registers a spec when plugins are enabled."""
     monkeypatch.setenv("AUTOMATION_PLUGINS_ENABLED", "1")
