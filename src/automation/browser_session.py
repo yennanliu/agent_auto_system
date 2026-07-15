@@ -182,7 +182,12 @@ def _set_task(name: str, **fields) -> dict:
 
 class LoginError(Exception):
     """Raised by start_login for caller-actionable problems (unknown name,
-    disabled, or already running)."""
+    disabled, or already running). Carries the HTTP status the router should
+    return, so the router need not string-match the message."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def start_login(
@@ -200,16 +205,17 @@ def start_login(
     """
     spec = get_spec(name)
     if spec is None:
-        raise LoginError(f"Unknown automation session '{name}'.")
+        raise LoginError(f"Unknown automation session '{name}'.", 404)
     if not login_enabled():
         raise LoginError(
             "Browser login is disabled on this server (BROWSER_LOGIN_ENABLED=0). "
-            "It requires a local, headed environment."
+            "It requires a local, headed environment.",
+            403,
         )
     with _LOCK:
         existing = _TASKS.get(name)
         if existing and existing.get("status") == "running":
-            raise LoginError(f"A login for '{name}' is already in progress.")
+            raise LoginError(f"A login for '{name}' is already in progress.", 409)
         _TASKS[name] = {
             "name": name,
             "status": "running",
@@ -260,7 +266,9 @@ def _browser_login(  # pragma: no cover - drives a real browser
     path = state_path(spec)
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    existing = str(out) if out.is_file() else None
+    # Only reuse a non-empty file — Playwright errors on a 0-byte storage_state
+    # (e.g. an interrupted write), which would crash the browser launch.
+    existing = str(out) if out.is_file() and out.stat().st_size > 0 else None
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)

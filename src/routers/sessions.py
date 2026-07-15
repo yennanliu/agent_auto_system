@@ -34,12 +34,5 @@ def refresh_session(name: str) -> dict:
     try:
         return bs.start_login(name)
     except bs.LoginError as exc:
-        # Unknown → 404; disabled → 403; already running → 409.
-        msg = str(exc)
-        if "Unknown" in msg:
-            code = 404
-        elif "disabled" in msg:
-            code = 403
-        else:
-            code = 409
-        raise HTTPException(status_code=code, detail=msg) from exc
+        # LoginError carries the status: 404 unknown / 403 disabled / 409 running.
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

@@ -929,11 +929,19 @@ function relAge(seconds) {
 let SESSION_POLL = null;
 
 async function renderAdminSessions() {
+  // A queued SESSION_POLL can fire after the operator switches tabs — skip it.
+  if (ADMIN_TAB !== 'sessions') return;
   const el = document.getElementById('admin-sessions');
   if (!el.dataset.rendered) el.innerHTML = '<div class="loading-state">Loading…</div>';
-  const resp = await fetch('/api/sessions');
-  if (!resp.ok) { el.innerHTML = '<div class="loading-state">Failed to load.</div>'; return; }
-  const data = await resp.json();
+  let data;
+  try {
+    const resp = await fetch('/api/sessions');
+    if (!resp.ok) throw new Error();
+    data = await resp.json();
+  } catch (err) {
+    el.innerHTML = '<div class="loading-state">Failed to load.</div>';
+    return;
+  }
   el.dataset.rendered = '1';
 
   const disabledNote = data.login_enabled ? '' :
