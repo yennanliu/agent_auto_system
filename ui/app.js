@@ -1,6 +1,6 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'email_collect', 'pipeline'];
+let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'email_collect', 'pipeline'];
 
 const TYPE_META = {
   google_form_fill:   { chip: 'FORM',  cls: 'chip-form'     },
@@ -168,108 +168,29 @@ const LLM_MODELS = {
   ],
 };
 
-// ── Flow step definitions (label + log trigger substring) ─────────────────────
+// ── Flow step definitions ─────────────────────────────────────────────────────
+// job_type → [{label, trigger}]. Populated from the automation manifest at boot
+// (GET /api/automations/manifest) so the client can never drift from the server's
+// spec.py step definitions. Stays empty until the manifest loads.
+let FLOW_STEPS = {};
+let MANIFEST = [];                 // raw automation manifest (array)
+const MANIFEST_BY_TYPE = {};       // job_type → manifest entry
 
-// The Verify (result validation) and Evaluate (LLM-as-judge score) nodes run
-// centrally in the executor after every job, so they're appended to each flow.
-const _QA_STEPS = [
-  { label: 'Verify',   trigger: 'Validating result' },
-  { label: 'Evaluate', trigger: 'Evaluation complete' },
-];
-const FLOW_STEPS = {
-  google_form_fill: [
-    { label: 'Start',        trigger: 'Starting' },
-    { label: 'Validate',     trigger: 'Payload validated' },
-    { label: 'Inspect Form', trigger: 'Inspecting Google Form' },
-    { label: 'Submit',       trigger: 'Form submission attempted' },
-    ..._QA_STEPS,
-    { label: 'Done',         trigger: 'completed successfully' },
-  ],
-  web_scraper: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Validate', trigger: 'Payload validated' },
-    { label: 'Scrape',   trigger: 'scraper agent reading' },
-    { label: 'Analyze',  trigger: 'generated summary' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  hacker_news_digest: [
-    { label: 'Start',     trigger: 'Starting' },
-    { label: 'Validate',  trigger: 'Fetching top' },
-    { label: 'Fetch',     trigger: 'analyst agent reading' },
-    { label: 'Digest',    trigger: 'Digest generated' },
-    ..._QA_STEPS,
-    { label: 'Done',      trigger: 'completed successfully' },
-  ],
-  x_scraper: [
-    { label: 'Start',     trigger: 'Starting' },
-    { label: 'Validate',  trigger: 'Validated payload' },
-    { label: 'Fetch',     trigger: 'Fetching posts' },
-    { label: 'Analyze',   trigger: 'Analysis complete' },
-    ..._QA_STEPS,
-    { label: 'Done',      trigger: 'completed successfully' },
-  ],
-  email_sender: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Validate', trigger: 'Sending to' },
-    { label: 'Send',     trigger: 'Connecting to Gmail' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  google_sheet_reader: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Validate', trigger: 'Validated sheet URL' },
-    { label: 'Fetch',    trigger: 'Fetching Google Sheet' },
-    { label: 'Analyze',  trigger: 'Analyzing sheet data' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  shopee_seller_scraper: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Validate', trigger: 'Validated payload for keyword' },
-    { label: 'Search',   trigger: 'Loading Shopee session' },
-    { label: 'Collect',  trigger: 'Seller collection complete' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  profit_health_check: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Load CSV', trigger: 'Loaded CSVs' },
-    { label: '驗證',     trigger: '蝦皮資料驗證員' },
-    { label: '修正',     trigger: '蝦皮資料修正員' },
-    { label: '分析',     trigger: '蝦皮利潤分析師' },
-    { label: '建議',     trigger: '蝦皮營運行動建議員' },
-    { label: 'PDF',      trigger: 'PDF 報告' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  tasker_apply: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Validate', trigger: 'Payload validated' },
-    { label: 'Login',    trigger: 'Loading tasker.com.tw session' },
-    { label: 'Apply',    trigger: 'run complete' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  tw104_apply: [
-    { label: 'Start',    trigger: 'Starting' },
-    { label: 'Validate', trigger: 'Payload validated' },
-    { label: 'Login',    trigger: 'Loading 104.com.tw session' },
-    { label: 'Apply',    trigger: 'run complete' },
-    ..._QA_STEPS,
-    { label: 'Done',     trigger: 'completed successfully' },
-  ],
-  email_collect: [
-    { label: 'Start',     trigger: 'Starting' },
-    { label: 'Validate',  trigger: 'Payload validated' },
-    { label: 'Discover',  trigger: 'Discovering businesses' },
-    { label: 'Extract',   trigger: 'Extracting email' },
-    { label: 'Collect',   trigger: 'Collected' },
-    { label: 'Qualify',   trigger: 'Qualifying' },
-    ..._QA_STEPS,
-    { label: 'Done',      trigger: 'completed successfully' },
-  ],
-};
+async function loadManifest() {
+  try {
+    const resp = await _origFetch('/api/automations/manifest');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    MANIFEST = data.automations || [];
+    MANIFEST.forEach(a => {
+      MANIFEST_BY_TYPE[a.job_type] = a;
+      if (a.steps && a.steps.length) {
+        FLOW_STEPS[a.job_type] = a.steps.map(([label, trigger]) => ({ label, trigger }));
+      }
+    });
+    if (MANIFEST.length) ALL_TYPES = MANIFEST.map(a => a.job_type);
+  } catch (_) { /* keep app usable if the manifest fails to load */ }
+}
 
 function inferStepStates(jobType, logs, finalStatus) {
   const steps = FLOW_STEPS[jobType];
@@ -868,6 +789,8 @@ if (loginForm) {
         return;
       }
       onAuthenticated(await resp.json());
+      await loadManifest();
+      renderTypeCards();
       bootApp();
     } finally {
       submitBtn.disabled = false;
@@ -1280,6 +1203,8 @@ async function renderAdminJudge() {
     const resp = await _origFetch('/api/auth/me');
     if (resp.ok) {
       onAuthenticated(await resp.json());
+      await loadManifest();
+      renderTypeCards();
       bootApp();
     } else {
       showLogin();
@@ -1327,6 +1252,74 @@ document.getElementById('type-grid').addEventListener('click', (e) => {
   if (card) selectJobType(card.dataset.type);
 });
 
+function renderTypeCards() {
+  const grid = document.getElementById('type-grid');
+  if (!grid || !MANIFEST.length) return;
+  grid.innerHTML = MANIFEST.map(a => `
+    <div class="type-card" data-type="${escHtml(a.job_type)}">
+      <div class="type-card-header"><span class="type-card-icon">${escHtml(a.icon || '⚙️')}</span><span class="type-card-name">${escHtml(a.name)}</span></div>
+      <div class="type-card-desc">${escHtml(a.desc || '')}</div>
+    </div>`).join('');
+}
+
+// Render a manifest automation's inputs into #generic-fields (data-field per input).
+function renderGenericFields(entry) {
+  const host = document.getElementById('generic-fields');
+  if (!host) return;
+  const rows = (entry.fields || []).map(f => {
+    const req = f.required ? ' <span style="color:var(--red)">*</span>' : '';
+    const attrs = `data-field="${escHtml(f.name)}"`;
+    let input;
+    if (f.type === 'select') {
+      input = `<select ${attrs}>${(f.options || []).map(([v, l]) =>
+        `<option value="${escHtml(v)}">${escHtml(l)}</option>`).join('')}</select>`;
+    } else if (f.type === 'textarea') {
+      input = `<textarea ${attrs} placeholder="${escHtml(f.placeholder || '')}"></textarea>`;
+    } else if (f.type === 'checkbox') {
+      input = `<input type="checkbox" ${attrs} ${f.default ? 'checked' : ''} style="width:auto;margin:0" />`;
+    } else if (f.type === 'number') {
+      const mn = f.min != null ? ` min="${f.min}"` : '';
+      const mx = f.max != null ? ` max="${f.max}"` : '';
+      const dv = f.default != null ? ` value="${escHtml(String(f.default))}"` : '';
+      input = `<input type="number" ${attrs}${mn}${mx}${dv} />`;
+    } else {
+      input = `<input type="${f.type === 'url' ? 'url' : 'text'}" ${attrs} placeholder="${escHtml(f.placeholder || '')}" />`;
+    }
+    const help = f.help
+      ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${escHtml(f.help)}</div>` : '';
+    return `<div class="field"><label>${escHtml(f.label)}${req}</label>${input}${help}</div>`;
+  }).join('');
+  const note = entry.help_note
+    ? `<div style="font-size:0.75rem;color:var(--text-muted);background:var(--accent-soft);border:1px solid rgba(47,107,255,0.2);border-radius:10px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">${entry.help_note}</div>`
+    : '';
+  host.innerHTML = rows + note;
+}
+
+// Collect {payload, jobName} from a manifest form, or null if a required field is empty.
+function collectGenericPayload(entry) {
+  const host = document.getElementById('generic-fields');
+  const payload = {};
+  for (const f of (entry.fields || [])) {
+    const el = host.querySelector(`[data-field="${f.name}"]`);
+    if (!el) continue;
+    let val;
+    if (f.type === 'checkbox') { val = el.checked; }
+    else if (f.type === 'number') { const n = parseInt(el.value, 10); val = isNaN(n) ? f.default : n; }
+    else { val = el.value.trim(); }
+    if (f.required && (val === '' || val == null)) {
+      showToast(`${f.label.replace(/\s*\(.*\)$/, '')} is required`, 'error');
+      return null;
+    }
+    if (f.type !== 'checkbox' && (val === '' || val == null)) continue;  // omit empty optionals
+    payload[f.name] = val;
+  }
+  let jobName = entry.name;
+  if (entry.name_template) {
+    jobName = entry.name_template.replace(/\{(\w+)\}/g, (_, k) => String(payload[k] ?? '')).trim();
+  }
+  return { payload, jobName };
+}
+
 function selectJobType(type) {
   if (type !== 'pipeline') {
     document.getElementById('pipeline-steps-list').innerHTML = '';
@@ -1335,8 +1328,20 @@ function selectJobType(type) {
   document.querySelectorAll('.type-card')
     .forEach(c => c.classList.toggle('active', c.dataset.type === type));
   document.getElementById('job-type').value = type;
-  ALL_TYPES.forEach(t =>
-    document.getElementById(`fields-${t}`).classList.toggle('hidden', t !== type));
+
+  // Show one form: the manifest-rendered generic form, or the bespoke
+  // #fields-<type> escape hatch for custom_ui automations.
+  document.querySelectorAll('#run-form [id^="fields-"]').forEach(el => el.classList.add('hidden'));
+  const generic = document.getElementById('generic-fields');
+  const entry = MANIFEST_BY_TYPE[type];
+  if (entry && !entry.custom_ui) {
+    renderGenericFields(entry);
+    generic.classList.remove('hidden');
+  } else {
+    if (generic) { generic.classList.add('hidden'); generic.innerHTML = ''; }
+    document.getElementById(`fields-${type}`)?.classList.remove('hidden');
+  }
+
   if (type === 'pipeline') {
     document.querySelector('#modal .modal').classList.add('modal-wide');
     const list = document.getElementById('pipeline-steps-list');
@@ -1596,7 +1601,15 @@ runForm.addEventListener('submit', async (e) => {
   const jobType = document.getElementById('job-type').value;
   let payload, jobName;
 
-  if (jobType === 'google_form_fill') {
+  // Manifest-driven automations (custom_ui=false) collect their payload
+  // generically from the rendered form — no per-type branch needed here.
+  const _m = MANIFEST_BY_TYPE[jobType];
+  if (_m && !_m.custom_ui) {
+    const collected = collectGenericPayload(_m);
+    if (!collected) return;  // a required field was empty (toast already shown)
+    payload = collected.payload;
+    jobName = collected.jobName;
+  } else if (jobType === 'google_form_fill') {
     const company = document.getElementById('company-name').value.trim();
     if (!company) { showToast('Company name is required', 'error'); return; }
     payload = {
@@ -1605,15 +1618,6 @@ runForm.addEventListener('submit', async (e) => {
       ai_problem:   document.getElementById('ai-problem').value.trim(),
     };
     jobName = `Form: ${company}`;
-  } else if (jobType === 'web_scraper') {
-    const url = document.getElementById('scrape-url').value.trim();
-    if (!url) { showToast('URL is required', 'error'); return; }
-    payload = { url };
-    jobName = `Scrape: ${new URL(url).hostname}`;
-  } else if (jobType === 'hacker_news_digest') {
-    const limit = parseInt(document.getElementById('hn-limit').value, 10) || 5;
-    payload = { limit };
-    jobName = `HN Digest (top ${limit})`;
   } else if (jobType === 'x_scraper') {
     const username = document.getElementById('x-username').value.trim().replace(/^@/, '');
     if (!username) { showToast('X username is required', 'error'); return; }
@@ -1631,28 +1635,6 @@ runForm.addEventListener('submit', async (e) => {
     payload = { to, subject, body, ...(cc ? { cc } : {}) };
     const recipientCount = to.split(',').filter(e => e.trim()).length;
     jobName = `Email: ${subject} → ${recipientCount} recipient${recipientCount !== 1 ? 's' : ''}`;
-
-  } else if (jobType === 'google_sheet_reader') {
-    const url = document.getElementById('sheet-url').value.trim();
-    if (!url) { showToast('Sheet URL is required', 'error'); return; }
-    const limit = parseInt(document.getElementById('sheet-limit').value, 10) || 200;
-    payload = { url, limit };
-    try {
-      const urlObj = new URL(url);
-      const parts = urlObj.pathname.split('/');
-      const idIdx = parts.indexOf('d');
-      const sheetId = idIdx >= 0 ? parts[idIdx + 1] : 'sheet';
-      jobName = `Sheet: ${sheetId.slice(0, 12)}…`;
-    } catch (_) {
-      jobName = 'Google Sheet';
-    }
-
-  } else if (jobType === 'shopee_seller_scraper') {
-    const keyword = document.getElementById('shopee-keyword').value.trim();
-    if (!keyword) { showToast('Search keyword is required', 'error'); return; }
-    const limit = parseInt(document.getElementById('shopee-limit').value, 10) || 5;
-    payload = { keyword, limit };
-    jobName = `Shopee: ${keyword}`;
 
   } else if (jobType === 'profit_health_check') {
     const picked = Array.from(document.getElementById('ph-files').files || []);

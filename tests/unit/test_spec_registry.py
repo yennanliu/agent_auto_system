@@ -65,3 +65,21 @@ def test_pipeline_has_no_flow_but_is_allowlisted():
     assert "pipeline" not in spec.flow_map()
     assert "pipeline" not in spec.step_map()
     assert "pipeline" in spec.checks() and "pipeline" in spec.rubrics()
+
+
+def test_manifest_shape():
+    """The browser manifest exposes everything the UI needs to render forms."""
+    m = spec.manifest()
+    assert len(m) == len(spec.REGISTRY)
+    by = {a["job_type"]: a for a in m}
+    for a in m:
+        assert {"job_type", "name", "icon", "desc", "custom_ui",
+                "name_template", "steps", "fields"} <= set(a)
+    # A generic (manifest-driven) automation carries its fields; hn has a number field.
+    hn = by["hacker_news_digest"]
+    assert hn["custom_ui"] is False
+    assert any(f["name"] == "limit" and f["type"] == "number" for f in hn["fields"])
+    assert hn["name_template"] == "HN Digest (top {limit})"
+    # A bespoke automation is flagged custom_ui so the UI shows its hand-written form.
+    assert by["profit_health_check"]["custom_ui"] is True
+    assert by["pipeline"]["custom_ui"] is True

@@ -799,3 +799,12 @@ def get_system():
         result[category] = enriched
 
     return result
+
+
+@router.get("/automations/manifest")
+def get_automations_manifest():
+    """Declarative manifest of every automation, for the browser to render the
+    picker, run forms, and step graph from — see src/automation/spec.py."""
+    from src.automation import spec
+
+    return {"automations": spec.manifest()}
