@@ -44,7 +44,9 @@ class FlowMixin:
             self._log(working_log)
         result = crew_cls(llm=llm).crew().kickoff(inputs={
             **inputs,
-            "previous_error": self.state.previous_error,
+            # Defensive: a single-crew flow's state normally declares previous_error
+            # (retry self-correction), but default to "" so a flow without it still runs.
+            "previous_error": getattr(self.state, "previous_error", ""),
         })
         self.state.usage = extract_usage(result)
         if done_log:

@@ -40,11 +40,22 @@ _AGENT_DEFS: list[dict] = [
 
 
 def _build_agents() -> list[dict]:
-    """Merge structural defs with role/goal/backstory read live from crew YAML."""
+    """Merge structural defs with role/goal/backstory read live from crew YAML.
+
+    Runs at import time (when _CATALOG is defined), so it must never raise: a
+    malformed or missing agents.yaml degrades to empty prose rather than crashing
+    app startup.
+    """
     agents = []
     for d in _AGENT_DEFS:
         key = d.get("yaml_key", d["id"])
-        cfg = (yaml.safe_load(_read_file(d["source_file"])) or {}).get(key, {}) or {}
+        cfg: dict = {}
+        try:
+            parsed = yaml.safe_load(_read_file(d["source_file"]))
+            if isinstance(parsed, dict) and isinstance(parsed.get(key), dict):
+                cfg = parsed[key]
+        except Exception:  # noqa: BLE001 — bad YAML must not break the catalog/startup
+            cfg = {}
         agents.append({
             "id": d["id"], "name": d["name"],
             "role": (cfg.get("role") or "").strip(),
