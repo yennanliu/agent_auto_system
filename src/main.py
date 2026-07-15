@@ -12,7 +12,17 @@ from starlette.middleware.sessions import SessionMiddleware
 from src import telemetry as _tel
 from src.auth import require_user
 from src.database import get_engine, init_db, reconcile_stale_runs
-from src.routers import admin, auth, cover_letters, jobs, oauth, runs, system, uploads
+from src.routers import (
+    admin,
+    auth,
+    cover_letters,
+    jobs,
+    oauth,
+    runs,
+    sessions,
+    system,
+    uploads,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +115,7 @@ _gated = [Depends(require_user)]
 app.include_router(jobs.router, prefix="/api", dependencies=_gated)
 app.include_router(runs.router, prefix="/api", dependencies=_gated)
 app.include_router(system.router, prefix="/api", dependencies=_gated)
+app.include_router(sessions.router, prefix="/api", dependencies=_gated)
 app.include_router(uploads.router, prefix="/api", dependencies=_gated)
 app.include_router(cover_letters.router, prefix="/api", dependencies=_gated)
 

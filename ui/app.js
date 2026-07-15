@@ -907,10 +907,96 @@ function adminSwitch(tab) {
   document.getElementById('admin-keys').hidden  = tab !== 'keys';
   document.getElementById('admin-judge').hidden = tab !== 'judge';
   document.getElementById('admin-autos').hidden = tab !== 'autos';
+  document.getElementById('admin-sessions').hidden = tab !== 'sessions';
   if (tab === 'users') renderAdminUsers();
   if (tab === 'keys')  renderAdminKeys();
   if (tab === 'judge') renderAdminJudge();
   if (tab === 'autos') renderAdminAutos();
+  if (tab === 'sessions') renderAdminSessions();
+}
+
+// Human "3 days ago" from an epoch-seconds mtime.
+function relAge(seconds) {
+  if (seconds == null) return '—';
+  const d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ago`;
+  if (h > 0) return `${h}h ${m}m ago`;
+  if (m > 0) return `${m}m ago`;
+  return 'just now';
+}
+
+let SESSION_POLL = null;
+
+async function renderAdminSessions() {
+  // A queued SESSION_POLL can fire after the operator switches tabs — skip it.
+  if (ADMIN_TAB !== 'sessions') return;
+  const el = document.getElementById('admin-sessions');
+  if (!el.dataset.rendered) el.innerHTML = '<div class="loading-state">Loading…</div>';
+  let data;
+  try {
+    const resp = await fetch('/api/sessions');
+    if (!resp.ok) throw new Error();
+    data = await resp.json();
+  } catch (err) {
+    el.innerHTML = '<div class="loading-state">Failed to load.</div>';
+    return;
+  }
+  el.dataset.rendered = '1';
+
+  const disabledNote = data.login_enabled ? '' :
+    `<div class="muted" style="margin-bottom:0.6rem">Browser login is <strong>disabled</strong> on this server (BROWSER_LOGIN_ENABLED=0). It only works when the server runs locally.</div>`;
+
+  const rows = data.sessions.map(s => {
+    let state, cls;
+    if (!s.exists)      { state = 'no session'; cls = 'badge-off'; }
+    else if (!s.fresh)  { state = `stale · ${relAge(s.age_seconds)}`; cls = 'badge-off'; }
+    else                { state = `fresh · ${relAge(s.age_seconds)}`; cls = 'badge-on'; }
+
+    const t = s.last_login;
+    let taskLine = '';
+    if (t) {
+      const map = { running: 'muted', succeeded: 'badge-on', failed: 'badge-off' };
+      taskLine = `<div class="muted" style="font-size:0.78rem;margin-top:0.25rem">
+        <span class="badge ${map[t.status] || ''}">${escHtml(t.status)}</span> ${escHtml(t.message || '')}</div>`;
+    }
+    const busy = s.login_in_progress || !data.login_enabled;
+    return `<div class="toggle-row" style="align-items:flex-start">
+      <div>
+        <strong>${escHtml(s.label)}</strong> <span class="muted" style="font-size:0.78rem">${escHtml(s.name)}</span>
+        <div class="muted" style="font-size:0.78rem"><span class="badge ${cls}">${escHtml(state)}</span> <code>${escHtml(s.state_path)}</code></div>
+        ${taskLine}
+      </div>
+      <button class="btn btn-ghost btn-sm" data-session-login="${escHtml(s.name)}" ${busy ? 'disabled' : ''}>
+        ${s.login_in_progress ? 'Logging in…' : 'Refresh login'}</button>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="admin-card">
+    <div class="muted" style="margin-bottom:0.6rem">Refresh a persisted login session by opening a real browser <strong>on the machine running this server</strong>. Log in there (handle any captcha / OTP); the session is saved automatically once the site confirms you're in.</div>
+    ${disabledNote}
+    ${rows || '<div class="muted">No browser-login automations.</div>'}
+  </div>`;
+
+  el.querySelectorAll('[data-session-login]').forEach(btn => btn.onclick = async () => {
+    const name = btn.dataset.sessionLogin;
+    btn.disabled = true;
+    const r = await fetch(`/api/sessions/${encodeURIComponent(name)}/login`, { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert(err.detail || 'Failed to start login');
+      btn.disabled = false;
+      return;
+    }
+    renderAdminSessions();
+  });
+
+  // Poll while a login is running so the UI reflects success/failure live.
+  const anyRunning = data.sessions.some(s => s.login_in_progress);
+  if (SESSION_POLL) { clearTimeout(SESSION_POLL); SESSION_POLL = null; }
+  if (anyRunning && ADMIN_TAB === 'sessions') {
+    SESSION_POLL = setTimeout(renderAdminSessions, 2000);
+  }
 }
 
 async function renderAdminUsers() {

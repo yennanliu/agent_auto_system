@@ -42,7 +42,8 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Registry | `src/automation/registry.py` | asyncio task dict for run cancellation |
 | Auth / RBAC | `src/auth.py`, `src/settings_store.py` | login, per-user `allowed_automations`, global `ALL_AUTOMATIONS`/enabled set, Fernet-encrypted API keys, eval-judge choice |
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
-| Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `uploads` |
+| Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
+| Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
 | UI | `ui/app.js` | `LLM_MODELS` dict drives the provider→model dropdown |
 
 ## Key Invariants
