@@ -178,8 +178,11 @@ def open_login_context(pw, *, user_data_dir, locale="zh-TW", viewport=None, on_p
     )
     try:
         return pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
-    except Exception as exc:  # noqa: BLE001 — no system Chrome → bundled Chromium
-        note(f"System Chrome unavailable ({type(exc).__name__}); using bundled Chromium.")
+    except Exception as exc:  # noqa: BLE001 — Chrome not usable (often not installed)
+        # Most commonly system Chrome isn't installed; could also be a locked
+        # profile or a launch crash. Don't assert the cause — just retry with
+        # bundled Chromium, and if that fails too its exception propagates.
+        note(f"Chrome launch failed ({type(exc).__name__}); retrying with bundled Chromium.")
         return pw.chromium.launch_persistent_context(**kwargs)
 
 
