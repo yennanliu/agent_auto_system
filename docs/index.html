@@ -301,7 +301,23 @@
   .anote code { font-family: var(--mono); font-size: 0.86em; color: #bcd0ff; background: rgba(47,107,255,0.14); padding: 1px 6px; border-radius: 5px; }
 
   /* ── Guide ── */
-  .guide-part { margin-bottom: 64px; }
+  .guide-toc { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 56px; }
+  @media (max-width: 820px) { .guide-toc { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 460px) { .guide-toc { grid-template-columns: 1fr; } }
+  .toc-item {
+    display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    color: var(--text); font-size: 14px; font-weight: 500; box-shadow: var(--shadow-rest);
+    transition: transform .25s var(--ease), box-shadow .25s var(--ease), border-color .25s var(--ease);
+  }
+  .toc-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); border-color: var(--accent); color: var(--ink); }
+  .toc-n {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+    background: var(--accent); color: #fff; font-family: var(--mono); font-size: 12px; font-weight: 600;
+  }
+  .toc-n.moss { background: var(--moss); }
+  .toc-n.ink { background: var(--ink); }
+  .guide-part { margin-bottom: 64px; scroll-margin-top: 84px; }
   .guide-part:last-child { margin-bottom: 0; }
   .part-label {
     display: inline-flex; align-items: center; gap: 8px; margin-bottom: 24px;
@@ -595,11 +611,19 @@
     <div class="sec-head center reveal">
       <span class="kicker" data-i18n="guide.kicker">Guide</span>
       <h2 data-i18n="guide.h2">From zero to your <b>first scored run</b></h2>
-      <p class="lede" data-i18n="guide.lede">Download it, add a single AI key, and run a real automation in a few minutes. The walkthrough below uses real screenshots of the running app.</p>
+      <p class="lede" data-i18n="guide.lede">Download it, add a single AI key, and run a real automation in a few minutes — then learn to schedule, track, and administer it. Every step below uses real screenshots of the running app.</p>
+    </div>
+
+    <!-- Contents -->
+    <div class="guide-toc reveal">
+      <a href="#guide-part-1" class="toc-item"><span class="toc-n">1</span><span data-i18n="guide.toc.1">Set up &amp; launch</span></a>
+      <a href="#guide-part-2" class="toc-item"><span class="toc-n moss">2</span><span data-i18n="guide.toc.2">Run your first automation</span></a>
+      <a href="#guide-part-3" class="toc-item"><span class="toc-n">3</span><span data-i18n="guide.toc.3">Track, retry &amp; schedule</span></a>
+      <a href="#guide-part-4" class="toc-item"><span class="toc-n ink">4</span><span data-i18n="guide.toc.4">Administer &amp; explore</span></a>
     </div>
 
     <!-- Part 1 — Setup -->
-    <div class="guide-part reveal">
+    <div class="guide-part reveal" id="guide-part-1">
       <div class="part-label"><span class="pill-n">1</span><h3 data-i18n="guide.p1.label">Set up &amp; launch</h3></div>
       <div class="gsteps">
         <div class="gstep">
@@ -645,7 +669,7 @@
     </div>
 
     <!-- Part 2 — First run -->
-    <div class="guide-part reveal">
+    <div class="guide-part reveal" id="guide-part-2">
       <div class="part-label"><span class="pill-n moss">2</span><h3 data-i18n="guide.p2.label">Run your first automation</h3></div>
       <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p2.intro">We'll run the <b>Hacker News Digest</b> — no external accounts needed, just an AI key. It reads the top HN stories and returns a themed, structured summary.</p>
       <div class="gsteps">
@@ -669,45 +693,94 @@
           <div class="gnum">3</div>
           <div class="gbody">
             <h4 data-i18n="guide.p2.s3.h">Watch it run — live</h4>
-            <p data-i18n="guide.p2.s3.p">Hit <b>Run ▶</b> and you land on <b>Activity</b>. A live stream updates the step graph (Start → Validate → Fetch → Digest → Verify → Evaluate → Done) and adds log lines every half-second.</p>
-            <figure class="figure"><img src="assets/guide/05-running.png" alt="Live progress with step graph and streaming log" loading="lazy"/><figcaption data-i18n="guide.p2.s3.cap">Live progress — step graph on top, detailed log below</figcaption></figure>
+            <p data-i18n="guide.p2.s3.p">Hit <b>Run ▶</b> and you land on <b>Activity</b>. A half-second SSE stream lights up the step graph in order — <b>Start → Validate → Fetch → Digest → Verify → Evaluate → Done</b> — and appends log lines as they happen. Each node turns green as it completes and shows how long it took.</p>
+            <div class="note"><span class="ni">🔁</span><span data-i18n="guide.p2.s3.note">The <b>Validate</b> and <b>Verify</b> steps are the self-check: a rule inspects the output and, if it fails while retries remain, the task re-runs with the error handed back to the AI. A brief provider outage (503/429) silently falls back to a sibling model — you don't lose the run.</span></div>
+            <figure class="figure"><img src="assets/guide/05-running.png" alt="Live progress with step graph and streaming log" loading="lazy"/><figcaption data-i18n="guide.p2.s3.cap">Live progress — the step graph on top, the streaming log below</figcaption></figure>
           </div>
         </div>
         <div class="gstep">
           <div class="gnum">4</div>
           <div class="gbody">
             <h4 data-i18n="guide.p2.s4.h">Read the scored result</h4>
-            <p data-i18n="guide.p2.s4.p">When the run finishes, expand it to see the structured result under <b>Result</b>, plus <b>Flow</b>, <b>Log</b>, and <b>Usage</b> tabs and a <b>Copy JSON</b> button. An independent judge scored this run <b>★100</b>.</p>
-            <div class="note"><span class="ni">✅</span><span data-i18n="guide.p2.s4.note">This exact run: <code>hacker_news_digest</code> on <code>gpt-4o-mini</code> — finished in <b>19.5&nbsp;s</b>, checked, and scored <b>100/100</b> by an independent judge model.</span></div>
-            <figure class="figure"><img src="assets/guide/07-result-detail.png" alt="Expanded run result showing structured digest" loading="lazy"/><figcaption data-i18n="guide.p2.s4.cap">The digest result — <code>story_of_the_day</code> plus per-story title, score, url &amp; summary</figcaption></figure>
+            <p data-i18n="guide.p2.s4.p">When the run finishes, click the row to expand it. The <b>Result</b> tab holds the structured JSON; <b>Flow</b> shows the step timeline, <b>Log</b> the full stream, and <b>Usage</b> the model, tokens, and estimated cost. <b>Copy JSON</b> lifts the whole result to your clipboard. The green <b>★</b> badge is the independent judge's score.</p>
+            <div class="note"><span class="ni">✅</span><span data-i18n="guide.p2.s4.note">This exact run: <code>hacker_news_digest</code> on <code>gpt-4o-mini</code> — finished in <b>21&nbsp;s</b>, passed validation, and was scored <b>100/100</b> by an independent judge model (never the one that wrote the answer).</span></div>
+            <figure class="figure"><img src="assets/guide/07-result-detail.png" alt="Expanded run result showing structured digest" loading="lazy"/><figcaption data-i18n="guide.p2.s4.cap">The expanded run — status, provider &amp; ★ score on the row, structured <code>story_of_the_day</code> + per-story fields below</figcaption></figure>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Part 3 — Key features -->
-    <div class="guide-part reveal">
-      <div class="part-label"><span class="pill-n ink">3</span><h3 data-i18n="guide.p3.label">Explore the key features</h3></div>
-      <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p3.intro">Once you have a few runs in, the rest of the app comes alive. Here's what to look at next.</p>
-      <div class="feat-grid">
-        <div class="feat">
-          <img src="assets/guide/06-result.png" alt="Run history with statuses, scores, and retry" loading="lazy"/>
-          <div class="fb"><h4 data-i18n="guide.p3.f1.h">Run history &amp; self-correcting retries</h4><p data-i18n="guide.p3.f1.p">Every run carries a status, a provider badge, and a quality score. Failed runs (e.g. "Server restarted while running") show a one-click <b>Retry</b> — and the previous error is handed back so the AI can fix itself.</p></div>
+    <!-- Part 3 — Track, retry & schedule -->
+    <div class="guide-part reveal" id="guide-part-3">
+      <div class="part-label"><span class="pill-n ink">3</span><h3 data-i18n="guide.p3.label">Track, retry &amp; schedule</h3></div>
+      <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p3.intro">A few runs in, the operational side comes alive: browse history, compare runs at a glance, and put a job on a cron so it runs itself.</p>
+      <div class="gsteps">
+        <div class="gstep">
+          <div class="gnum">1</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p3.s1.h">Browse run history &amp; retry failures</h4>
+            <p data-i18n="guide.p3.s1.p">The <b>Activity</b> table lists every run with its status, who ran it, the provider, a <b>★</b> quality score, duration, and a result preview. Filter by automation, status, or date. A <b>low score doesn't mean failure</b> — the run still succeeded; the score is your signal to double-check. Any failed run gets a one-click <b>↺ Retry</b> that hands the previous error back to the AI.</p>
+            <figure class="figure"><img src="assets/guide/06-result.png" alt="Run history table with scores, providers, and retry" loading="lazy"/><figcaption data-i18n="guide.p3.s1.cap">Run history — statuses, provider badges, and ★ scores from 25 to 100 across five real runs</figcaption></figure>
+          </div>
         </div>
-        <div class="feat">
-          <img src="assets/demo_2_4.png" alt="Analytics by provider and model" loading="lazy"/>
-          <div class="fb"><h4 data-i18n="guide.p3.f2.h">Analytics — cost &amp; quality</h4><p data-i18n="guide.p3.f2.p">The <b>Analytics</b> tab breaks runs down by task and by provider/model: success rate, average score, tokens, estimated cost, and average duration — all totalled server-side.</p></div>
+        <div class="gstep">
+          <div class="gnum">2</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p3.s2.h">Compare runs on the Overview grid</h4>
+            <p data-i18n="guide.p3.s2.p">The <b>Overview</b> tab is an Airflow-style grid: pick an automation and every run becomes a column, every step a row. Green is success, red failed, blue running, grey pending. Click any cell to jump to that step's log — perfect for spotting exactly where a run went sideways.</p>
+            <figure class="figure"><img src="assets/guide/08-overview.png" alt="Airflow-style task overview grid of steps across runs" loading="lazy"/><figcaption data-i18n="guide.p3.s2.cap">Task Overview — every step of every run, side by side (5 runs · 5 ok · 0 failed)</figcaption></figure>
+          </div>
         </div>
-        <div class="feat">
-          <img src="assets/demo_2_3.png" alt="System catalog of agents, tools, and crews" loading="lazy"/>
-          <div class="fb"><h4 data-i18n="guide.p3.f3.h">System catalog</h4><p data-i18n="guide.p3.f3.p">Inspect every agent, tool, and crew — roles, goals, backstories, and the real source config — straight from the <b>System</b> tab. Great for seeing how each automation is wired.</p></div>
-        </div>
-        <div class="feat">
-          <img src="assets/demo_2_5.png" alt="Admin page for users, keys, and toggles" loading="lazy"/>
-          <div class="fb"><h4 data-i18n="guide.p3.f4.h">Admin — users, keys &amp; switches</h4><p data-i18n="guide.p3.f4.p">Create users and choose which automations each may run, store encrypted API keys, pick the judge model, and turn task types on or off system-wide.</p></div>
+        <div class="gstep">
+          <div class="gnum">3</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p3.s3.h">Schedule it to run automatically</h4>
+            <p data-i18n="guide.p3.s3.p">Add a <b>cron expression</b> in the New Run dialog (or the presets dropdown) and the job is saved instead of run once — the built-in scheduler fires it on time, in UTC. The <b>Schedules</b> tab shows each job's cron, next fire time, run count, and last result, with <b>Run now</b>, <b>Edit</b>, and <b>Unschedule</b> controls.</p>
+            <figure class="figure"><img src="assets/guide/09-schedules.png" alt="Schedules tab with a daily cron job" loading="lazy"/><figcaption data-i18n="guide.p3.s3.cap">Schedules — a daily 08:00 UTC HN digest with its next-run time</figcaption></figure>
+          </div>
         </div>
       </div>
-      <div class="note" style="margin-top:24px"><span class="ni">🐳</span><span data-i18n="guide.p3.docker">Prefer containers? One command: <code>docker compose up --build -d</code>, then open <code>http://localhost:7000</code>. See the repo's <a href="https://github.com/yennanliu/agent_auto_system#docker-quick-start">Docker quick start</a> and <a href="https://github.com/yennanliu/agent_auto_system/blob/main/doc/aws-ecs-fargate-deployment.md">AWS ECS Fargate guide</a>.</span></div>
+    </div>
+
+    <!-- Part 4 — Administer & explore -->
+    <div class="guide-part reveal" id="guide-part-4">
+      <div class="part-label"><span class="pill-n">4</span><h3 data-i18n="guide.p4.label">Administer &amp; explore</h3></div>
+      <p class="lede" style="margin-bottom:28px;max-width:60ch" data-i18n="guide.p4.intro">The <b>Admin</b> and <b>System</b> tabs are where you manage people, keys, and which tasks are live — and see exactly how each automation is wired.</p>
+      <div class="gsteps">
+        <div class="gstep">
+          <div class="gnum">1</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p4.s1.h">Create users &amp; scope their permissions</h4>
+            <p data-i18n="guide.p4.s1.p">Under <b>Admin → Users</b>, add teammates and choose exactly which automations each may run (or make them an admin). Accounts can be disabled, have passwords reset, or be deleted — and the app refuses to remove the last active admin.</p>
+            <figure class="figure"><img src="assets/guide/12-admin-users.png" alt="Admin users table with roles and allowed automations" loading="lazy"/><figcaption data-i18n="guide.p4.s1.cap">Admin → Users — roles, status, and per-user allowed automations</figcaption></figure>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">2</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p4.s2.h">Store API keys, encrypted</h4>
+            <p data-i18n="guide.p4.s2.p">Rather than editing <code>.env</code>, paste provider keys under <b>Admin → LLM Keys</b>. They're stored <b>Fernet-encrypted</b> and only decrypted at run time, overriding the environment. Each provider shows a <b>configured</b> / <b>not set</b> badge, whether the value came from <b>env</b>, and a masked preview.</p>
+            <figure class="figure"><img src="assets/guide/13-admin-keys.png" alt="Admin LLM keys panel with configured providers" loading="lazy"/><figcaption data-i18n="guide.p4.s2.cap">Admin → LLM Keys — OpenAI &amp; Gemini configured from env, Anthropic not set</figcaption></figure>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">3</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p4.s3.h">Toggle tasks &amp; pick the judge model</h4>
+            <p data-i18n="guide.p4.s3.p">The <b>Automations</b> tab is the master switch: a disabled task can't be created or run by <em>anyone</em>, admins included. Under <b>Verification LLM</b> you choose the independent judge model — kept separate from the models that produce results, so scores stay honest.</p>
+            <figure class="figure"><img src="assets/guide/14-admin-automations.png" alt="Admin automations toggles for every task type" loading="lazy"/><figcaption data-i18n="guide.p4.s3.cap">Admin → Automations — a system-wide on/off switch for every task type</figcaption></figure>
+          </div>
+        </div>
+        <div class="gstep">
+          <div class="gnum">4</div>
+          <div class="gbody">
+            <h4 data-i18n="guide.p4.s4.h">Inspect the System catalog &amp; Analytics</h4>
+            <p data-i18n="guide.p4.s4.p">The <b>System</b> tab exposes every agent, tool, crew, and workflow — roles, goals, backstories, and the real source config — so you can see how an automation is built without reading the repo. The <b>Analytics</b> tab totals runs, success rate, average score, tokens, and estimated cost, plus an eval-trust panel (independent-judge rate, retry/fallback rate, validation pass).</p>
+            <figure class="figure"><img src="assets/guide/10-system.png" alt="System catalog listing agents by automation" loading="lazy"/><figcaption data-i18n="guide.p4.s4.cap">System catalog — Agents, Tools, Crews &amp; Workflows, each tied to its automation</figcaption></figure>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:24px"><span class="ni">🐳</span><span data-i18n="guide.p4.docker">Prefer containers? One command: <code>docker compose up --build -d</code>, then open <code>http://localhost:7000</code>. See the repo's <a href="https://github.com/yennanliu/agent_auto_system#docker-quick-start">Docker quick start</a> and <a href="https://github.com/yennanliu/agent_auto_system/blob/main/doc/aws-ecs-fargate-deployment.md">AWS ECS Fargate guide</a>.</span></div>
     </div>
   </div>
 </section>

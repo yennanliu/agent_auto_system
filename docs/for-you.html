@@ -100,6 +100,21 @@
   .stepline h4 { font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 5px; }
   .stepline p { color: var(--text-muted); font-size: 15px; }
 
+  .walk { display: grid; gap: 24px; max-width: 880px; margin: 0 auto; }
+  .wstep { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-rest);
+    transition: transform .3s var(--ease), box-shadow .3s var(--ease); }
+  .wstep:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+  .wstep .wtop { display: grid; grid-template-columns: 40px 1fr; gap: 16px; align-items: start; padding: 22px 24px; }
+  .wstep .wn { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff;
+    font-family: var(--mono); font-size: 15px; font-weight: 600; }
+  .wstep:nth-child(2n) .wn { background: var(--moss); }
+  .wstep h4 { font-size: 18px; font-weight: 600; color: var(--ink); margin-bottom: 4px; letter-spacing: -0.01em; }
+  .wstep .wtop p { color: var(--text-muted); font-size: 15px; }
+  .wstep img { width: 100%; height: auto; display: block; border-top: 1px solid var(--border); background: var(--bg-alt); }
+  .wnote { max-width: 880px; margin: 26px auto 0; display: flex; gap: 10px; padding: 14px 18px; border-radius: 12px;
+    font-size: 15px; line-height: 1.55; color: var(--text); background: var(--moss-soft); border-left: 3px solid var(--moss); }
+  .wnote b { color: var(--text); }
+
   .trust { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
   @media (max-width: 860px) { .trust { grid-template-columns: 1fr; } }
   .tcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; }
@@ -145,6 +160,7 @@
   <a class="wordmark" href="index.html"><span class="dot"></span>Agent&nbsp;Auto&nbsp;System</a>
   <div class="nav-links">
     <a class="link" href="index.html#jobs" data-i18n="nav.jobs">What it does</a>
+    <a class="link" href="#walkthrough" data-i18n="nav.walk">See it</a>
     <a class="link" href="index.html#guide" data-i18n="nav.guide">Guide</a>
     <a class="link" href="index.html" data-i18n="nav.tech">For developers</a>
     <div class="lang-toggle" role="group" aria-label="Language">
@@ -216,6 +232,36 @@
       <div class="stepline"><div class="n">2</div><div><h4 data-i18n="how.s2.h">Press Run and watch it work</h4><p data-i18n="how.s2.p">The task runs in the background. You can watch each step happen live, or come back later — it keeps going without you.</p></div></div>
       <div class="stepline"><div class="n">3</div><div><h4 data-i18n="how.s3.h">Get a checked, scored result</h4><p data-i18n="how.s3.p">You get a clear answer, plus a quality score from a second AI that grades the work — so you know how much to trust it.</p></div></div>
     </div>
+  </div>
+</section>
+
+<!-- See it in action -->
+<section id="walkthrough">
+  <div class="shell">
+    <div class="sec-head center">
+      <span class="kicker" data-i18n="walk.kicker">See it in action</span>
+      <h2 data-i18n="walk.h2">A quick look, <b>step by step</b></h2>
+      <p class="lede" data-i18n="walk.lede">Here's exactly what it looks like to run one task, from start to finish — real screenshots, no jargon. This example gathers the day's top tech news.</p>
+    </div>
+    <div class="walk">
+      <div class="wstep">
+        <div class="wtop"><div class="wn">1</div><div><h4 data-i18n="walk.s1.h">Sign in and open the menu</h4><p data-i18n="walk.s1.p">You open the app in your browser and sign in. Then click <b>+ New Run</b> and a menu of ready-made tasks appears — pick the one you want (here, the news digest).</p></div></div>
+        <img src="assets/guide/03-picker.png" alt="The menu of ready-made tasks" loading="lazy"/>
+      </div>
+      <div class="wstep">
+        <div class="wtop"><div class="wn">2</div><div><h4 data-i18n="walk.s2.h">Answer a couple of questions, then press Run</h4><p data-i18n="walk.s2.p">Each task shows a short form. Here you just say how many stories you want. You can leave the AI settings as they are. When you're ready, press the blue <b>Run</b> button.</p></div></div>
+        <img src="assets/guide/04-form.png" alt="A short form with a Run button" loading="lazy"/>
+      </div>
+      <div class="wstep">
+        <div class="wtop"><div class="wn">3</div><div><h4 data-i18n="walk.s3.h">Watch it work — or walk away</h4><p data-i18n="walk.s3.p">The assistant gets to work and shows you each step as it happens, ticking them off one by one. You can watch along, or close the tab and come back later — it keeps going without you.</p></div></div>
+        <img src="assets/guide/05-running.png" alt="Live progress showing each step being completed" loading="lazy"/>
+      </div>
+      <div class="wstep">
+        <div class="wtop"><div class="wn">4</div><div><h4 data-i18n="walk.s4.h">Read your clear, checked answer</h4><p data-i18n="walk.s4.p">When it's done you get a tidy result — here, the top story of the day plus a short summary of each one. The green <b>★ score</b> is a second AI's mark out of 100, so you know how much to trust it.</p></div></div>
+        <img src="assets/guide/07-result-detail.png" alt="The finished result with a quality score" loading="lazy"/>
+      </div>
+    </div>
+    <div class="wnote"><span>✨</span><span data-i18n="walk.note">That's the whole loop — <b>pick, fill, run, read</b>. Every task in the app works the same friendly way, whether it's summarizing news, finding leads, or filling a form.</span></div>
   </div>
 </section>
 
@@ -302,6 +348,7 @@ window.I18N_ZH = {
   "promo.cta": "回到主頁 ↗",
 
   "nav.jobs": "能做什麼",
+  "nav.walk": "實際操作",
   "nav.guide": "上手指南",
   "nav.tech": "給開發者",
   "nav.cta": "立即開始",
@@ -343,6 +390,19 @@ window.I18N_ZH = {
   "how.s2.p": "任務會在背景執行。你可以即時看每個步驟，或稍後再回來 —— 沒有你它也會繼續跑。",
   "how.s3.h": "拿到已檢查、已評分的結果",
   "how.s3.p": "你會得到清楚的答案，加上由第二個 AI 評分的品質分數 —— 讓你知道能信任它多少。",
+
+  "walk.kicker": "實際操作一次",
+  "walk.h2": "快速看一遍，<b>一步一步來</b>",
+  "walk.lede": "以下就是執行一個任務從頭到尾的樣子 —— 真實截圖、沒有術語。這個例子會幫你彙整當天的熱門科技新聞。",
+  "walk.s1.h": "登入並打開選單",
+  "walk.s1.p": "你在瀏覽器打開這個應用並登入。接著點 <b>+ New Run</b>，就會出現一份現成任務的選單 —— 挑你要的那一個（這裡選新聞彙整）。",
+  "walk.s2.h": "回答一兩個問題，然後按執行",
+  "walk.s2.p": "每個任務都會顯示一張簡短表單。這裡你只要說要幾則新聞。AI 的設定可以維持原樣。準備好後，按下藍色的 <b>Run</b> 按鈕。",
+  "walk.s3.h": "看著它工作 —— 或走開去忙",
+  "walk.s3.p": "助手開始動工，並把每個步驟即時顯示給你看，一項一項打勾。你可以在旁邊看，也可以關掉分頁稍後再回來 —— 沒有你它也會繼續跑。",
+  "walk.s4.h": "閱讀清楚、已檢查的答案",
+  "walk.s4.p": "完成後你會得到一份整齊的結果 —— 這裡是當天的頭條加上每則的簡短摘要。綠色的 <b>★ 分數</b>是第二個 AI 打的 100 分制評分，讓你知道能信任它多少。",
+  "walk.note": "整個流程就這樣 —— <b>挑選、填寫、執行、閱讀</b>。應用裡的每個任務都用同樣親切的方式運作，無論是彙整新聞、尋找名單，還是填寫表單。",
 
   "trust.kicker": "為什麼可以信任它",
   "trust.h2": "它會<b>自我複查</b>",
