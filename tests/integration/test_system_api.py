@@ -171,3 +171,19 @@ async def test_pipeline_workflow_has_source_code(client):
     data = (await client.get("/api/system")).json()
     pipeline_wf = next(w for w in data["workflows"] if w["id"] == "pipeline")
     assert pipeline_wf.get("source_code")
+
+
+# ── Automation manifest ─────────────────────────────────────────────────────────
+
+async def test_manifest_returns_all_automations(client):
+    data = (await client.get("/api/automations/manifest")).json()
+    types = {a["job_type"] for a in data["automations"]}
+    assert {"hacker_news_digest", "pipeline", "profit_health_check"} <= types
+
+
+async def test_manifest_generic_has_fields(client):
+    data = (await client.get("/api/automations/manifest")).json()
+    hn = next(a for a in data["automations"] if a["job_type"] == "hacker_news_digest")
+    assert hn["custom_ui"] is False
+    assert [f["name"] for f in hn["fields"]] == ["limit"]
+    assert hn["steps"][0] == ["Start", "Starting"]

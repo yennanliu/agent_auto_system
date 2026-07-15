@@ -1,11 +1,13 @@
 # Automation Extensibility & Maintainability — Design Options
 
-> Status: **proposal / RFC** · Audience: maintainers · Scope: how new automations are
-> defined, registered, surfaced, and (eventually) authored by end users.
+> Status: **Phases 1–3 implemented** (Options A–G shipped; Phase 3G is a safe, admin-only,
+> LLM-only MVP — see §8) · Audience: maintainers · Scope: how new automations are defined,
+> registered, surfaced, and authored by end users.
 >
 > This document maps how adding an automation works **today**, names the concrete
 > pain points, then lays out a menu of design options with **effort, pros, and cons**
-> for each — and a recommended phased roadmap.
+> for each — and a recommended phased roadmap. See [§8 Implementation status](#8-implementation-status)
+> for what has landed.
 
 ---
 
@@ -88,73 +90,88 @@ knows the codebase. Risk is the chance of regressing a working automation.
 
 ### Option A — Declarative `AutomationSpec` registry (SSOT)
 
-**Idea.** Define each automation once as a data object and register it via a decorator.
-Derive `_FLOW_MAP`, `ALL_AUTOMATIONS`, `_CHECKS`, `_RUBRICS`, step defs, and (later) the
-UI manifest from the registry.
+**Idea.** Define each automation once as a data object in one registry module and
+*derive* `_FLOW_MAP`, `ALL_AUTOMATIONS`, `_CHECKS`, `_RUBRICS`, step defs, and (later) the
+UI manifest from it.
+
+> **Implemented as `src/automation/spec.py`** (see §8). The sketch below matches the
+> shipped design. Two deliberate choices worth calling out for reviewers:
+> - The flow is referenced by **`flow_module` / `flow_class` strings**, not a `flow: type`
+>   field, and registration is a plain **`register()`** call (not a class decorator). This
+>   keeps `spec.py` *pure data* with no heavy imports, so low-level modules like
+>   `settings_store` can import it with **no circular-import risk**, and the executor
+>   imports the flow class lazily (exactly as the old `_FLOW_MAP` did). A decorator that
+>   binds the flow class (`@automation(...)` on `class HNDigestFlow`) reads nicer but forces
+>   `spec.py` to import every flow (→ crewai, tools, cycles) at module load — rejected.
+> - `pipeline` (and custom automations) have **no flow**, so `flow_module`/`flow_class` are
+>   optional and default to `None`; such entries simply contribute no `_FLOW_MAP` row.
 
 ```python
-# src/automation/registry_spec.py  (new)
+# src/automation/spec.py
 @dataclass(frozen=True)
 class Field:
     name: str; type: str; label: str
-    required: bool = False; default: Any = None
+    required: bool = False; default: object = None
     min: float | None = None; max: float | None = None
+    placeholder: str = ""; help: str = ""
 
 @dataclass(frozen=True)
 class AutomationSpec:
     job_type: str
-    name: str                     # UI display name
-    icon: str                     # emoji for the tile
-    flow: type                    # the Flow subclass
-    fields: list[Field]           # inputs → drives form + payload + pipeline
-    steps: list[tuple[str, str]]  # (label, log-trigger) → drives both step graphs
-    validate: Callable            # replaces _CHECKS entry
-    rubric: str                   # replaces _RUBRICS entry
-    default_temperature: float = 0.4
-    browser: bool = False         # needs Playwright / a saved session
+    name: str                       # UI display name
+    icon: str                       # emoji for the tile
+    rubric: str                     # replaces the _RUBRICS entry
+    validate: Callable              # replaces the _CHECKS entry
+    steps: tuple[tuple[str, str], ...] = ()  # (label, log-trigger)
+    flow_module: str | None = None  # lazy ref — None for pipeline/custom
+    flow_class: str | None = None
     start_log: str = ""
+    temperature: float = 0.7
+    browser: bool = False
+    fields: tuple[Field, ...] = ()  # drives the manifest form (Phase 2/D)
+    name_template: str = ""; custom_ui: bool = False; desc: str = ""
 
 REGISTRY: dict[str, AutomationSpec] = {}
 
-def automation(spec: AutomationSpec):
+def register(spec: AutomationSpec) -> AutomationSpec:
     if spec.job_type in REGISTRY:
-        raise ValueError(f"duplicate automation {spec.job_type}")
+        raise ValueError(f"duplicate automation {spec.job_type!r}")
     REGISTRY[spec.job_type] = spec
     return spec
 ```
 
-Registration sits next to each flow:
+One `register()` call per automation (in `spec.py`, alongside the others):
 
 ```python
-# src/automation/flows/hn_digest_flow.py
-automation(AutomationSpec(
+register(AutomationSpec(
     job_type="hacker_news_digest", name="HN Digest", icon="🔶",
-    flow=HNDigestFlow,
-    fields=[Field("limit", "int", "Number of Stories (1–10)", default=5, min=1, max=10)],
-    steps=[("Start","Starting"),("Validate","Fetching top"),("Digest","Digest generated")],
-    validate=lambda r: (bool(r.get("stories")), "no stories in digest"),
+    flow_module="src.automation.flows.hn_digest_flow", flow_class="HNDigestFlow",
+    start_log="Contacting Hacker News API...", temperature=0.4,
+    steps=(("Start","Starting"),("Validate","Fetching top"),("Digest","Digest generated"), *_QA, _DONE),
+    validate=lambda r: (bool(r.get("stories")), "no stories in result"),
     rubric="Several real HN stories are present with titles and a useful digest.",
+    fields=(Field("limit","number","Number of Stories (1–10)", default=5, min=1, max=10),),
 ))
 ```
 
-Then the old dicts become one-liners:
+Then the old tables become one-liners the consumers import (keeping their names/shapes):
 
 ```python
-_FLOW_MAP        = {s.job_type: (s.flow, s.start_log) for s in REGISTRY.values()}
-ALL_AUTOMATIONS  = list(REGISTRY)
-_CHECKS          = {jt: s.validate for jt, s in REGISTRY.items()}
-_RUBRICS         = {jt: s.rubric   for jt, s in REGISTRY.items()}
-FLOW_STEPS       = {jt: s.steps    for jt, s in REGISTRY.items()}
+_FLOW_MAP       = {jt: (s.flow_module, s.flow_class, s.start_log)
+                   for jt, s in REGISTRY.items() if s.flow_module}
+ALL_AUTOMATIONS = list(REGISTRY)
+_CHECKS         = {jt: s.validate for jt, s in REGISTRY.items()}
+_RUBRICS        = {jt: s.rubric   for jt, s in REGISTRY.items()}
+FLOW_STEPS      = {jt: list(s.steps) for jt, s in REGISTRY.items() if s.steps}
 ```
 
 - **Effort:** M (≈3–4 days). Add registry + specs, rewire 5 consumers, migrate 11
-  automations, keep a startup assertion that every registered flow imports cleanly.
+  automations, add a test that every registered flow imports cleanly.
 - **Pros:** Collapses 5–6 of the 11 touch points into 1. Duplication hazards #1, #4 gone;
-  #2 shrinks (see C). "Forgot to register" becomes a boot-time error. Enables the manifest
+  #2 shrinks (see C). "Forgot to register" becomes a test/boot-time error. Enables the manifest
   endpoint (D) for free.
-- **Cons:** A one-time churn across many files. Specs must import their flow class, so mind
-  import order / cycles (lazy-import the flow inside the spec if needed). Doesn't by itself
-  touch the UI.
+- **Cons:** A one-time churn across many files. Doesn't by itself touch the UI. (Import
+  cycles are avoided by the string flow-refs above rather than importing flow classes here.)
 - **Risk:** Low–medium — pure re-plumbing, well covered by existing 380 tests + a new
   "every spec resolves" test.
 
@@ -184,13 +201,17 @@ class BaseAutomationFlow(FlowMixin, Flow[S]):
 ### Option C — Derive the System catalog from YAML + specs
 
 **Idea.** Stop hand-copying agent metadata into `system.py` `_CATALOG`. Build it by reading
-each crew's `config/*.yaml` (already the source of truth) plus the spec's job_type/name.
+each crew's `config/*.yaml` (already the source of truth) for the prose (role/goal/backstory),
+keeping only the structural facts (id, crew, task, job_type, tools, YAML path) in code.
 
 - **Effort:** S (≈1–2 days).
 - **Pros:** Kills duplication hazard #2 outright; the System tab can never drift from the
   real agent config again. Removes a large hand-maintained literal from `system.py`.
-- **Cons:** Needs a small convention (which YAML → which job_type) — trivial once A exists
-  (the spec names the crew). Tool/workflow descriptions may still need a short annotation.
+- **Cons:** Needs a small mapping of which YAML entry → which agent. *(As shipped, this
+  lives in a compact `_AGENT_DEFS` table in `system.py` — one row per agent with its
+  `source_file`/`yaml_key` — rather than a `crew` field on `AutomationSpec`, since several
+  agents can belong to one job type. Tool/workflow descriptions still need a short
+  annotation.)*
 - **Risk:** Low.
 
 ### Option D — Automation manifest endpoint + schema-driven UI
@@ -278,22 +299,23 @@ Add-an-automation cost, before vs. after:
 
 ## 5. Recommended roadmap
 
-**Phase 1 — Consolidate (highest ROI, low risk): A + C + B.**
+**Phase 1 — Consolidate (highest ROI, low risk): A + C + B. ✅ DONE.**
 Introduce `AutomationSpec` + registry, derive the five server dicts, build the System
 catalog from YAML, and add `BaseAutomationFlow`. Migrate automations one at a time behind a
 "registry is authoritative" test. Net effect: the "6 files" really becomes ~2, and
 forgetting a step becomes a boot/test error instead of a silent gap. Update `CLAUDE.md`
-"Adding a New Job Type" to the new flow. **~1 week.**
+"Adding a New Job Type" to the new flow. **~1 week.** — *Shipped; see [§8](#8-implementation-status).*
 
-**Phase 2 — Derive the UI: D (+E folds in).**
-Ship `GET /api/automations/manifest` and render picker/form/pipeline/steps from it. After
-this, adding an automation touches **no** front-end code and the client can't drift from the
-server. **~1 week.**
+**Phase 2 — Derive the UI: D (+E folds in). ✅ DONE.**
+Ship `GET /api/automations/manifest` and render picker/form/steps from it. After
+this, adding a *standard* automation touches **no** front-end code and the client can't drift
+from the server. Bespoke forms stay as escape hatches. **~1 week.** — *Shipped; see [§8](#8-implementation-status).*
 
-**Phase 3 — Open it up: F and/or G, product-driven.**
-If third parties/tenants need private automations → **F**. If the goal is non-devs authoring
-automations in the browser → **G**, scoped to a safe single-crew template with a tool
-allowlist, cost caps, and a security review. **Weeks, with review.**
+**Phase 3 — Open it up: F and/or G, product-driven. ✅ DONE (G as a safe MVP).**
+Third-party/tenant automations → **F** (entry-point plugins, opt-in). Non-devs authoring in
+the browser → **G**, scoped to a safe single-crew template (admin-only, LLM-only/no tools).
+Richer G (tools, cost caps, non-admin authoring) still needs the security review. — *Shipped;
+see [§8](#8-implementation-status).*
 
 Phases 1–2 are pure maintainability wins with no user-visible behavior change. Phase 3 is a
 genuine product bet — do it only once the internal shape (Phase 1–2) makes it cheap and safe.
@@ -325,3 +347,104 @@ mistakes fail silently. The fix is a **single declarative `AutomationSpec` regis
 that everything derives from — do that first (with B + C), then **derive the UI from a
 manifest** (D). Only after that foundation is in place should we consider **plugins** (F) or
 true **no-code, user-authored automations** (G), the latter gated by a real security review.
+
+---
+
+## 8. Implementation status
+
+### Phase 1 — shipped (Options A + B + C)
+
+**A — `AutomationSpec` registry (SSOT).** New pure-data module `src/automation/spec.py`
+declares every job type once (`register(AutomationSpec(...))`) with name, icon, flow
+module/class, `start_log`, `temperature`, `steps`, `validate`, and `rubric`. Five consumers
+now *derive* their tables instead of hand-maintaining them:
+
+| Consumer (symbol) | Now derived from |
+|---|---|
+| `executor._FLOW_MAP` | `spec.flow_map()` |
+| `settings_store.ALL_AUTOMATIONS` | `spec.job_types()` |
+| `validator._CHECKS` | `spec.checks()` |
+| `evaluator._RUBRICS` | `spec.rubrics()` |
+| `flow_steps.FLOW_STEPS` | `spec.step_map()` |
+
+Symbol names and shapes are unchanged, so nothing downstream (or in tests that
+`patch.dict(_FLOW_MAP, …)`) had to change. `spec.py` imports nothing heavy (flows are
+referenced by `module:class` strings and imported lazily by the executor), so it is safe to
+import from low-level modules like `settings_store` with no import cycle. Kills duplication
+hazards **#1 (steps, was duplicated Python↔JS server-side)** and **#4 (job_type list)**.
+
+**Fail-loud guard.** `tests/unit/test_spec_registry.py` (19 tests) asserts the registry is
+internally consistent, matches every derived table, and that **every flow-backed spec's
+`(module, class)` actually imports** — so a misregistered automation is a red test, not a
+silent gap.
+
+**B — `FlowMixin._run_crew`.** The identical `resolve → kickoff → extract_usage →
+raw-extract` boilerplate in the six single-crew flows (`hn_digest`, `web_scraper`,
+`x_scraper`, `google_sheet`, `shopee_seller`, `form_fill`) collapsed to one call; each
+`execute_crew` is now ~6 lines. Implemented as a **mixin helper, not a Flow base class**:
+a probe confirmed the doc's warning — CrewAI's Flow metaclass does not route `kickoff`
+results through inherited `@start`/`@listen` methods (returns `None`). Deterministic /
+non-single-crew flows (`email_sender`, `email_collect`, `tasker_apply`, `tw104_apply`,
+`profit_health`) were intentionally left as-is.
+
+**C — System catalog agents from YAML.** `system.py` no longer hand-copies agent
+`role`/`goal`/`backstory`; a compact `_AGENT_DEFS` table (structural facts only) is merged
+with those fields read live from each crew's `agents.yaml` by `_build_agents()`. Kills
+duplication hazard **#2** — the System tab can no longer drift from the real agent config.
+
+**Invariants preserved:** no `@CrewBase`; constructor LLM injection; Pydantic
+`llm_provider`/`llm_model` on state; eval/trace still degrade gracefully; `get_stats()`
+single pass. Full suite green (**562 passed**, was 543 + 19 new registry tests); lint clean.
+
+**Docs:** `CLAUDE.md` "Adding a New Job Type" rewritten to the registry flow.
+
+### Phase 2 — shipped (Options D + E)
+
+**Manifest.** `GET /api/automations/manifest` (gated) serializes the registry via
+`spec.manifest()` — name, icon, desc, browser, custom_ui, name_template, help_note,
+`fields[]`, and `steps[[label,trigger]]`. `AutomationSpec` gained `fields`, `name_template`,
+`custom_ui`, `help_note`, `desc`.
+
+**Manifest-driven UI.** The browser loads the manifest at boot/login and now derives the
+picker tiles, the run form + payload for `custom_ui=false` automations (a generic renderer +
+`collectGenericPayload`), and the live step graph `FLOW_STEPS`. The 4 standard automations
+(`web_scraper`, `hacker_news_digest`, `google_sheet_reader`, `shopee_seller_scraper`) lost
+their hand-written `#fields-*` HTML and per-type submit branches — they render from the spec.
+The 8 with bespoke widgets (file upload, pipeline builder, multi-field flows) are flagged
+`custom_ui=True` and keep their forms (the escape hatch D calls for).
+
+**Net:** a new *standard* automation needs **zero UI edits**. Kills the client↔server
+step-def duplication (#1) and the standard form-field duplication; #3 remains only for the
+bespoke escape-hatch forms. Verified end-to-end in a browser.
+
+### Phase 3 — shipped (Options F + G)
+
+**F — Plugins.** `spec.load_plugins()` discovers automations from external packages via
+`importlib.metadata` entry points (group `agent_auto_system.automations`). OFF unless
+`AUTOMATION_PLUGINS_ENABLED=1` — third-party code runs at import, so it's an explicit trust
+opt-in. A plugin exposes `def setup(register): register(AutomationSpec(...))`.
+
+**G — No-code, user-authored automations (safe MVP).** Admins create automations from the
+**Admin → Custom** tab with no code: name, icon, inputs, instructions, expected output,
+temperature (`CustomAutomation` table + `src/custom_automations.py`). They become
+`custom:<slug>` and — because the UI is manifest-driven (D) — render a picker tile and run
+form automatically. They run through the full harness (validate / evaluate / cost).
+
+Security posture (MVP): **admin-only** authoring; **LLM-only — a single agent with an empty
+tool list** (`DynamicCrew`), so no network/filesystem/secret access and no code execution;
+per-input and instruction length caps. Broadening this (giving custom automations tools, or
+opening authoring to non-admins) is the part that needs the dedicated **security review**
+this RFC called for, and is deliberately left out of the MVP.
+
+Known limitation: newly created/deleted custom automations appear in the picker after a page
+reload (the manifest is fetched at boot); the create flow refreshes it in-session.
+
+**Invariants preserved** across Phases 2–3 (no `@CrewBase`, constructor LLM injection,
+graceful eval/trace, single-pass stats). **576 tests pass**; lint clean.
+
+### Still open (future work)
+
+- Fully retire duplication hazard #3 for the *bespoke* forms (tasker/tw104/profit/pipeline)
+  by extending the manifest field vocabulary (file upload, saved templates, dynamic selects).
+- The security review gating richer Phase-3G capabilities (tool allowlists, per-user cost
+  caps, non-admin authoring, definition versioning).
