@@ -2,6 +2,7 @@
   "name": "agent-auto-system-desktop",
   "version": "0.1.0",
   "description": "Desktop shell for the Agent Auto System — launches the FastAPI backend as a hidden sidecar and renders the web UI.",
+  "author": "Junyi Academy",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -31,12 +32,10 @@
     ],
     "extraResources": [
       {
-        "//": "PyInstaller one-dir backend → resources/backend/ (exe at backend/agent-auto-system). Build first: `uv run python scripts/build_backend.py`.",
         "from": "backend-dist/agent-auto-system",
         "to": "backend"
       },
       {
-        "//": "Web UI served by the backend (FileResponse/StaticFiles resolve it against cwd=resourcesPath).",
         "from": "../ui",
         "to": "ui"
       }
