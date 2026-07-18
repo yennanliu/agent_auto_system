@@ -64,6 +64,10 @@ def main() -> int:
         ctx = open_login_context(
             pw, user_data_dir=profile_dir("linkedin", STATE_PATH),
             locale="en-US", on_progress=print,
+            # Bundled Chromium (not real Chrome): LinkedIn has no Turnstile, and
+            # the real macOS Chrome orphans holding the profile lock — which would
+            # break the automated runs that reuse this same profile.
+            prefer_chrome=False,
         )
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(_LOGIN_URL, wait_until="domcontentloaded")

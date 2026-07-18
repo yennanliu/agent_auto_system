@@ -100,6 +100,28 @@ _AUTHED_SELECTORS = (
 )
 
 
+def _inject_state_cookies(ctx, state_path: str, warnings: list) -> int:
+    """Add the cookies from an exported Playwright storage_state JSON to a live
+    context. storage_state stores cookies in plaintext, so this works across
+    browser builds / cookie-encryption stores (unlike a profile's own cookie DB).
+    Returns the number of cookies added."""
+    import json
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            cookies = (json.load(fh) or {}).get("cookies") or []
+    except Exception as exc:  # noqa: BLE001 — a bad session file must not abort the run
+        warnings.append(f"could not read session cookies ({exc})")
+        return 0
+    if not cookies:
+        return 0
+    try:
+        ctx.add_cookies(cookies)  # storage_state cookie shape is add_cookies-compatible
+        return len(cookies)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"could not inject session cookies ({exc})")
+        return 0
+
+
 def _looks_logged_out(page) -> bool:
     """Positive login signals beat LinkedIn's ever-present marketing header. We
     only declare "logged out" when an auth wall is actually showing."""
@@ -342,6 +364,38 @@ _FILL_JS = r"""
 """
 
 
+def _modal_heading(page) -> str:
+    """Best-effort current-page title of the Easy Apply modal, for logging."""
+    for sel in ("[role='dialog'] h3", "[role='dialog'] h2",
+                ".jobs-easy-apply-content h3", "[role='dialog'] header"):
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0:
+                txt = (loc.inner_text() or "").strip().replace("\n", " ")
+                if txt:
+                    return txt[:80]
+        except Exception:  # noqa: BLE001
+            continue
+    return "?"
+
+
+def _form_errors(page) -> str:
+    """Concatenated visible field-error messages, for diagnosing a stall."""
+    msgs: list[str] = []
+    for sel in (".artdeco-inline-feedback--error",
+                "[data-test-form-element-error-messages]",
+                ".fb-dash-form-element__error-field"):
+        try:
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 5)):
+                t = (loc.nth(i).inner_text() or "").strip().replace("\n", " ")
+                if t and t not in msgs:
+                    msgs.append(t[:80])
+        except Exception:  # noqa: BLE001
+            continue
+    return "; ".join(msgs)
+
+
 def _has_form_error(page) -> bool:
     for sel in (".artdeco-inline-feedback--error",
                 "[data-test-form-element-error-messages]",
@@ -420,10 +474,13 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
     try:
         for _step in range(_MAX_MODAL_STEPS):
             page.wait_for_timeout(800)
+            heading = _modal_heading(page)
             try:
-                page.evaluate(_FILL_JS, profile)
+                filled = page.evaluate(_FILL_JS, profile)
             except Exception as exc:  # noqa: BLE001
+                filled = "?"
                 warnings.append(f"{job['job_id']}: form-fill error ({exc})")
+            log(f"  · step {_step + 1}: '{heading}' — filled {filled} field(s)")
 
             submit = _first_visible(page, _SUBMIT_SELECTORS)
             if submit is not None:
@@ -461,13 +518,41 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                 entry.update(status="failed", submitted=False,
                              reason="no Next/Review/Submit button (unexpected modal layout)")
                 return entry
+            try:
+                btn_label = (nxt.get_attribute("aria-label")
+                             or nxt.inner_text() or "").strip()[:40]
+            except Exception:  # noqa: BLE001
+                btn_label = ""
+            log(f"  · step {_step + 1}: clicking '{btn_label}'")
             nxt.click(timeout=8000)
             page.wait_for_timeout(1000)
             if _has_form_error(page):
-                entry.update(status="skipped", submitted=False,
-                             reason="required screening question we couldn't answer")
-                log(f"↷ {job['job_id']}: unanswerable required question — skipping")
-                return entry
+                # Clicking Next surfaced a validation error, so the page did NOT
+                # advance. Often it's a field our first fill-pass missed (a custom
+                # dropdown, a field that only appeared after another was set), not a
+                # genuinely unanswerable screening question. Re-fill and retry once
+                # before giving up — a re-fill frequently clears it.
+                try:
+                    refilled = page.evaluate(_FILL_JS, profile)
+                except Exception:  # noqa: BLE001
+                    refilled = 0
+                log(f"  · step {_step + 1}: validation error, re-filled {refilled} "
+                    f"field(s) and retrying")
+                page.wait_for_timeout(500)
+                retry = _first_visible(page, _NEXT_SELECTORS)
+                if retry is not None:
+                    try:
+                        retry.click(timeout=8000)
+                        page.wait_for_timeout(1000)
+                    except Exception:  # noqa: BLE001
+                        pass
+                if _has_form_error(page):
+                    errs = _form_errors(page)
+                    entry.update(status="skipped", submitted=False,
+                                 reason=f"required question we couldn't answer: {errs}"
+                                 if errs else "required screening question we couldn't answer")
+                    log(f"↷ {job['job_id']}: unanswerable required question — skipping ({errs})")
+                    return entry
 
         entry.update(status="failed", submitted=False,
                      reason=f"did not reach Submit within {_MAX_MODAL_STEPS} steps")
@@ -527,15 +612,19 @@ def run_linkedin_apply(
 
     from src.automation.browser_session import open_login_context, profile_dir
 
-    # LinkedIn binds the li_at session cookie to the exact browser/device that was
-    # logged in. `scripts/linkedin_login.py` logs in via real Chrome in a warm
-    # persistent profile (see open_login_context); if the run instead imported the
-    # cookie JSON into a fresh, differently-fingerprinted bundled-Chromium context
-    # (different browser build + spoofed UA), LinkedIn treats it as an unknown
-    # device and drops us to the auth wall — the classic "cookies present but the
-    # page shows logged-out". So we reuse the SAME persistent profile the login
-    # created. Only fall back to the storage_state JSON when no profile exists
-    # (e.g. a session file copied to a remote host).
+    # Session handling. LinkedIn's auth is the httpOnly `li_at` cookie. Two moving
+    # parts have to line up:
+    #   1. Fingerprint — LinkedIn downgrades an inconsistent browser to the
+    #      logged-out *guest* jobs page. So we run inside the SAME warm persistent
+    #      profile the login used (open_login_context), headed, bundled Chromium.
+    #   2. Cookie readability — on macOS, real Chrome encrypts its cookie store
+    #      with the Keychain, while bundled Chromium runs with --password-store=
+    #      basic and CANNOT decrypt Keychain-encrypted cookies. A profile written
+    #      by real Chrome therefore looks like it has *no* li_at to Chromium. So we
+    #      never rely on the profile's own cookie store for auth: we overlay the
+    #      plaintext cookies from the exported storage_state JSON via add_cookies,
+    #      which is browser-agnostic. (This is also why both the login script and
+    #      this run now use bundled Chromium — one consistent store.)
     udd = profile_dir("linkedin", state_path)
     has_profile = os.path.isdir(udd) and any(os.scandir(udd))
     has_state = bool(state_path and os.path.exists(state_path))
@@ -552,10 +641,12 @@ def run_linkedin_apply(
         # e.g. Xvfb, on a server.)
         browser = None
         if has_profile:
-            # Preferred: reuse the exact Chrome profile the login used, so the
-            # browser fingerprint/UA match what LinkedIn issued the session to.
+            # Preferred: reuse the exact profile the login used, for a consistent
+            # fingerprint. bundled Chromium (prefer_chrome=False) is fully
+            # controllable and never orphans holding the profile lock.
             ctx = open_login_context(
                 pw, user_data_dir=udd, locale="en-US", on_progress=log,
+                prefer_chrome=False,
             )
         else:
             browser = pw.chromium.launch(
@@ -568,6 +659,13 @@ def run_linkedin_apply(
                 locale="en-US",
                 viewport={"width": 1366, "height": 900},
             )
+        # Overlay the exported (plaintext) cookies so li_at is present regardless
+        # of the profile's cookie-encryption store. Harmless on the fallback path
+        # (same cookies it already loaded); essential on the profile path.
+        if has_state:
+            n = _inject_state_cookies(ctx, state_path, warnings)
+            if n:
+                log(f"Injected {n} saved cookie(s) from session file")
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             first_url = _search_url(keywords, location, 1, remote)

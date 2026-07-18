@@ -51,6 +51,10 @@ class SessionSpec:
     # Given a live Playwright page, return True once the site looks authenticated.
     is_logged_in: Callable[[object], bool] = field(repr=False, default=lambda _p: False)
     ttl_seconds: int = _DEFAULT_TTL
+    # Whether to prefer the real installed Chrome (channel="chrome"). True for the
+    # Cloudflare-Turnstile sites; False for LinkedIn, where the real macOS Chrome
+    # orphans and holds the profile lock (see open_login_context).
+    prefer_chrome: bool = True
 
 
 def _tasker_logged_in(page) -> bool:
@@ -142,6 +146,7 @@ _SPECS: dict[str, SessionSpec] = {
         default_state_path="data/linkedin_state.json",
         login_url="https://www.linkedin.com/login",
         is_logged_in=_linkedin_logged_in,
+        prefer_chrome=False,  # real macOS Chrome orphans + holds the profile lock
     ),
 }
 
@@ -176,15 +181,56 @@ _STEALTH_ARGS = ["--disable-blink-features=AutomationControlled"]
 _STEALTH_IGNORE = ["--enable-automation"]
 
 
-def open_login_context(pw, *, user_data_dir, locale="zh-TW", viewport=None, on_progress=None):
-    """Open a headed, persistent Chromium context tuned to clear Cloudflare
-    Turnstile: a warm ``user_data_dir`` profile plus automation-flag suppression.
-    Prefers the real installed Chrome (``channel="chrome"``) — its fingerprint
-    passes Turnstile far more reliably than bundled Chromium — and falls back to
-    bundled Chromium when Chrome isn't installed. Returns a ``BrowserContext``;
-    the caller is responsible for closing it."""
+def clear_stale_singleton_locks(user_data_dir) -> None:
+    """Remove a Chromium profile's Singleton* lock files when no live process
+    owns them. Chromium refuses to open a ``user_data_dir`` that still has a
+    ``SingletonLock`` — and a browser that crashed or was force-killed (or a real
+    macOS ``Chrome.app`` that detached itself after ``channel='chrome'`` and was
+    later killed) leaves those files behind, so every subsequent launch fails with
+    "Opening in existing browser session". The lock symlink target encodes the
+    owning ``hostname-PID``; if that PID is dead, the lock is stale and safe to
+    clear."""
+    d = Path(user_data_dir)
+    lock = d / "SingletonLock"
+    try:
+        target = os.readlink(lock)  # e.g. "myhost-12784"
+    except OSError:
+        return  # no lock (or not a symlink) → nothing to clear
+    alive = False
+    pid_str = target.rsplit("-", 1)[-1]
+    if pid_str.isdigit():
+        try:
+            os.kill(int(pid_str), 0)  # signal 0 = liveness probe, doesn't kill
+            alive = True
+        except ProcessLookupError:
+            alive = False
+        except PermissionError:
+            alive = True  # exists but owned by another user → treat as live
+    if not alive:
+        for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+            try:
+                (d / name).unlink()
+            except OSError:
+                pass
+
+
+def open_login_context(pw, *, user_data_dir, locale="zh-TW", viewport=None,
+                       on_progress=None, prefer_chrome=True):
+    """Open a headed, persistent Chromium context with a warm ``user_data_dir``
+    profile plus automation-flag suppression. Returns a ``BrowserContext``; the
+    caller is responsible for closing it.
+
+    ``prefer_chrome`` (default True) first tries the real installed Chrome
+    (``channel="chrome"``) — its fingerprint passes Cloudflare Turnstile far more
+    reliably than bundled Chromium (needed by tasker/104/Shopee) — and falls back
+    to bundled Chromium when Chrome isn't usable. Pass ``prefer_chrome=False`` for
+    sites that DON'T use Turnstile (e.g. LinkedIn): the real macOS ``Chrome.app``
+    relaunches itself detached, so Playwright loses control of its lifecycle and
+    it orphans holding the profile lock — bundled Chromium is fully controllable
+    and never orphans, which matters for automated (non-interactive) runs."""
     note = on_progress or (lambda _m: None)
     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+    clear_stale_singleton_locks(user_data_dir)
     kwargs = dict(
         user_data_dir=user_data_dir,
         headless=False,
@@ -193,6 +239,8 @@ def open_login_context(pw, *, user_data_dir, locale="zh-TW", viewport=None, on_p
         args=_STEALTH_ARGS,
         ignore_default_args=_STEALTH_IGNORE,
     )
+    if not prefer_chrome:
+        return pw.chromium.launch_persistent_context(**kwargs)
     try:
         return pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
     except Exception as exc:  # noqa: BLE001 — Chrome not usable (often not installed)
@@ -366,7 +414,8 @@ def _browser_login(  # pragma: no cover - drives a real browser
     udd = profile_dir(spec.name, path)
 
     with sync_playwright() as pw:
-        ctx = open_login_context(pw, user_data_dir=udd, on_progress=on_progress)
+        ctx = open_login_context(pw, user_data_dir=udd, on_progress=on_progress,
+                                 prefer_chrome=spec.prefer_chrome)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             page.goto(spec.login_url, wait_until="domcontentloaded", timeout=30000)
