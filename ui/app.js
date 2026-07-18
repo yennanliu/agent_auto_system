@@ -1847,9 +1847,10 @@ runForm.addEventListener('submit', async (e) => {
     const location = document.getElementById('li-location').value.trim();
     const phone = document.getElementById('li-phone').value.trim();
     const taskFilter = document.getElementById('li-filter').value.trim();
+    const liYears = parseInt(document.getElementById('li-years').value, 10);
     payload = {
       keywords,
-      years_experience: parseInt(document.getElementById('li-years').value, 10) || 3,
+      years_experience: Number.isNaN(liYears) ? 3 : liYears,  // preserve an explicit 0
       max_applications: parseInt(document.getElementById('li-max').value, 10) || 5,
       max_pages: parseInt(document.getElementById('li-max-pages').value, 10) || 10,
       remote: document.getElementById('li-remote').checked,

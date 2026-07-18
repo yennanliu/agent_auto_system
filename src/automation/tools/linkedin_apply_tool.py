@@ -303,14 +303,27 @@ _FILL_JS = r"""
     filled++;
   });
 
+  const optText = (r) => {
+    let t = '';
+    if (r.id) { const l = document.querySelector('label[for="' + r.id + '"]'); if (l) t = l.innerText; }
+    return (t || r.value || '').trim().toLowerCase();
+  };
   const seen = new Set();
   modal.querySelectorAll("input[type='radio']").forEach(el => {
     const name = el.name || '';
     if (seen.has(name)) return;
     seen.add(name);
-    const group = Array.from(modal.querySelectorAll("input[type='radio'][name='" + name + "']"));
+    // Filter by name in JS — a CSS [name='..'] selector throws if the name has
+    // special characters (LinkedIn uses urn:-style dynamic names).
+    const group = Array.from(modal.querySelectorAll("input[type='radio']")).filter(r => r.name === name);
     if (group.some(r => r.checked)) return;
-    const pick = group.find(r => /yes/.test(labelFor(r))) || group[0];
+    // Mirror the <select> heuristic: default to "No" for sponsorship questions,
+    // "Yes" otherwise. The question text comes from the field container, not the
+    // option's own Yes/No label.
+    const container = el.closest("[data-test-form-element], .fb-dash-form-element, .jobs-easy-apply-form-element, fieldset");
+    const q = (container ? container.innerText : '').toLowerCase();
+    const wantNo = /sponsor|require sponsorship/.test(q);
+    const pick = group.find(r => new RegExp(wantNo ? '^no' : '^yes').test(optText(r))) || group[0];
     if (pick) { pick.click(); filled++; }
   });
 
@@ -423,7 +436,9 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                 for _ in range(16):
                     for txt in _SUCCESS_TEXTS:
                         try:
-                            if page.get_by_text(txt, exact=False).count() > 0:
+                            # A visible banner only — count() alone would match
+                            # hidden/off-screen template text and false-positive.
+                            if page.get_by_text(txt, exact=False).first.is_visible():
                                 applied = True
                                 break
                         except Exception:  # noqa: BLE001
@@ -458,8 +473,10 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                      reason=f"did not reach Submit within {_MAX_MODAL_STEPS} steps")
         return entry
     finally:
-        # Always clean up an open/draft modal so it doesn't block the next job.
-        if entry.get("status") in ("prepared", "skipped", "failed", "unconfirmed"):
+        # Always clean up an open/draft modal so it doesn't block the next job —
+        # including the exception path, where status was never set (None). Only a
+        # confirmed submit leaves nothing to discard.
+        if entry.get("status") != "submitted":
             _dismiss_and_discard(page, log)
 
 
@@ -493,11 +510,15 @@ def run_linkedin_apply(
     state_path = state_path or os.getenv("LINKEDIN_STORAGE_STATE", DEFAULT_STATE_PATH)
     max_applications = max(1, min(int(max_applications), 1000))
     max_pages = max(1, min(int(max_pages), 500))
+    try:
+        years = int(years_experience)  # preserve an explicit 0 (entry-level)
+    except (TypeError, ValueError):
+        years = 3
     profile = {
         "phone": (phone or "").strip(),
         "email": "",
         "location": (location or "").strip(),
-        "years": int(years_experience) if years_experience else 3,
+        "years": years,
         "salary": "0",
     }
 
