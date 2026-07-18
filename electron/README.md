@@ -65,7 +65,22 @@ npm run dist:win        # Windows NSIS (on Windows)
 
 The frozen backend (`agent_backend.spec`, entry `src/desktop_entry.py`) is verified to
 boot and serve `/health`, auth, the UI, and the automations manifest with **no Python
-installed**. CI builds and releases it via `.github/workflows/desktop.yml` (tag `desktop-v*`).
+installed**.
+
+## Cut a release (CD)
+
+CI builds + publishes the macOS app automatically when you push a `desktop-v*` tag
+(`.github/workflows/desktop.yml`):
+
+```bash
+git tag desktop-v0.1.0
+git push origin desktop-v0.1.0
+```
+
+That triggers: freeze backend → `electron-builder` DMG → GitHub Release (marked *latest*,
+DMG attached). The landing-page **下載 macOS 版** button links to
+`…/releases/latest`, so it always points at the newest published build. Signing runs
+automatically if the Apple secrets are configured (else the DMG is unsigned).
 
 ## Not yet done (see design doc)
 

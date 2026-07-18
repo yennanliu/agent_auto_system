@@ -119,12 +119,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.dmg
-          prerelease: true
+          # Full release (not prerelease) so /releases/latest resolves to it —
+          # the landing-page "下載 macOS 版" button links there.
+          prerelease: false
+          make_latest: "true"
+          name: Agent Auto System ${{ github.ref_name }}
           body: |
-            Agent Auto System — desktop app (${{ github.ref_name }}).
+            ## Agent Auto System — macOS desktop app (${{ github.ref_name }})
 
-            The PyInstaller-frozen backend is bundled: the app boots and LLM /
-            non-browser automations work. ⚠️ Known gaps (see
-            doc/electron-desktop-app-design.md): browser-driven flows need Playwright
-            Chromium vendored (follow-up), and the DMG is unsigned unless Apple
-            signing secrets are configured. Pre-release until those land.
+            Download the `.dmg` below, open it, and drag the app to Applications.
+
+            > **Apple Silicon (arm64).** The app is currently **unsigned**, so on
+            > first launch macOS Gatekeeper will warn — right-click the app →
+            > **Open** → **Open** (once). Signing is tracked for a later release.
+
+            **What works:** the whole system runs locally as one app (no Python
+            install) — LLM and non-browser automations, scheduler, and the full UI.
+            **Known gap:** browser-driven flows still need Playwright Chromium
+            vendored (follow-up). See `doc/electron-desktop-app-design.md`.
