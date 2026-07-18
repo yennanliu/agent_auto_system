@@ -6,9 +6,48 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "start:dev": "AAS_DEV=1 electron ."
+    "start:dev": "AAS_DEV=1 electron .",
+    "test": "node --test test/*.test.js",
+    "dist": "electron-builder --mac dmg",
+    "dist:win": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "org.junyi.agentautosystem",
+    "productName": "Agent Auto System",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "health.js",
+      "splash.html",
+      "lib/**/*"
+    ],
+    "extraResources": [
+      {
+        "//": "Phase 2: the PyInstaller-frozen backend and the web UI are copied in here.",
+        "from": "../ui",
+        "to": "ui"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }

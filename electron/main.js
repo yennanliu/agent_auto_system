@@ -6,6 +6,7 @@ const path = require('node:path');
 const net = require('node:net');
 const fs = require('node:fs');
 const { waitForHealthy } = require('./health');
+const { resolveBackend } = require('./lib/backend-config');
 
 // ── Config ───────────────────────────────────────────────────────────────────
 // Project root (the repo) sits one level above electron/. In a packaged build
@@ -41,49 +42,18 @@ function appDataDir() {
   return dir;
 }
 
-// ── Resolve how to launch the backend ───────────────────────────────────────────
-// Dev / spike:   `uv run uvicorn src.main:app` from the repo (needs uv + .venv).
-// Packaged (TODO Phase 2): a PyInstaller-frozen binary under resourcesPath.
-function resolveBackend(port, dataDir) {
-  const env = {
-    ...process.env,
-    PORT: String(port),
-    DESKTOP_MODE: '1', // single local admin, auto-authenticated (no login screen)
-    SCHEDULER_ENABLED: '1',
-    BROWSER_LOGIN_ENABLED: '0', // headed-login refresh is a desktop v2
-    APP_DATA_DIR: dataDir,
-    // Keep the SQLite DB and artifacts out of the bundle / repo.
-    DATABASE_URL: `sqlite:///${path.join(dataDir, 'app.db')}`,
-    UPLOAD_DIR: path.join(dataDir, 'uploads'),
-    PYTHONUNBUFFERED: '1',
-  };
-
-  if (IS_PACKAGED) {
-    // Phase 2 will point this at the frozen backend shipped in extraResources.
-    const bin = path.join(process.resourcesPath, 'backend', 'agent-auto-system');
-    return { command: bin, args: [], env, cwd: process.resourcesPath };
-  }
-
-  // Spike/dev path: drive uvicorn through uv so deps resolve from the project .venv.
-  return {
-    command: 'uv',
-    args: [
-      'run',
-      'uvicorn',
-      'src.main:app',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(port),
-    ],
-    env,
-    cwd: PROJECT_ROOT,
-  };
-}
-
+// How to launch the backend lives in ./lib/backend-config.js (pure + unit-tested):
+//   dev/spike → `uv run uvicorn` from the repo; packaged → frozen binary (Phase 2).
 function startBackend(port) {
   const dataDir = appDataDir();
-  const { command, args, env, cwd } = resolveBackend(port, dataDir);
+  const { command, args, env, cwd } = resolveBackend({
+    port,
+    dataDir,
+    isPackaged: IS_PACKAGED,
+    resourcesPath: process.resourcesPath,
+    projectRoot: PROJECT_ROOT,
+    baseEnv: process.env,
+  });
 
   const logDir = path.join(dataDir, 'logs');
   fs.mkdirSync(logDir, { recursive: true });

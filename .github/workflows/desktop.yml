@@ -1,0 +1,118 @@
+name: Desktop App
+
+# CI for the Electron desktop shell (doc/electron-desktop-app-design.md):
+#   • test    — Electron-shell unit tests (Node), on every push/PR
+#   • build   — package a macOS DMG (on a tag or manual dispatch)
+#   • release — attach the DMG to a GitHub Release (on a desktop-v* tag)
+#
+# The DESKTOP_MODE backend tests (tests/integration/test_desktop_mode.py) run in
+# the main `CI` workflow with the rest of the Python suite — not duplicated here.
+#
+# NOTE (Phase 0/1): the DMG built here packages the Electron shell + web UI but
+# NOT yet a runnable backend — freezing the Python backend with PyInstaller and
+# vendoring Chromium is Phase 2. Until then, releases are marked pre-release and
+# the artifact validates the packaging/signing toolchain, not a shippable app.
+
+on:
+  push:
+    branches: [main]
+    tags: ["desktop-v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1 — Electron-shell unit tests (pure JS: port/env resolution + health poll)
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Electron shell tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install shell deps
+        working-directory: electron
+        run: npm ci
+
+      - name: Run shell unit tests
+        working-directory: electron
+        run: npm test
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2 — Package the macOS app (tag or manual only; skipped on PRs)
+  # ────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build macOS DMG
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/desktop-v') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install shell deps
+        working-directory: electron
+        run: npm ci
+
+      - name: Build DMG (electron-builder)
+        working-directory: electron
+        env:
+          # Code-signing + notarization run ONLY when these secrets are set;
+          # unset → electron-builder produces an unsigned DMG (fine for CI artifacts).
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx --no-install electron-builder --mac dmg --publish never
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-auto-system-macos
+          path: electron/dist/*.dmg
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 3 — Attach the DMG to a GitHub Release (desktop-v* tags only)
+  # ────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-auto-system-macos
+          path: dist
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          prerelease: true
+          body: |
+            Agent Auto System — desktop app (${{ github.ref_name }}).
+
+            ⚠️ Phase 0/1 build: the Python backend is not yet bundled (PyInstaller
+            freeze is Phase 2), so this DMG validates the packaging toolchain and is
+            **not yet a runnable app**. See doc/electron-desktop-app-design.md.
