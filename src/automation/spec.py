@@ -402,6 +402,22 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
+    job_type="linkedin_apply", desc='Auto-apply to LinkedIn Easy Apply jobs', custom_ui=True, name="LinkedIn Easy Apply", icon="🔗",
+    flow_module="src.automation.flows.linkedin_apply_flow", flow_class="LinkedInApplyFlow",
+    start_log="Loading LinkedIn session...", temperature=0.2, browser=True,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Login", "Loading LinkedIn session"), ("Apply", "run complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("applied"), list) and r.get("jobs_found") is not None,
+        "no jobs processed",
+    ),
+    rubric=("Jobs were found and an accurate applied[] list reflects real applications "
+            "(a submission counts only when LinkedIn confirmed the 'application was sent' "
+            "banner); jobs skipped as already-applied or 'filtered out' with a reason are "
+            "correct behavior, not failures."),
+))
+
+register(AutomationSpec(
     job_type="email_collect", desc='Find businesses & collect their emails', custom_ui=True, name="Email Collector", icon="📧",
     flow_module="src.automation.flows.email_collect_flow", flow_class="EmailCollectFlow",
     start_log="Starting lead-collection funnel...", temperature=0.4, browser=True,

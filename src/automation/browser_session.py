@@ -90,6 +90,15 @@ def _tw104_logged_in(page) -> bool:
     return False
 
 
+def _linkedin_logged_in(page) -> bool:
+    # Reuse the tool's own (battle-tested) logged-out heuristic, inverted: it
+    # requires a positive authenticated marker (the global-nav avatar / feed)
+    # rather than the absence of a login route, so it won't false-positive on
+    # LinkedIn's /checkpoint 2FA page mid-login.
+    from src.automation.tools.linkedin_apply_tool import _looks_logged_out
+    return not _looks_logged_out(page)
+
+
 def _url_left_login(login_marker: str) -> Callable[[object], bool]:
     """Generic check: authenticated once the page has navigated away from the
     login route. Good enough for sites that redirect to a dashboard on success."""
@@ -125,6 +134,14 @@ _SPECS: dict[str, SessionSpec] = {
         default_state_path="data/shopee_state.json",
         login_url="https://shopee.tw/buyer/login",
         is_logged_in=_url_left_login("/login"),
+    ),
+    "linkedin": SessionSpec(
+        name="linkedin",
+        label="LinkedIn",
+        state_env="LINKEDIN_STORAGE_STATE",
+        default_state_path="data/linkedin_state.json",
+        login_url="https://www.linkedin.com/login",
+        is_logged_in=_linkedin_logged_in,
     ),
 }
 

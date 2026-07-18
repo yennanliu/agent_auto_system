@@ -1,0 +1,26 @@
+judge_relevance_task:
+  description: >
+    The job seeker only wants to apply to jobs matching the following "filter"
+    (this is a second gate beyond the keyword search):
+    ---
+    {task_filter}
+    ---
+
+    Decide whether the LinkedIn job below matches the filter above.
+
+    Job title: {job_title}
+
+    Job info (company / summary):
+    {job_meta}
+
+    Requirements:
+    - Judge only by the filter; only a clear match counts as relevant (relevant=true).
+    - If the job clearly falls into an excluded type, or is obviously outside the
+      filter's field, it is not relevant (relevant=false).
+    - reason: one short sentence explaining the call (e.g. "Backend engineer role,
+      matches the Python filter" or "Sales role, which is excluded").
+    - Output exactly one JSON object: {{"relevant": true or false, "reason": "<one sentence>"}}.
+      Do not output any other text, heading, or Markdown.
+  expected_output: >
+    A strict JSON object, e.g. {{"relevant": true, "reason": "Backend engineer role, matches the filter"}}.
+  agent: relevance_judge

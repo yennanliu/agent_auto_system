@@ -1,6 +1,6 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'email_collect', 'pipeline'];
+let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'linkedin_apply', 'email_collect', 'pipeline'];
 
 const TYPE_META = {
   google_form_fill:   { chip: 'FORM',  cls: 'chip-form'     },
@@ -13,6 +13,7 @@ const TYPE_META = {
   profit_health_check: { chip: '利潤健檢', cls: 'chip-profit' },
   tasker_apply:        { chip: 'TASKER', cls: 'chip-tasker' },
   tw104_apply:         { chip: '104',    cls: 'chip-104'    },
+  linkedin_apply:      { chip: 'LINKEDIN', cls: 'chip-linkedin' },
   email_collect:        { chip: 'EMAILS', cls: 'chip-leads' },
   pipeline:            { chip: 'PIPE',  cls: 'chip-pipeline' },
 };
@@ -128,6 +129,23 @@ const AUTO_CATALOG = {
     ],
     crew: 'TW104RelevanceCrew', flow: 'TW104ApplyFlow',
     agent: '104 Relevance Judge', tools: ['104 Auto-Apply'],
+  },
+  linkedin_apply: {
+    icon: '🔗', name: 'LinkedIn Easy Apply',
+    desc: 'Log in to LinkedIn (via a saved session) and auto-apply to "Easy Apply" jobs matching a keyword: open each job, walk the multi-step Easy Apply modal (fill contact info / screening questions → Next/Review → Submit). Auto-advances through search result pages, skipping jobs you already applied to, until it has applied to max_applications ones. An application is only counted as successful when LinkedIn shows the "application was sent" banner. The LLM (gemini/openai/anthropic) acts as an optional relevance gate — the apply itself is pure browser automation. Dry-run by default — fills the form without clicking Submit.',
+    inputs: [
+      { name: 'keywords',         type: 'str',         desc: 'Job search keywords, e.g. Software Engineer / python' },
+      { name: 'location',         type: 'str',         desc: 'Location text — Taipei / United Kingdom (blank = anywhere)' },
+      { name: 'remote',           type: 'bool',        desc: 'Only search remote jobs (LinkedIn f_WT=2)' },
+      { name: 'phone',            type: 'str',         desc: 'Phone number for the Easy Apply contact question (optional)' },
+      { name: 'years_experience', type: 'int',         desc: 'Default answer to "years of experience" screening questions' },
+      { name: 'max_applications', type: 'int (1–1000)', desc: 'Number of jobs to actually apply to (auto-advances pages)' },
+      { name: 'max_pages',        type: 'int (1–500)',  desc: 'Max search result pages to scan before stopping' },
+      { name: 'task_filter',      type: 'str',         desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match before applying' },
+      { name: 'dry_run',          type: 'bool',        desc: 'If checked, fill the form but do NOT click Submit' },
+    ],
+    crew: 'LinkedInRelevanceCrew', flow: 'LinkedInApplyFlow',
+    agent: 'LinkedIn Relevance Judge', tools: ['LinkedIn Easy Apply'],
   },
   email_collect: {
     icon: '📧', name: 'Email Collector',
@@ -1822,6 +1840,25 @@ runForm.addEventListener('submit', async (e) => {
       ...(taskFilter ? { task_filter: taskFilter } : {}),
     };
     jobName = `104 應徵: ${keyword}${payload.dry_run ? ' (dry-run)' : ''}`;
+
+  } else if (jobType === 'linkedin_apply') {
+    const keywords = document.getElementById('li-keywords').value.trim();
+    if (!keywords) { showToast('Job keywords are required (e.g. Software Engineer)', 'error'); return; }
+    const location = document.getElementById('li-location').value.trim();
+    const phone = document.getElementById('li-phone').value.trim();
+    const taskFilter = document.getElementById('li-filter').value.trim();
+    payload = {
+      keywords,
+      years_experience: parseInt(document.getElementById('li-years').value, 10) || 3,
+      max_applications: parseInt(document.getElementById('li-max').value, 10) || 5,
+      max_pages: parseInt(document.getElementById('li-max-pages').value, 10) || 10,
+      remote: document.getElementById('li-remote').checked,
+      dry_run: document.getElementById('li-dry-run').checked,
+      ...(location ? { location } : {}),
+      ...(phone ? { phone } : {}),
+      ...(taskFilter ? { task_filter: taskFilter } : {}),
+    };
+    jobName = `LinkedIn 應徵: ${keywords}${payload.dry_run ? ' (dry-run)' : ''}`;
 
   } else if (jobType === 'email_collect') {
     const query = document.getElementById('lead-query').value.trim();
