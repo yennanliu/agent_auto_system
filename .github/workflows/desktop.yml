@@ -8,10 +8,10 @@ name: Desktop App
 # The DESKTOP_MODE backend tests (tests/integration/test_desktop_mode.py) run in
 # the main `CI` workflow with the rest of the Python suite — not duplicated here.
 #
-# NOTE (Phase 0/1): the DMG built here packages the Electron shell + web UI but
-# NOT yet a runnable backend — freezing the Python backend with PyInstaller and
-# vendoring Chromium is Phase 2. Until then, releases are marked pre-release and
-# the artifact validates the packaging/signing toolchain, not a shippable app.
+# NOTE (Phase 2): the build job freezes the Python backend with PyInstaller
+# (scripts/build_backend.py) and electron-builder bundles it. The app boots and
+# LLM/non-browser flows work. Remaining before GA: vendor Playwright Chromium for
+# browser flows, and code-sign/notarize. Releases stay pre-release until then.
 
 on:
   push:
@@ -58,6 +58,16 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install backend deps
+        run: uv sync --frozen
+
+      - name: Freeze backend (PyInstaller → electron/backend-dist/)
+        run: uv run python scripts/build_backend.py
 
       - uses: actions/setup-node@v4
         with:
@@ -113,6 +123,8 @@ jobs:
           body: |
             Agent Auto System — desktop app (${{ github.ref_name }}).
 
-            ⚠️ Phase 0/1 build: the Python backend is not yet bundled (PyInstaller
-            freeze is Phase 2), so this DMG validates the packaging toolchain and is
-            **not yet a runnable app**. See doc/electron-desktop-app-design.md.
+            The PyInstaller-frozen backend is bundled: the app boots and LLM /
+            non-browser automations work. ⚠️ Known gaps (see
+            doc/electron-desktop-app-design.md): browser-driven flows need Playwright
+            Chromium vendored (follow-up), and the DMG is unsigned unless Apple
+            signing secrets are configured. Pre-release until those land.

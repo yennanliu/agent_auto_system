@@ -31,7 +31,12 @@
     ],
     "extraResources": [
       {
-        "//": "Phase 2: the PyInstaller-frozen backend and the web UI are copied in here.",
+        "//": "PyInstaller one-dir backend → resources/backend/ (exe at backend/agent-auto-system). Build first: `uv run python scripts/build_backend.py`.",
+        "from": "backend-dist/agent-auto-system",
+        "to": "backend"
+      },
+      {
+        "//": "Web UI served by the backend (FileResponse/StaticFiles resolve it against cwd=resourcesPath).",
         "from": "../ui",
         "to": "ui"
       }

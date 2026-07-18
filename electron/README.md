@@ -52,8 +52,25 @@ Also reachable via the app menu: **Help → Reveal Logs**.
 | `splash.html` | "Starting…" shown while the backend boots |
 | `package.json` | electron dep + `start` script |
 
+## Build a packaged app (Phase 2)
+
+```bash
+# 1. Freeze the backend → electron/backend-dist/agent-auto-system/ (~570 MB, one-dir)
+cd .. && uv run python scripts/build_backend.py && cd electron
+
+# 2. Build the DMG (bundles the frozen backend + ui via extraResources)
+npm run dist            # macOS DMG  → electron/dist/
+npm run dist:win        # Windows NSIS (on Windows)
+```
+
+The frozen backend (`agent_backend.spec`, entry `src/desktop_entry.py`) is verified to
+boot and serve `/health`, auth, the UI, and the automations manifest with **no Python
+installed**. CI builds and releases it via `.github/workflows/desktop.yml` (tag `desktop-v*`).
+
 ## Not yet done (see design doc)
 
-- Phase 2: PyInstaller-freeze the backend; vendor Playwright Chromium; `electron-builder` DMG.
-- Phase 3: macOS code signing + notarization.
+- **Playwright browser flows** — Chromium is excluded from the freeze for now; vendor it
+  into resources + pin `PLAYWRIGHT_BROWSERS_PATH`. Non-browser (LLM) flows work today.
+- **Code signing + notarization** (Phase 3) — set the Apple secrets in the CI build job.
 - Migrate WeasyPrint → headless-Chromium PDF for the packaged build.
+- Trim the ~570 MB backend (drop unused embedding/vector deps).

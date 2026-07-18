@@ -117,10 +117,22 @@ Prove the two riskiest bundling problems before committing.
 - Single-instance lock (`app.requestSingleInstanceLock()`).
 - File logging for the sidecar; a "Reveal logs" menu item.
 
-### Phase 2 — Packaging & vendoring (1 week)
-- `scripts/build_backend.py` (PyInstaller one-dir) wired into `electron-builder` `extraResources`.
-- Vendor Playwright Chromium into resources; pin `PLAYWRIGHT_BROWSERS_PATH`.
-- macOS `.app` + DMG via electron-builder. Verify bundle size and cold-start time.
+### Phase 2 — Packaging & vendoring (1 week) — 🟡 backend freeze DONE
+- ✅ **PyInstaller freeze** — `agent_backend.spec` + `scripts/build_backend.py` produce a
+  one-dir bundle (`electron/backend-dist/agent-auto-system/`). Entry point:
+  `src/desktop_entry.py`. Wired into `electron-builder` `extraResources` (→ `resources/backend/`).
+- ✅ **Verified end-to-end:** the frozen binary (no Python/uv on PATH) boots and serves
+  `/health`, `/api/auth/me` (DESKTOP_MODE auto-auth), the UI, and `/api/automations/manifest`
+  — confirming every crew's `Path(__file__).parent/config/*.yaml` resolves *inside* the
+  bundle (`collect_data_files("src", includes=["**/*.yaml"])`). Retires risk R1.
+- ⏭️ **Playwright** excluded from the freeze for now (Decision 7) — browser-driven flows are a
+  follow-up: vendor Chromium into resources + pin `PLAYWRIGHT_BROWSERS_PATH`. Non-browser
+  (LLM) flows work today.
+- ⏭️ macOS `.app` + DMG via electron-builder (CI `desktop.yml` build job does this) — verify
+  cold-start time on a clean Mac.
+- ⚠️ **Bundle size finding:** the frozen backend is **~570 MB** (5k files), driven by the
+  CrewAI stack (`chromadb`, `onnxruntime`, `tokenizers`). Trimming candidates: drop unused
+  embedding/vector deps if CrewAI memory is off. Track before GA.
 
 ### Phase 3 — Signing, notarization, polish (1 week)
 - Apple Developer ID signing + notarization (`entitlements.mac.plist`, hardened runtime).
@@ -136,9 +148,9 @@ Prove the two riskiest bundling problems before committing.
 
 | # | Risk | Impact | Mitigation |
 |---|---|---|---|
-| R1 | PyInstaller misses CrewAI/dynamic imports | Frozen app crashes on run | Surface in Phase 0; maintain `hiddenimports`/`collect_all` in the spec; test a real run, not just startup |
+| R1 | ~~PyInstaller misses CrewAI/dynamic imports~~ | Frozen app crashes on run | ✅ **Retired** — frozen binary boots + serves all endpoints incl. crew manifest; `collect_all` for the crewai stack + `collect_data_files("src", **/*.yaml)` in `agent_backend.spec` |
 | R2 | **WeasyPrint native libs** (Pango/Cairo) hard to bundle + sign | Notarization/runtime failures | **Decision 6:** replace with headless-Chromium PDF (Chromium already vendored). Retire WeasyPrint from the packaged build |
-| R3 | Bundle size 200–400 MB (Chromium ×2: Electron + Playwright, plus Python) | Large download | Accept for v1; later evaluate Tauri (system webview) to drop the Electron Chromium, or a shared Chromium |
+| R3 | Bundle size — measured **~570 MB** backend (crewai/chromadb/onnxruntime) + Electron Chromium | Large download | Accept for v1; trim unused embedding/vector deps; later evaluate Tauri (system webview) to drop the Electron Chromium |
 | R4 | Orphan processes on crash/quit | Zombie uvicorn/browsers | Robust teardown + single-instance lock; track child PIDs; kill process group |
 | R5 | Port collision / firewall prompt | Boot failure | Dynamic free port on `127.0.0.1` (loopback only → typically no firewall prompt) |
 | R6 | Code signing gaps on bundled native libs | Gatekeeper blocks app | Sign all nested binaries (Playwright, PyInstaller `.so`s); notarize; verify on clean machine in Phase 3 |
