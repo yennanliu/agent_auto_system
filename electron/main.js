@@ -63,6 +63,19 @@ function startBackend(port) {
   const proc = spawn(command, args, { cwd, env });
   proc.stdout.on('data', (d) => logStream.write(d));
   proc.stderr.on('data', (d) => logStream.write(d));
+  // spawn itself failing (e.g. `uv` not on PATH in a dev run) emits 'error', not
+  // 'exit' — unhandled it crashes the main process. Report it and quit cleanly.
+  proc.on('error', (err) => {
+    logStream.write(`=== backend failed to start: ${err.message} ===\n`);
+    if (!shuttingDown) {
+      dialog.showErrorBox(
+        'Agent Auto System',
+        `Failed to start the backend process:\n${err.message}\n\n` +
+          `See logs:\n${logDir}`
+      );
+      app.quit();
+    }
+  });
   proc.on('exit', (code, signal) => {
     logStream.write(`=== backend exited code=${code} signal=${signal} ===\n`);
     if (!shuttingDown) {
@@ -117,8 +130,15 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'splash.html'));
 
   // Open external links in the system browser, not inside the app window.
+  // Only http(s): a compromised/XSS'd UI must not be able to hand file:// or a
+  // custom-protocol URL to the OS opener.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      const { protocol } = new URL(url);
+      if (protocol === 'http:' || protocol === 'https:') shell.openExternal(url);
+    } catch (_e) {
+      /* ignore malformed URLs */
+    }
     return { action: 'deny' };
   });
 
@@ -129,18 +149,24 @@ function createWindow() {
 
 async function boot() {
   createWindow();
-  backendPort = await pickFreePort();
-  backendProc = startBackend(backendPort);
 
-  const healthy = await waitForHealthy(backendPort, { timeoutMs: 90000 });
-  if (!mainWindow) return; // user closed during boot
-  if (!healthy) {
-    dialog.showErrorBox(
-      'Agent Auto System',
-      'The backend did not become ready in time. Check the logs in your app-data folder.'
-    );
-    app.quit();
-    return;
+  // On macOS the app stays alive after all windows close; clicking the dock icon
+  // fires 'activate' → boot() again. Only start the backend if it isn't already
+  // running, otherwise re-activation spawns orphan backends on new ports.
+  if (!backendProc) {
+    backendPort = await pickFreePort();
+    backendProc = startBackend(backendPort);
+
+    const healthy = await waitForHealthy(backendPort, { timeoutMs: 90000 });
+    if (!mainWindow) return; // user closed during boot
+    if (!healthy) {
+      dialog.showErrorBox(
+        'Agent Auto System',
+        'The backend did not become ready in time. Check the logs in your app-data folder.'
+      );
+      app.quit();
+      return;
+    }
   }
   await mainWindow.loadURL(`http://127.0.0.1:${backendPort}/`);
 }

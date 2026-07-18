@@ -8,16 +8,20 @@ function checkOnce(port) {
     const req = http.get(
       { host: '127.0.0.1', port, path: '/health', timeout: 2000 },
       (res) => {
+        // Non-200: drain the stream (res.resume) so the socket is freed, don't buffer.
+        if (res.statusCode !== 200) {
+          res.resume();
+          return resolve(false);
+        }
         let body = '';
         res.on('data', (c) => (body += c));
         res.on('end', () => {
-          if (res.statusCode !== 200) return resolve(false);
           try {
             const json = JSON.parse(body);
             // /health returns {"status":"ok","db":bool,...}; DB up == ready.
             resolve(json.db !== false);
           } catch (_e) {
-            resolve(res.statusCode === 200);
+            resolve(true); // 200 but unparseable body → treat as up
           }
         });
       }

@@ -41,6 +41,16 @@ test('checkOnce → false when db:false (DB not ready)', async () => {
   );
 });
 
+test('checkOnce → true on 200 with an unparseable body (server up)', async () => {
+  await withServer(
+    (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('OK'); // not JSON
+    },
+    async (port) => assert.equal(await checkOnce(port), true)
+  );
+});
+
 test('checkOnce → false on a non-200 status', async () => {
   await withServer(
     (req, res) => {
