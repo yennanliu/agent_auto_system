@@ -525,28 +525,50 @@ def run_linkedin_apply(
     base = {"keywords": keywords, "location": location, "dry_run": dry_run,
             "applied": [], "skipped": [], "warnings": []}
 
-    if not (state_path and os.path.exists(state_path)):
+    from src.automation.browser_session import open_login_context, profile_dir
+
+    # LinkedIn binds the li_at session cookie to the exact browser/device that was
+    # logged in. `scripts/linkedin_login.py` logs in via real Chrome in a warm
+    # persistent profile (see open_login_context); if the run instead imported the
+    # cookie JSON into a fresh, differently-fingerprinted bundled-Chromium context
+    # (different browser build + spoofed UA), LinkedIn treats it as an unknown
+    # device and drops us to the auth wall — the classic "cookies present but the
+    # page shows logged-out". So we reuse the SAME persistent profile the login
+    # created. Only fall back to the storage_state JSON when no profile exists
+    # (e.g. a session file copied to a remote host).
+    udd = profile_dir("linkedin", state_path)
+    has_profile = os.path.isdir(udd) and any(os.scandir(udd))
+    has_state = bool(state_path and os.path.exists(state_path))
+    if not (has_profile or has_state):
         return {**base, "error": (
-            f"No saved LinkedIn session at '{state_path}'. Run "
-            "`uv run python scripts/linkedin_login.py` once to log in and save it."
+            f"No saved LinkedIn session (profile '{udd}' / state '{state_path}'). "
+            "Run `uv run python scripts/linkedin_login.py` once to log in and save it."
         )}
 
     warnings: list[str] = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            # LinkedIn aggressively bot-blocks headless browsers (empty results /
-            # auth walls). A visible window renders results reliably. (Headless
-            # needs a virtual display, e.g. Xvfb, on a server.)
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        ctx = browser.new_context(
-            storage_state=state_path,
-            user_agent=_UA,
-            locale="en-US",
-            viewport={"width": 1366, "height": 900},
-        )
-        page = ctx.new_page()
+        # LinkedIn aggressively bot-blocks headless browsers (empty results / auth
+        # walls), so both paths run headed. (Headless needs a virtual display,
+        # e.g. Xvfb, on a server.)
+        browser = None
+        if has_profile:
+            # Preferred: reuse the exact Chrome profile the login used, so the
+            # browser fingerprint/UA match what LinkedIn issued the session to.
+            ctx = open_login_context(
+                pw, user_data_dir=udd, locale="en-US", on_progress=log,
+            )
+        else:
+            browser = pw.chromium.launch(
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            ctx = browser.new_context(
+                storage_state=state_path,
+                user_agent=_UA,
+                locale="en-US",
+                viewport={"width": 1366, "height": 900},
+            )
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             first_url = _search_url(keywords, location, 1, remote)
             log(f"Opening {first_url}")
@@ -652,7 +674,12 @@ def run_linkedin_apply(
                 "summary": summary,
             }
         finally:
-            browser.close()
+            # Persistent-profile path has no separate `browser` handle — close the
+            # context; the storage_state path closes the launched browser.
+            try:
+                (browser.close() if browser is not None else ctx.close())
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # ── BaseTool wrapper (no relevance gate; catalog/agent parity) ────────────────
