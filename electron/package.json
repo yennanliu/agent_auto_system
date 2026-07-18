@@ -1,0 +1,57 @@
+{
+  "name": "agent-auto-system-desktop",
+  "version": "0.1.0",
+  "description": "Desktop shell for the Agent Auto System — launches the FastAPI backend as a hidden sidecar and renders the web UI.",
+  "author": "Junyi Academy",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "AAS_DEV=1 electron .",
+    "test": "node --test test/*.test.js",
+    "dist": "electron-builder --mac dmg",
+    "dist:win": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "org.junyi.agentautosystem",
+    "productName": "Agent Auto System",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "health.js",
+      "splash.html",
+      "lib/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-dist/agent-auto-system",
+        "to": "backend"
+      },
+      {
+        "from": "../ui",
+        "to": "ui"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}
