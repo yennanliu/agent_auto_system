@@ -19,6 +19,7 @@ window.I18N_ZH = {
   "hero.eyebrow": "內建 Harness 工程",
   "hero.h1": "讓 AI 代勞繁瑣工作 —— 還會<b>自我檢查成果</b>。",
   "hero.sub": "Agent Auto System 把日常的線上工作交給 AI 自動完成 —— 填表單、蒐集名單、彙整新聞、擷取網頁 —— 接著自動複查、評分並估算每一次結果的花費。你會拿到一份可以信任的答案，全程不需要盯著它跑。",
+  "hero.download": "下載 macOS 版 ↓",
   "hero.cta1": "看看它能做什麼 →",
   "hero.cta2": "瀏覽原始碼 ↗",
 

@@ -67,6 +67,10 @@
   .btn-primary:hover { background: var(--accent-hover); color: #fff; transform: translateY(-1px); }
   .btn-secondary { background: transparent; color: var(--ink); border-color: var(--border); }
   .btn-secondary:hover { border-color: var(--text-dim); color: var(--ink); }
+  /* Secondary button on a dark backdrop (hero). A class, not inline styles, so
+     the :hover state below isn't clobbered by inline-style specificity. */
+  .btn-secondary-on-dark { background: transparent; color: #fff; border-color: rgba(255,255,255,0.3); }
+  .btn-secondary-on-dark:hover { border-color: #fff; color: #fff; transform: translateY(-1px); }
   .btn-on-film { background: #fff; color: var(--ink); }
   .btn-on-film:hover { background: #fff; color: var(--accent); transform: translateY(-1px); }
 
@@ -415,8 +419,9 @@
     <h1 data-i18n="hero.h1">Let AI handle the busywork — and <b>check its own work</b>.</h1>
     <p class="sub" data-i18n="hero.sub">Agent Auto System puts everyday online tasks on autopilot — filling forms, gathering leads, summarizing news, scraping sites — then automatically double-checks, scores, and prices every result. You get an answer you can trust, without babysitting the run.</p>
     <div class="hero-cta">
-      <a class="btn btn-on-film" href="for-you.html" data-i18n="hero.cta1">See what it can do →</a>
-      <a class="btn btn-secondary" href="https://github.com/yennanliu/agent_auto_system" style="color:#fff;border-color:rgba(255,255,255,0.3)" data-i18n="hero.cta2">Explore the code ↗</a>
+      <a class="btn btn-on-film" href="https://github.com/yennanliu/agent_auto_system/releases/latest" data-i18n="hero.download">Download for macOS ↓</a>
+      <a class="btn btn-secondary-on-dark" href="for-you.html" data-i18n="hero.cta1">See what it can do →</a>
+      <a class="btn btn-secondary-on-dark" href="https://github.com/yennanliu/agent_auto_system" data-i18n="hero.cta2">Explore the code ↗</a>
     </div>
   </div>
 </header>
@@ -901,7 +906,7 @@ register(AutomationSpec(
       <p data-i18n="cta.p">Bring one AI key, install with a couple of commands, and open the dashboard. Container and AWS cloud setups are documented end to end.</p>
       <div class="hero-cta">
         <a class="btn btn-on-film" href="https://github.com/yennanliu/agent_auto_system" data-i18n="cta.b1">Star on GitHub ↗</a>
-        <a class="btn btn-secondary" href="https://github.com/yennanliu/agent_auto_system#docker-quick-start" style="color:#fff;border-color:rgba(255,255,255,0.3)" data-i18n="cta.b2">Docker quick start</a>
+        <a class="btn btn-secondary-on-dark" href="https://github.com/yennanliu/agent_auto_system#docker-quick-start" data-i18n="cta.b2">Docker quick start</a>
       </div>
     </div>
   </div>

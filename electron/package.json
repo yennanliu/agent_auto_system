@@ -23,6 +23,7 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "artifactName": "AgentAutoSystem-${version}-${arch}.${ext}",
     "files": [
       "main.js",
       "preload.js",
