@@ -563,6 +563,32 @@
         </div>
       </div>
 
+      <div id="fields-linkedin_apply" class="hidden">
+        <div class="field"><label>Job keywords</label><input type="text" id="li-keywords" placeholder="e.g. Software Engineer / python / data engineer" /></div>
+        <div class="field"><label>Location (optional)</label><input type="text" id="li-location" placeholder="e.g. Taipei / United Kingdom / Remote（留空 = 不限地區）" /></div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1"><label>Max applications (1–1000)</label><input type="number" id="li-max" value="5" min="1" max="1000" /></div>
+          <div style="flex:1"><label>Max pages to scan (1–500)</label><input type="number" id="li-max-pages" value="10" min="1" max="500" /></div>
+        </div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1"><label>Phone (for Easy Apply, optional)</label><input type="text" id="li-phone" placeholder="e.g. 0912345678" /></div>
+          <div style="flex:1"><label>Years of experience</label><input type="number" id="li-years" value="3" min="0" max="50" /></div>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" id="li-remote" style="width:auto;margin:0" />
+          <label for="li-remote" style="margin:0">Only remote jobs（只搜遠端職缺）</label>
+        </div>
+        <div class="field"><label>Relevance filter (2nd gate, optional)</label><textarea id="li-filter" rows="3" placeholder="留空 = 不篩選，套用該關鍵字下所有 Easy Apply 職缺。填寫後，AI 會在應徵前先判斷每個職缺是否符合此條件，不符合的直接跳過。e.g. Only backend / Python / cloud roles; skip sales, front-end-only.">AI, software, backend, python, cloud, infra</textarea></div>
+        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" id="li-dry-run" checked style="width:auto;margin:0" />
+          <label for="li-dry-run" style="margin:0">Dry-run: fill the form but do NOT click Submit</label>
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);background:var(--accent-soft);border:1px solid rgba(47,107,255,0.2);border-radius:10px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
+          需要已登入的 LinkedIn session。首次請執行 <code style="font-family:ui-monospace,monospace">uv run python scripts/linkedin_login.py</code> 手動登入一次，並在 <code style="font-family:ui-monospace,monospace">.env</code> 設定 <code style="font-family:ui-monospace,monospace">LINKEDIN_USERNAME / LINKEDIN_PASSWORD / LINKEDIN_STORAGE_STATE</code>。
+          <b>取消勾選 dry-run 會送出真實應徵。</b>
+        </div>
+      </div>
+
       <div id="fields-email_collect" class="hidden">
         <div class="field"><label>Business Query <span style="color:var(--red)">*</span></label><input type="text" id="lead-query" placeholder="e.g. marketing agency, dental clinic, coffee shop" /></div>
         <div class="field"><label>Region</label><input type="text" id="lead-region" placeholder="e.g. Taipei / Berlin / Austin, TX — blank = anywhere" /></div>

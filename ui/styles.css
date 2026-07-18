@@ -164,6 +164,7 @@ tr.row-highlight { animation: rowGlow 2s ease-out forwards; }
 .chip-profit  { background: var(--moss-soft);    color: #0f9d63; }
 .chip-tasker  { background: #efeafe;             color: #6d3fe0; }
 .chip-104     { background: #e6f0ff;             color: #1657c8; }
+.chip-linkedin { background: #e3f0fb;            color: #0a66c2; }
 .chip-leads   { background: #e7f2fd;             color: #1f6fd1; }
 .chip-unknown { background: #eef0f2;             color: var(--gray); }
 
@@ -843,6 +844,7 @@ html.theme-dark .badge-pending { background: rgba(255,255,255,0.08); }
 html.theme-dark .chip-shopee { background: rgba(224,64,46,0.18); color: #ff8a72; }
 html.theme-dark .chip-tasker { background: rgba(109,63,224,0.24); color: #b39bff; }
 html.theme-dark .chip-104    { background: rgba(22,87,200,0.24);  color: #86b4ff; }
+html.theme-dark .chip-linkedin { background: rgba(10,102,194,0.26); color: #7db8f0; }
 html.theme-dark .chip-leads  { background: rgba(31,111,209,0.22); color: #7db4f5; }
 html.theme-dark .chip-profit { color: #3dd69a; }
 

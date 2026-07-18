@@ -35,6 +35,7 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'relevance_judge', "name": 'Relevance Judge', "tools": [], "crew": 'TaskerRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'tasker_apply', "source_file": 'src/automation/crews/tasker_relevance_crew/config/agents.yaml'},
     {"id": 'tw104_relevance_judge', "name": '104 Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'TW104RelevanceCrew', "task": 'judge_relevance_task', "job_type": 'tw104_apply', "source_file": 'src/automation/crews/tw104_relevance_crew/config/agents.yaml'},
     {"id": 'tw104_area_resolver', "name": '104 Area Resolver', "yaml_key": 'area_resolver', "tools": [], "crew": 'TW104AreaCrew', "task": 'resolve_area_task', "job_type": 'tw104_apply', "source_file": 'src/automation/crews/tw104_area_crew/config/agents.yaml'},
+    {"id": 'linkedin_relevance_judge', "name": 'LinkedIn Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'LinkedInRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'linkedin_apply', "source_file": 'src/automation/crews/linkedin_relevance_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
 ]
 
@@ -237,6 +238,32 @@ _CATALOG: dict = {
             ],
             "used_by": ["TW104ApplyFlow"],
             "source_file": "src/automation/tools/tw104_apply_tool.py",
+        },
+        {
+            "id": "linkedin_apply",
+            "name": "LinkedIn Easy Apply",
+            "class": "LinkedInApplyTool",
+            "description": (
+                "Log in to LinkedIn (persisted session) and auto-apply to 'Easy Apply' "
+                "jobs matching a keyword. Pages through /jobs/search/?f_AL=true, opens "
+                "each job, clicks Easy Apply, walks the multi-step modal (fill fields → "
+                "Next/Review → Submit), skips already-applied jobs, and clicks Submit only "
+                "when dry_run is false — counting success only when LinkedIn shows the "
+                "'application was sent' banner. Called directly by the flow (with an "
+                "optional LLM relevance_fn); the apply itself is pure DOM automation."
+            ),
+            "inputs": [
+                {"name": "keywords",         "type": "str",  "description": "Job search keywords, e.g. 'Software Engineer' / 'python'"},
+                {"name": "location",         "type": "str",  "description": "Location text, e.g. 'Taipei' / 'United Kingdom' (blank = anywhere)"},
+                {"name": "remote",           "type": "bool", "description": "Only search remote jobs (LinkedIn f_WT=2)"},
+                {"name": "phone",            "type": "str",  "description": "Phone number for the Easy Apply contact question (optional)"},
+                {"name": "years_experience", "type": "int",  "description": "Default answer to 'years of experience' screening questions (default 3)"},
+                {"name": "max_applications", "type": "int (1–1000)", "description": "Number of jobs to actually apply to; auto-advances pages (default 5)"},
+                {"name": "max_pages",        "type": "int (1–500)", "description": "Max search result pages to scan before stopping (default 10)"},
+                {"name": "dry_run",          "type": "bool", "description": "If true (default), fill the form but do NOT click Submit"},
+            ],
+            "used_by": ["LinkedInApplyFlow"],
+            "source_file": "src/automation/tools/linkedin_apply_tool.py",
         },
         {
             "id": "maps_search",
