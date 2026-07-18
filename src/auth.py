@@ -6,10 +6,11 @@ the active user from that session and gate access.
 """
 
 import json
+import os
 
 import bcrypt
 from fastapi import Depends, HTTPException, Request
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from src.database import get_session
 from src.models import User
@@ -34,12 +35,29 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def _desktop_admin(session: Session) -> User | None:
+    """The single local admin used to auto-authenticate in DESKTOP_MODE.
+
+    The packaged desktop app (Electron) runs as one local user, so there is no
+    login screen — every request is served as the seeded admin. Picks the
+    lowest-id active admin (the seeded one). See doc/electron-desktop-app-design.md.
+    """
+    return session.exec(
+        select(User)
+        .where(User.is_admin == True, User.is_active == True)  # noqa: E712 (SQL bool)
+        .order_by(User.id)
+    ).first()
+
+
 def current_user(
     request: Request, session: Session = Depends(get_session)
 ) -> User | None:
     """The logged-in, active user for this request, or None."""
     user_id = request.session.get("user_id")
     if not user_id:
+        # Desktop single-admin mode: no login, auto-authenticate as the admin.
+        if os.getenv("DESKTOP_MODE") == "1":
+            return _desktop_admin(session)
         return None
     user = session.get(User, user_id)
     if not user or not user.is_active:

@@ -1,3 +1,4 @@
+import os
 import re
 import uuid
 from pathlib import Path
@@ -6,8 +7,10 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 router = APIRouter()
 
+# Where uploaded files live. Honors UPLOAD_DIR (set by the desktop app so data
+# lands in the per-user app-data dir, not the repo); defaults to <project>/uploads.
 # Project root: src/routers/uploads.py → parents[2]
-UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "uploads"
+UPLOAD_ROOT = Path(os.getenv("UPLOAD_DIR") or (Path(__file__).resolve().parents[2] / "uploads"))
 
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB per file
 

@@ -1,0 +1,14 @@
+{
+  "name": "agent-auto-system-desktop",
+  "version": "0.1.0",
+  "description": "Desktop shell for the Agent Auto System — launches the FastAPI backend as a hidden sidecar and renders the web UI.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "AAS_DEV=1 electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}
