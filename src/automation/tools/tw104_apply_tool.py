@@ -302,8 +302,8 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
     page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
     try:
         page.wait_for_selector(", ".join(_APPLY_BTN_SELECTORS), timeout=12000)
-    except Exception:  # noqa: BLE001 — genuinely-closed jobs never render one
-        page.wait_for_timeout(1200)
+    except Exception:  # noqa: BLE001 — genuinely-closed jobs never render one;
+        pass          # after a 12s wait an extra sleep would not change the outcome
     apply_btn = _first_visible(page, _APPLY_BTN_SELECTORS)
     if apply_btn is None:
         entry.update(status="skipped", submitted=False,
