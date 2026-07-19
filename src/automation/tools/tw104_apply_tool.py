@@ -145,7 +145,16 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     for attempt in range(3):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(1500)
+            # 104's listing is a Vue SPA: the job cards are rendered client-side
+            # *after* domcontentloaded, so a fixed short wait races the render and
+            # reads zero anchors. Wait for the first job link to actually appear.
+            # Best-effort — a page with genuinely no results legitimately never
+            # renders one, so a timeout here is not an error (we fall through and
+            # the scroll loop below reads 0 → caller treats it as end-of-results).
+            try:
+                page.wait_for_selector("a[href*='/job/']", timeout=15000)
+            except Exception:  # noqa: BLE001
+                page.wait_for_timeout(1500)
             break
         except Exception as exc:  # noqa: BLE001
             if attempt == 2:
@@ -161,7 +170,11 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
             count = page.locator("a[href*='/job/']").count()
         except Exception:  # noqa: BLE001
             count = 0
-        if count == prev:
+        # Only treat a settled count as "fully loaded" once cards have actually
+        # appeared. A stable *zero* means the SPA hasn't rendered yet (or this is
+        # a truly empty page) — never break on it, or a slow render looks like the
+        # end of the listing and aborts the whole run.
+        if count == prev and count > 0:
             break
         prev = count
         try:
@@ -282,9 +295,15 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
     entry = {"job_id": job["job_id"], "url": job["url"],
              "title": job["title"], "company": job["company"]}
 
-    # Open the job page and find its 應徵 button.
+    # Open the job page and find its 應徵 button. The button is rendered
+    # client-side (Vue) after domcontentloaded, so wait for one of the selectors
+    # to appear rather than racing it with a fixed sleep — otherwise a slow render
+    # spuriously reports "no 應徵 button" on a perfectly applicable job.
     page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1200)
+    try:
+        page.wait_for_selector(", ".join(_APPLY_BTN_SELECTORS), timeout=12000)
+    except Exception:  # noqa: BLE001 — genuinely-closed jobs never render one;
+        pass          # after a 12s wait an extra sleep would not change the outcome
     apply_btn = _first_visible(page, _APPLY_BTN_SELECTORS)
     if apply_btn is None:
         entry.update(status="skipped", submitted=False,
