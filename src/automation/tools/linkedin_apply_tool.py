@@ -46,10 +46,29 @@ _BASE = "https://www.linkedin.com"
 _SEARCH = _BASE + "/jobs/search/"
 _JOB_VIEW = _BASE + "/jobs/view/"
 DEFAULT_STATE_PATH = "data/linkedin_state.json"
-_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+
+# Anti-bot launch config, mirrored from browser_session.open_login_context so the
+# session is REPLAYED in the same browser that CREATED it. LinkedIn fingerprints
+# the browser: replaying a real-Chrome login session inside bundled Chromium — or
+# under a hard-coded User-Agent that doesn't match the actual engine — gets the
+# session rejected, landing you on the logged-out guest / authwall page. So we
+# prefer the real installed Chrome and let it send its own native User-Agent
+# (no UA override), exactly like the login script.
+_STEALTH_ARGS = ["--disable-blink-features=AutomationControlled"]
+_STEALTH_IGNORE = ["--enable-automation"]
+
+
+def _launch_browser(pw):
+    """Launch Chrome the same way the login script does: real installed Chrome
+    when available (its fingerprint matches the saved session), bundled Chromium
+    as a fallback."""
+    try:
+        return pw.chromium.launch(
+            channel="chrome", headless=False,
+            args=_STEALTH_ARGS, ignore_default_args=_STEALTH_IGNORE,
+        )
+    except Exception:  # noqa: BLE001 — Chrome not installed / not launchable
+        return pw.chromium.launch(headless=False, args=_STEALTH_ARGS)
 
 # DOM selectors, kept as fallback-in-order lists because LinkedIn A/B-tests its
 # hashed class names constantly; the first that matches wins. aria-label and
@@ -552,16 +571,13 @@ def run_linkedin_apply(
 
     warnings: list[str] = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            # LinkedIn aggressively bot-blocks headless browsers (empty results /
-            # auth walls). A visible window renders results reliably. (Headless
-            # needs a virtual display, e.g. Xvfb, on a server.)
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        # LinkedIn aggressively bot-blocks headless browsers (empty results /
+        # auth walls). A visible window renders results reliably, and matching the
+        # login browser keeps the saved session valid. (Headless needs a virtual
+        # display, e.g. Xvfb, on a server.)
+        browser = _launch_browser(pw)
         ctx = browser.new_context(
             storage_state=state_path,
-            user_agent=_UA,
             locale="en-US",
             viewport={"width": 1366, "height": 900},
         )

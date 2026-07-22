@@ -77,6 +77,23 @@ def main() -> int:
         print("=" * 70)
         input("\nPress Enter once you are logged in... ")
 
+        # Verify before saving. Snapshotting a logged-OUT page produces a
+        # "session" that fails on every run with a confusing "not logged in"
+        # error. Give the operator a couple of chances to finish any checkpoint.
+        from src.automation.tools.linkedin_apply_tool import _looks_logged_out
+        for _ in range(3):
+            if not _looks_logged_out(page):
+                break
+            print("\n⚠ LinkedIn still shows you as logged OUT (guest / sign-in "
+                  "page). Saving now would produce a broken session. Finish "
+                  "logging in — complete any CAPTCHA / 2FA / security checkpoint "
+                  "until you can see your feed — then press Enter to re-check.")
+            input("Press Enter to re-check (or Ctrl-C to abort)... ")
+        else:
+            print("\n✗ Still logged out after 3 checks — not saving a broken "
+                  "session. Re-run once you can reach your LinkedIn feed.")
+            return 1
+
         try:
             ctx.storage_state(path=str(out))
             print(f"\n✓ Session saved to {out.resolve()}")
