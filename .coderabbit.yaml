@@ -1,0 +1,89 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_files/schema.v2.json
+# CodeRabbit AI code-review config. Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+language: en-US
+early_access: false
+
+reviews:
+  # ASSERTIVE surfaces more issues (thorough, noisier); CHILL is high-signal only.
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  # Auto-review every PR regardless of target branch (main plus any feature/release base).
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - ".*"
+
+  # Files CodeRabbit should ignore — generated, vendored, cached, or data/output dirs.
+  # (Mirrors .gitignore plus a few build/lock artifacts that are tracked but not worth reviewing.)
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!.venv/**"
+    - "!build/**"
+    - "!electron/backend-dist/**"
+    - "!electron/node_modules/**"
+    - "!data/**"
+    - "!uploads/**"
+    - "!reports/**"
+    - "!output/**"
+    - "!**/.ruff_cache/**"
+    - "!**/.pytest_cache/**"
+    - "!uv.lock"
+    - "!electron/package-lock.json"
+    - "!**/*.min.js"
+    - "!**/*.pdf"
+    - "!**/*.db"
+
+  # Path-scoped review guidance. Keeps feedback aligned with this repo's conventions.
+  path_instructions:
+    - path: "src/**/*.py"
+      instructions: >-
+        Enforce the invariants in CLAUDE.md: no @CrewBase/@agent/@task/@crew
+        decorators (build Agent/Task/Crew fresh each call); inject the LLM via the
+        crew constructor, never post-init; declare llm_provider/llm_model as Pydantic
+        fields on flow state models. New job types must be a single AutomationSpec in
+        spec.py — flag hand-edits to the derived tables (_FLOW_MAP, ALL_AUTOMATIONS,
+        _CHECKS, _RUBRICS, FLOW_STEPS). Tracing/eval must degrade gracefully and never
+        raise into the executor; the eval judge must not self-grade with the run's own
+        model. Add new DB columns as idempotent try/except ALTER TABLE in init_db().
+    - path: "tests/**/*.py"
+      instructions: >-
+        Check that tests are deterministic and do not hit real LLM APIs, live sites,
+        or the network. Prefer the existing unit/integration split; e2e tests must be
+        marked with the `e2e` marker so `-m "not e2e"` can skip them.
+    - path: "scripts/**/*.py"
+      instructions: >-
+        These are operational/one-off scripts. Focus on obvious correctness, safe
+        subprocess/file handling, and clear failure messages rather than architecture.
+    - path: "ui/**/*.js"
+      instructions: >-
+        Vanilla-JS front end (no build step / framework). Keep LLM_MODELS and the
+        FLOW_STEPS list in sync with the Python side. Watch for XSS from unescaped
+        interpolation into innerHTML.
+    - path: "electron/**/*.js"
+      instructions: >-
+        Electron desktop shell. Watch for insecure webPreferences (nodeIntegration on,
+        contextIsolation off), unvalidated IPC, and shell/child-process injection.
+    - path: ".github/workflows/*.yml"
+      instructions: >-
+        Review GitHub Actions for pinned action versions, least-privilege permissions,
+        proper secret handling (never echoed/logged), and script-injection via
+        untrusted ${{ github.event.* }} interpolation in run: steps.
+
+  # Static-analysis tools CodeRabbit runs and folds into its review.
+  tools:
+    ruff:
+      enabled: true
+    github-checks:
+      enabled: true
+    actionlint:
+      enabled: true
+
+chat:
+  auto_reply: true
