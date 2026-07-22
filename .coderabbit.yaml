@@ -4,20 +4,20 @@ language: en-US
 early_access: false
 
 reviews:
-  # CHILL keeps comments high-signal (only substantial issues); RISKS/ASSERTIVE is noisier.
-  profile: chill
+  # ASSERTIVE surfaces more issues (thorough, noisier); CHILL is high-signal only.
+  profile: assertive
   request_changes_workflow: false
   high_level_summary: true
   poem: false
   review_status: true
   collapse_walkthrough: false
 
-  # Only auto-review PRs targeting main; other bases can still be reviewed on demand via chat.
+  # Auto-review every PR regardless of target branch (main plus any feature/release base).
   auto_review:
     enabled: true
     drafts: false
     base_branches:
-      - main
+      - ".*"
 
   # Files CodeRabbit should ignore — generated, vendored, cached, or data/output dirs.
   # (Mirrors .gitignore plus a few build/lock artifacts that are tracked but not worth reviewing.)
