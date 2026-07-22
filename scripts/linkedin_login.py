@@ -80,15 +80,30 @@ def main() -> int:
         # Verify before saving. Snapshotting a logged-OUT page produces a
         # "session" that fails on every run with a confusing "not logged in"
         # error. Give the operator a couple of chances to finish any checkpoint.
-        from src.automation.tools.linkedin_apply_tool import _looks_logged_out
-        for _ in range(3):
-            if not _looks_logged_out(page):
+        from src.automation.tools.linkedin_apply_tool import _AUTHED_SELECTORS
+
+        def _looks_logged_in(page) -> bool:
+            """Return True only when an authenticated signal is positively found.
+            Unlike _looks_logged_out's lenient mid-run default, the login script
+            must only save on explicit confirmation."""
+            try:
+                for sel in _AUTHED_SELECTORS:
+                    if page.locator(sel).count() > 0:
+                        return True
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+
+        for attempt in range(3):
+            if _looks_logged_in(page):
                 break
-            print("\n⚠ LinkedIn still shows you as logged OUT (guest / sign-in "
-                  "page). Saving now would produce a broken session. Finish "
-                  "logging in — complete any CAPTCHA / 2FA / security checkpoint "
-                  "until you can see your feed — then press Enter to re-check.")
-            input("Press Enter to re-check (or Ctrl-C to abort)... ")
+            # On the final (3rd) attempt, skip the prompt — just fall through to abort
+            if attempt < 2:
+                print("\n⚠ LinkedIn still shows you as logged OUT (guest / sign-in "
+                      "page). Saving now would produce a broken session. Finish "
+                      "logging in — complete any CAPTCHA / 2FA / security checkpoint "
+                      "until you can see your feed — then press Enter to re-check.")
+                input("Press Enter to re-check (or Ctrl-C to abort)... ")
         else:
             print("\n✗ Still logged out after 3 checks — not saving a broken "
                   "session. Re-run once you can reach your LinkedIn feed.")
