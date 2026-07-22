@@ -46,10 +46,29 @@ _BASE = "https://www.linkedin.com"
 _SEARCH = _BASE + "/jobs/search/"
 _JOB_VIEW = _BASE + "/jobs/view/"
 DEFAULT_STATE_PATH = "data/linkedin_state.json"
-_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+
+# Anti-bot launch config, mirrored from browser_session.open_login_context so the
+# session is REPLAYED in the same browser that CREATED it. LinkedIn fingerprints
+# the browser: replaying a real-Chrome login session inside bundled Chromium — or
+# under a hard-coded User-Agent that doesn't match the actual engine — gets the
+# session rejected, landing you on the logged-out guest / authwall page. So we
+# prefer the real installed Chrome and let it send its own native User-Agent
+# (no UA override), exactly like the login script.
+_STEALTH_ARGS = ["--disable-blink-features=AutomationControlled"]
+_STEALTH_IGNORE = ["--enable-automation"]
+
+
+def _launch_browser(pw):
+    """Launch Chrome the same way the login script does: real installed Chrome
+    when available (its fingerprint matches the saved session), bundled Chromium
+    as a fallback."""
+    try:
+        return pw.chromium.launch(
+            channel="chrome", headless=False,
+            args=_STEALTH_ARGS, ignore_default_args=_STEALTH_IGNORE,
+        )
+    except Exception:  # noqa: BLE001 — Chrome not installed / not launchable
+        return pw.chromium.launch(headless=False, args=_STEALTH_ARGS)
 
 # DOM selectors, kept as fallback-in-order lists because LinkedIn A/B-tests its
 # hashed class names constantly; the first that matches wins. aria-label and
@@ -59,7 +78,14 @@ _EASY_APPLY_SELECTORS = [
     "button[aria-label*='Easy Apply']",
     "button:has-text('Easy Apply')",
 ]
-_MODAL_SELECTOR = "div.jobs-easy-apply-modal, [role='dialog']"
+# LinkedIn migrated the Easy Apply modal to a native <dialog aria-labelledby=
+# "dialog-header"> with fully obfuscated class names — it is NOT a div.jobs-easy-
+# apply-modal and carries no role="dialog". The native <dialog> comes first; the
+# legacy selectors stay as fallbacks for older layouts / A-B buckets.
+_MODAL_SELECTOR = (
+    "dialog[aria-labelledby='dialog-header'], "
+    "div.jobs-easy-apply-modal, [role='dialog']"
+)
 _SUBMIT_SELECTORS = [
     "button[aria-label*='Submit application']",
     "button:has-text('Submit application')",
@@ -244,6 +270,32 @@ def _first_visible(scope, selectors: list[str]):
     return None
 
 
+# Each modal page's footer (Submit / Next / Review / Continue) and its form
+# fields hydrate over XHR *after* the <dialog> frame appears — and again after
+# every Next click — so on a freshly-shown page the action button is routinely
+# absent for a few seconds. Poll for it instead of treating a not-yet-loaded
+# page as a broken layout (the old code bailed the instant it was missing, which
+# stalled the whole funnel right after "Easy Apply" was clicked).
+_STEP_READY_TIMEOUT_MS = 15000
+_STEP_POLL_MS = 500
+
+
+def _wait_for_modal_step(page) -> tuple[object | None, object | None]:
+    """Poll the open Easy Apply modal until its footer action button appears.
+    Returns (submit_locator, next_locator); Submit wins if both are present, and
+    both are None only if nothing showed up within the timeout (a genuinely
+    empty/broken modal)."""
+    for _ in range(max(1, _STEP_READY_TIMEOUT_MS // _STEP_POLL_MS)):
+        submit = _first_visible(page, _SUBMIT_SELECTORS)
+        if submit is not None:
+            return submit, None
+        nxt = _first_visible(page, _NEXT_SELECTORS)
+        if nxt is not None:
+            return None, nxt
+        page.wait_for_timeout(_STEP_POLL_MS)
+    return None, None
+
+
 # JS that fills the current Easy Apply modal page with sensible defaults. Empty
 # required fields are the ones LinkedIn blocks progress on; we answer them so the
 # common flows (contact info, years-of-experience, yes/no eligibility) sail
@@ -251,7 +303,11 @@ def _first_visible(scope, selectors: list[str]):
 # safe placeholders. React needs native-setter value + input/change events.
 _FILL_JS = r"""
 (profile) => {
-  const modal = document.querySelector("[role='dialog']") || document;
+  // Scope to the Easy Apply dialog (native <dialog> today, legacy fallbacks
+  // after) so we never touch stray page fields (nav search box, footer, etc).
+  const modal = document.querySelector("dialog[aria-labelledby='dialog-header']")
+    || document.querySelector("div.jobs-easy-apply-modal, [role='dialog']")
+    || document.body;
   const setVal = (el, val) => {
     const proto = el.tagName === 'TEXTAREA'
       ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -382,9 +438,16 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
              "title": job["title"], "company": job["company"]}
 
     page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1500)
 
-    apply_btn = _first_visible(page, _EASY_APPLY_SELECTORS)
+    # The job detail pane (which holds the Easy Apply button) hydrates after the
+    # initial load, so poll for a few seconds before concluding it's absent —
+    # a fixed short wait made this a flaky false "no Easy Apply button".
+    apply_btn = None
+    for _ in range(10):
+        page.wait_for_timeout(600)
+        apply_btn = _first_visible(page, _EASY_APPLY_SELECTORS)
+        if apply_btn is not None:
+            break
     if apply_btn is None:
         # No Easy Apply button: either already applied or an off-site apply.
         already = False
@@ -405,9 +468,10 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                      reason=f"could not click Easy Apply ({exc})")
         return entry
 
-    # Wait for the modal to open.
+    # Wait for the modal to open. LinkedIn fetches it over XHR, so it can take
+    # several seconds — be patient rather than declaring a false "didn't open".
     modal = None
-    for _ in range(6):
+    for _ in range(20):
         modal = _first_visible(page, [_MODAL_SELECTOR])
         if modal is not None:
             break
@@ -419,12 +483,26 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
 
     try:
         for _step in range(_MAX_MODAL_STEPS):
-            page.wait_for_timeout(800)
+            # Wait for this page's footer button to hydrate (see _wait_for_modal_
+            # step). A missing button here means the modal never loaded, not that
+            # the layout is unexpected.
+            submit, nxt = _wait_for_modal_step(page)
+            if submit is None and nxt is None:
+                entry.update(status="failed", submitted=False,
+                             reason="modal page did not load (no Next/Review/Submit "
+                                    f"button after {_STEP_READY_TIMEOUT_MS // 1000}s)")
+                return entry
+
+            # Fill this page's fields with defaults now that it has rendered, then
+            # give React a beat to settle before reading/clicking the button.
             try:
                 page.evaluate(_FILL_JS, profile)
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"{job['job_id']}: form-fill error ({exc})")
+            page.wait_for_timeout(800)
 
+            # Re-resolve after filling: it can enable a previously-disabled button
+            # or reveal a Submit on the final page.
             submit = _first_visible(page, _SUBMIT_SELECTORS)
             if submit is not None:
                 if dry_run:
@@ -456,13 +534,15 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                     log(f"⚠ {job['job_id']}: submit unconfirmed — NOT counting as applied")
                 return entry
 
-            nxt = _first_visible(page, _NEXT_SELECTORS)
+            # Advance a step. Prefer a freshly-resolved Next (fill may have
+            # re-rendered the footer); fall back to the one the poll found.
+            nxt = _first_visible(page, _NEXT_SELECTORS) or nxt
             if nxt is None:
                 entry.update(status="failed", submitted=False,
                              reason="no Next/Review/Submit button (unexpected modal layout)")
                 return entry
             nxt.click(timeout=8000)
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(1500)  # let the next page begin its XHR load
             if _has_form_error(page):
                 entry.update(status="skipped", submitted=False,
                              reason="required screening question we couldn't answer")
@@ -533,16 +613,13 @@ def run_linkedin_apply(
 
     warnings: list[str] = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            # LinkedIn aggressively bot-blocks headless browsers (empty results /
-            # auth walls). A visible window renders results reliably. (Headless
-            # needs a virtual display, e.g. Xvfb, on a server.)
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        # LinkedIn aggressively bot-blocks headless browsers (empty results /
+        # auth walls). A visible window renders results reliably, and matching the
+        # login browser keeps the saved session valid. (Headless needs a virtual
+        # display, e.g. Xvfb, on a server.)
+        browser = _launch_browser(pw)
         ctx = browser.new_context(
             storage_state=state_path,
-            user_agent=_UA,
             locale="en-US",
             viewport={"width": 1366, "height": 900},
         )
