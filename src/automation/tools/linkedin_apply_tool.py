@@ -270,6 +270,32 @@ def _first_visible(scope, selectors: list[str]):
     return None
 
 
+# Each modal page's footer (Submit / Next / Review / Continue) and its form
+# fields hydrate over XHR *after* the <dialog> frame appears — and again after
+# every Next click — so on a freshly-shown page the action button is routinely
+# absent for a few seconds. Poll for it instead of treating a not-yet-loaded
+# page as a broken layout (the old code bailed the instant it was missing, which
+# stalled the whole funnel right after "Easy Apply" was clicked).
+_STEP_READY_TIMEOUT_MS = 15000
+_STEP_POLL_MS = 500
+
+
+def _wait_for_modal_step(page) -> tuple[object | None, object | None]:
+    """Poll the open Easy Apply modal until its footer action button appears.
+    Returns (submit_locator, next_locator); Submit wins if both are present, and
+    both are None only if nothing showed up within the timeout (a genuinely
+    empty/broken modal)."""
+    for _ in range(max(1, _STEP_READY_TIMEOUT_MS // _STEP_POLL_MS)):
+        submit = _first_visible(page, _SUBMIT_SELECTORS)
+        if submit is not None:
+            return submit, None
+        nxt = _first_visible(page, _NEXT_SELECTORS)
+        if nxt is not None:
+            return None, nxt
+        page.wait_for_timeout(_STEP_POLL_MS)
+    return None, None
+
+
 # JS that fills the current Easy Apply modal page with sensible defaults. Empty
 # required fields are the ones LinkedIn blocks progress on; we answer them so the
 # common flows (contact info, years-of-experience, yes/no eligibility) sail
@@ -457,12 +483,26 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
 
     try:
         for _step in range(_MAX_MODAL_STEPS):
-            page.wait_for_timeout(800)
+            # Wait for this page's footer button to hydrate (see _wait_for_modal_
+            # step). A missing button here means the modal never loaded, not that
+            # the layout is unexpected.
+            submit, nxt = _wait_for_modal_step(page)
+            if submit is None and nxt is None:
+                entry.update(status="failed", submitted=False,
+                             reason="modal page did not load (no Next/Review/Submit "
+                                    f"button after {_STEP_READY_TIMEOUT_MS // 1000}s)")
+                return entry
+
+            # Fill this page's fields with defaults now that it has rendered, then
+            # give React a beat to settle before reading/clicking the button.
             try:
                 page.evaluate(_FILL_JS, profile)
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"{job['job_id']}: form-fill error ({exc})")
+            page.wait_for_timeout(800)
 
+            # Re-resolve after filling: it can enable a previously-disabled button
+            # or reveal a Submit on the final page.
             submit = _first_visible(page, _SUBMIT_SELECTORS)
             if submit is not None:
                 if dry_run:
@@ -494,13 +534,15 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                     log(f"⚠ {job['job_id']}: submit unconfirmed — NOT counting as applied")
                 return entry
 
-            nxt = _first_visible(page, _NEXT_SELECTORS)
+            # Advance a step. Prefer a freshly-resolved Next (fill may have
+            # re-rendered the footer); fall back to the one the poll found.
+            nxt = _first_visible(page, _NEXT_SELECTORS) or nxt
             if nxt is None:
                 entry.update(status="failed", submitted=False,
                              reason="no Next/Review/Submit button (unexpected modal layout)")
                 return entry
             nxt.click(timeout=8000)
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(1500)  # let the next page begin its XHR load
             if _has_form_error(page):
                 entry.update(status="skipped", submitted=False,
                              reason="required screening question we couldn't answer")
