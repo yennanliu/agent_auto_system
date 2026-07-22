@@ -59,7 +59,14 @@ _EASY_APPLY_SELECTORS = [
     "button[aria-label*='Easy Apply']",
     "button:has-text('Easy Apply')",
 ]
-_MODAL_SELECTOR = "div.jobs-easy-apply-modal, [role='dialog']"
+# LinkedIn migrated the Easy Apply modal to a native <dialog aria-labelledby=
+# "dialog-header"> with fully obfuscated class names — it is NOT a div.jobs-easy-
+# apply-modal and carries no role="dialog". The native <dialog> comes first; the
+# legacy selectors stay as fallbacks for older layouts / A-B buckets.
+_MODAL_SELECTOR = (
+    "dialog[aria-labelledby='dialog-header'], "
+    "div.jobs-easy-apply-modal, [role='dialog']"
+)
 _SUBMIT_SELECTORS = [
     "button[aria-label*='Submit application']",
     "button:has-text('Submit application')",
@@ -251,7 +258,11 @@ def _first_visible(scope, selectors: list[str]):
 # safe placeholders. React needs native-setter value + input/change events.
 _FILL_JS = r"""
 (profile) => {
-  const modal = document.querySelector("[role='dialog']") || document;
+  // Scope to the Easy Apply dialog (native <dialog> today, legacy fallbacks
+  // after) so we never touch stray page fields (nav search box, footer, etc).
+  const modal = document.querySelector("dialog[aria-labelledby='dialog-header']")
+    || document.querySelector("div.jobs-easy-apply-modal, [role='dialog']")
+    || document.body;
   const setVal = (el, val) => {
     const proto = el.tagName === 'TEXTAREA'
       ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -382,9 +393,16 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
              "title": job["title"], "company": job["company"]}
 
     page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1500)
 
-    apply_btn = _first_visible(page, _EASY_APPLY_SELECTORS)
+    # The job detail pane (which holds the Easy Apply button) hydrates after the
+    # initial load, so poll for a few seconds before concluding it's absent —
+    # a fixed short wait made this a flaky false "no Easy Apply button".
+    apply_btn = None
+    for _ in range(10):
+        page.wait_for_timeout(600)
+        apply_btn = _first_visible(page, _EASY_APPLY_SELECTORS)
+        if apply_btn is not None:
+            break
     if apply_btn is None:
         # No Easy Apply button: either already applied or an off-site apply.
         already = False
@@ -405,9 +423,10 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                      reason=f"could not click Easy Apply ({exc})")
         return entry
 
-    # Wait for the modal to open.
+    # Wait for the modal to open. LinkedIn fetches it over XHR, so it can take
+    # several seconds — be patient rather than declaring a false "didn't open".
     modal = None
-    for _ in range(6):
+    for _ in range(20):
         modal = _first_visible(page, [_MODAL_SELECTOR])
         if modal is not None:
             break
