@@ -135,9 +135,10 @@ const AUTO_CATALOG = {
     desc: 'Log in to LinkedIn (via a saved session) and auto-apply to "Easy Apply" jobs matching a keyword: open each job, walk the multi-step Easy Apply modal (fill contact info / screening questions → Next/Review → Submit). Auto-advances through search result pages, skipping jobs you already applied to, until it has applied to max_applications ones. An application is only counted as successful when LinkedIn shows the "application was sent" banner. The LLM (gemini/openai/anthropic) acts as an optional relevance gate — the apply itself is pure browser automation. Dry-run by default — fills the form without clicking Submit.',
     inputs: [
       { name: 'keywords',         type: 'str',         desc: 'Job search keywords, e.g. Software Engineer / python' },
-      { name: 'location',         type: 'str',         desc: 'Location text — Taipei / United Kingdom (blank = anywhere)' },
+      { name: 'location',         type: 'str',         desc: 'Location text — Taipei / United Kingdom (default Taiwan)' },
       { name: 'remote',           type: 'bool',        desc: 'Only search remote jobs (LinkedIn f_WT=2)' },
       { name: 'phone',            type: 'str',         desc: 'Phone number for the Easy Apply contact question (optional)' },
+      { name: 'nationality',      type: 'str',         desc: 'Default answer to nationality/citizenship questions (default Taiwanese)' },
       { name: 'years_experience', type: 'int',         desc: 'Default answer to "years of experience" screening questions' },
       { name: 'max_applications', type: 'int (1–1000)', desc: 'Number of jobs to actually apply to (auto-advances pages)' },
       { name: 'max_pages',        type: 'int (1–500)',  desc: 'Max search result pages to scan before stopping' },
@@ -1845,6 +1846,7 @@ runForm.addEventListener('submit', async (e) => {
     const keywords = document.getElementById('li-keywords').value.trim();
     if (!keywords) { showToast('Job keywords are required (e.g. Software Engineer)', 'error'); return; }
     const location = document.getElementById('li-location').value.trim();
+    const nationality = document.getElementById('li-nationality').value.trim();
     const phone = document.getElementById('li-phone').value.trim();
     const taskFilter = document.getElementById('li-filter').value.trim();
     const liYears = parseInt(document.getElementById('li-years').value, 10);
@@ -1856,6 +1858,7 @@ runForm.addEventListener('submit', async (e) => {
       remote: document.getElementById('li-remote').checked,
       dry_run: document.getElementById('li-dry-run').checked,
       ...(location ? { location } : {}),
+      ...(nationality ? { nationality } : {}),
       ...(phone ? { phone } : {}),
       ...(taskFilter ? { task_filter: taskFilter } : {}),
     };
