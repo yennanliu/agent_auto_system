@@ -37,9 +37,10 @@ def _parse_verdict(text: str) -> dict | None:
 
 class LinkedInApplyState(BaseModel):
     keywords: str = ""              # LinkedIn search keywords (required)
-    location: str = ""             # optional location text, e.g. "Taipei" / "Remote"
+    location: str = "Taiwan"       # location text, e.g. "Taipei" / "Remote" (default Taiwan)
     remote: bool = False           # only search remote jobs (LinkedIn f_WT=2)
     phone: str = ""                # phone for the Easy Apply contact question
+    nationality: str = "Taiwanese"  # default answer to nationality/citizenship questions
     years_experience: int = 3      # default answer to "years of experience" questions
     task_filter: str = ""          # optional 2nd gate: LLM relevance filter (nat-lang)
     max_applications: int = 5
@@ -135,6 +136,7 @@ class LinkedInApplyFlow(FlowMixin, Flow[LinkedInApplyState]):
             location=self.state.location,
             remote=self.state.remote,
             phone=self.state.phone,
+            nationality=self.state.nationality,
             years_experience=self.state.years_experience,
             max_applications=self.state.max_applications,
             max_pages=self.state.max_pages,

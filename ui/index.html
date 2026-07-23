@@ -565,7 +565,10 @@
 
       <div id="fields-linkedin_apply" class="hidden">
         <div class="field"><label>Job keywords</label><input type="text" id="li-keywords" placeholder="e.g. Software Engineer / python / data engineer" /></div>
-        <div class="field"><label>Location (optional)</label><input type="text" id="li-location" placeholder="e.g. Taipei / United Kingdom / Remote（留空 = 不限地區）" /></div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1"><label>Location</label><input type="text" id="li-location" value="Taiwan" placeholder="e.g. Taipei / United Kingdom / Remote（留空 = 不限地區）" /></div>
+          <div style="flex:1"><label>Nationality</label><input type="text" id="li-nationality" value="Taiwanese" placeholder="e.g. Taiwanese（應徵表單國籍題預設值）" /></div>
+        </div>
         <div class="field" style="display:flex;gap:0.5rem">
           <div style="flex:1"><label>Max applications (1–1000)</label><input type="number" id="li-max" value="5" min="1" max="1000" /></div>
           <div style="flex:1"><label>Max pages to scan (1–500)</label><input type="number" id="li-max-pages" value="10" min="1" max="500" /></div>

@@ -108,6 +108,15 @@ _DISCARD_SELECTORS = [
     "button[data-control-name='discard_application_confirm_btn']",
     "button:has-text('Discard')",
 ]
+# Post-submit "Your application was sent!" dialog. It offers "Not now" and a
+# blue "Update profile" CTA that overwrites the LinkedIn profile from the resume
+# — we must NEVER click that. Only "Not now" / the ✕ Dismiss are safe.
+_POST_SUBMIT_DISMISS_SELECTORS = [
+    "button:has-text('Not now')",
+    "button[aria-label='Dismiss']",
+    "button[aria-label*='Dismiss']",
+    "button[data-test-modal-close-btn]",
+]
 # Post-submit confirmation banner. Substring match is case-insensitive.
 _SUCCESS_TEXTS = ("was sent", "Application sent", "已送出", "應徵已送出")
 _MAX_MODAL_STEPS = 12  # safety valve against a bad screening question looping forever
@@ -325,22 +334,85 @@ _FILL_JS = r"""
   };
   let filled = 0;
 
+  // ── Resume selection ──────────────────────────────────────────────────
+  // LinkedIn's resume step lists saved resumes as radio cards, each showing one
+  // file name (e.g. "resume_BE_V17.pdf", "resume_ai_fde.pdf"). It pre-checks
+  // one, but we want the most role-relevant resume for THIS job (a backend
+  // resume for a backend role, an ai/fde resume for an AI role). We map the job
+  // title to a role, then pick the resume whose file name matches that role —
+  // matching common abbreviations (BE→backend, FE→frontend, FDE→AI). On an
+  // unknown role or no matching resume, LinkedIn's pre-checked default stands.
+  (() => {
+    const norm = s => ' ' + (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    const has = (s, kw) => s.includes(' ' + kw + ' ');
+    const title = norm(profile.job_title);
+    if (title.trim() === '') return;
+    // Each resume radio's OWN file name: climb to the nearest ancestor whose
+    // text holds exactly one file name (the card) so we don't grab the whole
+    // list. Radios that don't isolate to a single file are ignored.
+    const fileName = (r) => {
+      let el = r;
+      for (let i = 0; i < 6 && el; i++) {
+        const txt = el.innerText || '';
+        if ((txt.match(/\.(pdf|docx?)\b/gi) || []).length === 1) return txt;
+        el = el.parentElement;
+      }
+      return '';
+    };
+    const resumes = Array.from(modal.querySelectorAll("input[type='radio']"))
+      .map(r => ({ r, name: norm(fileName(r)) }))
+      .filter(o => o.name.trim() !== '');
+    if (resumes.length < 2) return;  // 0-1 resume: nothing to choose
+    // role = title signals; matches a resume whose name carries the role or its
+    // common abbreviation. Order matters — first matching role wins.
+    const ROLES = [
+      { title: ['backend', 'back end'],                       file: ['backend', 'back end', 'be'] },
+      { title: ['frontend', 'front end'],                     file: ['frontend', 'front end', 'fe'] },
+      { title: ['fullstack', 'full stack'],                   file: ['fullstack', 'full stack', 'fs'] },
+      { title: ['ai', 'ml', 'machine learning', 'fde',
+                'forward deployed', 'llm', 'data scientist'],  file: ['ai', 'ml', 'fde', 'llm', 'ds'] },
+      { title: ['data'],                                      file: ['data', 'de'] },
+      { title: ['devops', 'sre', 'platform', 'infrastructure',
+                'infra', 'cloud'],                            file: ['devops', 'sre', 'platform', 'infra', 'cloud'] },
+      { title: ['mobile', 'ios', 'android'],                  file: ['mobile', 'ios', 'android'] },
+      { title: ['embedded', 'firmware'],                      file: ['embedded', 'firmware', 'fw'] },
+    ];
+    const role = ROLES.find(R => R.title.some(kw => has(title, kw)));
+    if (!role) return;  // unknown role → keep LinkedIn's default
+    const pick = resumes.find(o => role.file.some(kw => has(o.name, kw)));
+    if (pick && !pick.r.checked) { pick.r.click(); filled++; }
+  })();
+
+  const yrs = String(profile.years != null ? profile.years : 3);
   modal.querySelectorAll("input[type='text'], input[type='email'], input[type='tel'], input:not([type])").forEach(el => {
-    if (el.value && el.value.trim()) return;
+    // Refill blanks, our own 'N/A' placeholder, and anything the form flagged
+    // invalid — but never clobber a value LinkedIn pre-filled or that's already
+    // valid. (A leftover 'N/A' in a numeric field reads as "Invalid input" and
+    // used to be skipped on re-fill because it was non-empty, stalling the run.)
+    const cur = (el.value || '').trim();
+    const invalid = el.getAttribute('aria-invalid') === 'true';
+    if (cur && cur !== 'N/A' && !invalid) return;
     const lbl = labelFor(el);
     let v = '';
     if (/phone|mobile|tel/.test(lbl)) v = profile.phone || '';
     else if (/email/.test(lbl)) v = profile.email || '';
-    else if (/city|location|address/.test(lbl)) v = profile.location || '';
-    else if (el.required) v = 'N/A';
+    else if (/nationalit|citizen/.test(lbl)) v = profile.nationality || '';
+    else if (/salary|compensation|expected pay|desired pay|ctc/.test(lbl)) v = profile.salary || '0';
+    else if (/city|location|address|country|region/.test(lbl)) v = profile.location || '';
+    // Numeric free-text screening ("How many years of experience with X?",
+    // "rate your proficiency", "notice period") — a number, never 'N/A'.
+    else if (/how many|how long|years|year|experience|\bexp\b|proficien|rate your|scale of|number of|notice period/.test(lbl)) v = yrs;
+    // Any other required free-text: a number is the safest filler — most
+    // remaining screening questions are numeric, and it passes length limits.
+    else if (el.required) v = yrs;
     if (v) { setVal(el, v); filled++; }
   });
 
   modal.querySelectorAll("input[type='number']").forEach(el => {
-    if (el.value && el.value.trim()) return;
+    if (el.value && el.value.trim() && el.getAttribute('aria-invalid') !== 'true') return;
     const lbl = labelFor(el);
     let v;
-    if (/year|experience|exp/.test(lbl)) v = String(profile.years || 3);
+    if (/year|experience|exp/.test(lbl)) v = String(profile.years != null ? profile.years : 3);
     else if (/salary|rate|compensation|expected/.test(lbl)) v = profile.salary || '0';
     else v = '1';
     setVal(el, v); filled++;
@@ -352,8 +424,20 @@ _FILL_JS = r"""
     const opts = Array.from(el.options).filter(o => o.value && !/select an option/i.test(o.text));
     if (!opts.length) return;
     const lbl = labelFor(el);
-    const wantNo = /sponsor|require sponsorship/.test(lbl);
-    let choice = opts.find(o => new RegExp(wantNo ? '^\\s*no' : '^\\s*yes', 'i').test(o.text)) || opts[0];
+    let choice;
+    if (/nationalit|citizen/.test(lbl) && profile.nationality) {
+      const want = profile.nationality.toLowerCase();
+      // "Taiwanese" nationality maps to a "Taiwan" country option and vice versa.
+      choice = opts.find(o => { const t = o.text.toLowerCase();
+        return t.includes(want) || (/taiwan/.test(want) && /taiwan/.test(t)); });
+    } else if (/country|location|region/.test(lbl) && profile.location) {
+      const want = profile.location.toLowerCase();
+      choice = opts.find(o => o.text.toLowerCase().includes(want));
+    }
+    if (!choice) {
+      const wantNo = /sponsor|require sponsorship/.test(lbl);
+      choice = opts.find(o => new RegExp(wantNo ? '^\\s*no' : '^\\s*yes', 'i').test(o.text)) || opts[0];
+    }
     el.value = choice.value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
     filled++;
@@ -429,6 +513,19 @@ def _dismiss_and_discard(page, log: Callable) -> None:
             pass
 
 
+def _dismiss_post_submit(page, log: Callable) -> None:
+    """After a confirmed submit, close the "Your application was sent!" dialog via
+    "Not now" / ✕ only. We NEVER click its "Update profile" CTA — that overwrites
+    the user's LinkedIn profile from the resume. Best-effort; safe if absent."""
+    btn = _first_visible(page, _POST_SUBMIT_DISMISS_SELECTORS)
+    if btn is not None:
+        try:
+            btn.click(timeout=4000)
+            page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                   log: Callable, warnings: list) -> dict:
     """Drive the Easy Apply funnel for a single job. Returns a result entry. The
@@ -436,6 +533,9 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
     was sent" banner — a click alone is never trusted."""
     entry = {"job_id": job["job_id"], "url": job["url"],
              "title": job["title"], "company": job["company"]}
+    # Give the form-fill the job title so it can pick the most role-relevant
+    # saved resume (e.g. a backend resume for a backend role).
+    fill_profile = {**profile, "job_title": job.get("title", "")}
 
     page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
 
@@ -482,6 +582,7 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
         return entry
 
     try:
+        error_retries = 0
         for _step in range(_MAX_MODAL_STEPS):
             # Wait for this page's footer button to hydrate (see _wait_for_modal_
             # step). A missing button here means the modal never loaded, not that
@@ -496,7 +597,7 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
             # Fill this page's fields with defaults now that it has rendered, then
             # give React a beat to settle before reading/clicking the button.
             try:
-                page.evaluate(_FILL_JS, profile)
+                page.evaluate(_FILL_JS, fill_profile)
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"{job['job_id']}: form-fill error ({exc})")
             page.wait_for_timeout(800)
@@ -528,6 +629,9 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
                     entry.update(status="submitted", submitted=True,
                                  confirmation="LinkedIn confirmed 'application was sent'")
                     log(f"✓ {job['job_id']}: Easy Apply submitted AND confirmed")
+                    # Close the confirmation dialog via "Not now"/✕ — never its
+                    # "Update profile" CTA (which rewrites the profile).
+                    _dismiss_post_submit(page, log)
                 else:
                     entry.update(status="unconfirmed", submitted=False,
                                  reason="clicked Submit but no confirmation banner")
@@ -544,10 +648,18 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
             nxt.click(timeout=8000)
             page.wait_for_timeout(1500)  # let the next page begin its XHR load
             if _has_form_error(page):
-                entry.update(status="skipped", submitted=False,
-                             reason="required screening question we couldn't answer")
-                log(f"↷ {job['job_id']}: unanswerable required question — skipping")
-                return entry
+                # The page didn't advance — a field failed validation (e.g. a
+                # numeric screening question). Don't skip outright: loop back so
+                # the next iteration re-fills (our fill overwrites invalid values
+                # with a number) and retries Next. Only give up after a few tries.
+                error_retries += 1
+                if error_retries > 3:
+                    entry.update(status="skipped", submitted=False,
+                                 reason="required screening question we couldn't answer")
+                    log(f"↷ {job['job_id']}: unanswerable required question — skipping")
+                    return entry
+                log(f"⚠ {job['job_id']}: validation error — re-answering "
+                    f"(attempt {error_retries})")
 
         entry.update(status="failed", submitted=False,
                      reason=f"did not reach Submit within {_MAX_MODAL_STEPS} steps")
@@ -565,9 +677,10 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
 def run_linkedin_apply(
     *,
     keywords: str,
-    location: str = "",
+    location: str = "Taiwan",
     remote: bool = False,
     phone: str = "",
+    nationality: str = "Taiwanese",
     years_experience: int = 3,
     max_applications: int = 5,
     max_pages: int = 10,
@@ -598,6 +711,7 @@ def run_linkedin_apply(
         "phone": (phone or "").strip(),
         "email": "",
         "location": (location or "").strip(),
+        "nationality": (nationality or "").strip(),
         "years": years,
         "salary": "0",
     }
@@ -736,9 +850,10 @@ def run_linkedin_apply(
 
 class LinkedInApplyInput(BaseModel):
     keywords: str
-    location: str = ""
+    location: str = "Taiwan"
     remote: bool = False
     phone: str = ""
+    nationality: str = "Taiwanese"
     years_experience: int = 3
     max_applications: int = 5
     max_pages: int = 10
@@ -758,14 +873,16 @@ class LinkedInApplyTool(BaseTool):
     )
     args_schema: type[BaseModel] = LinkedInApplyInput
 
-    def _run(self, keywords: str, location: str = "", remote: bool = False,
-             phone: str = "", years_experience: int = 3,
+    def _run(self, keywords: str, location: str = "Taiwan", remote: bool = False,
+             phone: str = "", nationality: str = "Taiwanese",
+             years_experience: int = 3,
              max_applications: int = 5, max_pages: int = 10,
              dry_run: bool = True) -> dict:
         try:
             return run_linkedin_apply(
                 keywords=keywords, location=location, remote=remote,
-                phone=phone, years_experience=years_experience,
+                phone=phone, nationality=nationality,
+                years_experience=years_experience,
                 max_applications=max_applications, max_pages=max_pages,
                 dry_run=dry_run,
             )
