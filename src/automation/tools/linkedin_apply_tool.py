@@ -425,19 +425,26 @@ _FILL_JS = r"""
     if (!opts.length) return;
     const lbl = labelFor(el);
     let choice;
+    // Country-like fields never take the Yes/No→opts[0] fallback: guessing an
+    // arbitrary country as someone's nationality is worse than leaving it (a
+    // required unmatched field just stalls → the job is skipped, not mis-answered).
+    let isCountryLike = false;
     if (/nationalit|citizen/.test(lbl) && profile.nationality) {
+      isCountryLike = true;
       const want = profile.nationality.toLowerCase();
       // "Taiwanese" nationality maps to a "Taiwan" country option and vice versa.
       choice = opts.find(o => { const t = o.text.toLowerCase();
         return t.includes(want) || (/taiwan/.test(want) && /taiwan/.test(t)); });
     } else if (/country|location|region/.test(lbl) && profile.location) {
+      isCountryLike = true;
       const want = profile.location.toLowerCase();
       choice = opts.find(o => o.text.toLowerCase().includes(want));
     }
-    if (!choice) {
+    if (!choice && !isCountryLike) {
       const wantNo = /sponsor|require sponsorship/.test(lbl);
       choice = opts.find(o => new RegExp(wantNo ? '^\\s*no' : '^\\s*yes', 'i').test(o.text)) || opts[0];
     }
+    if (!choice) return;  // no confident match for a country-like field — leave default
     el.value = choice.value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
     filled++;
