@@ -73,7 +73,8 @@ async def execute_pipeline(
         step_payload = _interpolate(dict(step.get("payload", {})), results)
 
         append_log(run_id, f"[Step {i + 1}/{n}] Starting {step_type}...")
-        result, usage = await _run_flow(
+        # _run_flow returns (result, usage, serve); the pipeline ignores serve.
+        result, usage, _serve = await _run_flow(
             run_id, step_type, step_payload, effective_provider, effective_model
         )
         total_usage["prompt_tokens"]     += usage.get("prompt_tokens", 0)

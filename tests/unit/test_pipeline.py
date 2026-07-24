@@ -104,7 +104,7 @@ async def test_execute_pipeline_empty_steps_raises():
 
 async def test_execute_pipeline_single_step_result_shape():
     step_result = {"summary": "done", "count": 1}
-    mock_run_flow = AsyncMock(return_value=(step_result, {"prompt_tokens": 10, "completion_tokens": 5}))
+    mock_run_flow = AsyncMock(return_value=(step_result, {"prompt_tokens": 10, "completion_tokens": 5}, {}))
 
     with patch("src.automation.pipeline.append_log"), \
          patch("src.automation.executor._run_flow", mock_run_flow):
@@ -131,8 +131,8 @@ async def test_execute_pipeline_two_steps_interpolation():
     async def fake_run_flow(run_id, job_type, payload, provider, model):
         call_payloads.append(dict(payload))
         if len(call_payloads) == 1:
-            return first_result, {"prompt_tokens": 10, "completion_tokens": 5}
-        return second_result, {"prompt_tokens": 20, "completion_tokens": 8}
+            return first_result, {"prompt_tokens": 10, "completion_tokens": 5}, {}
+        return second_result, {"prompt_tokens": 20, "completion_tokens": 8}, {}
 
     with patch("src.automation.pipeline.append_log"), \
          patch("src.automation.executor._run_flow", side_effect=fake_run_flow):
@@ -161,7 +161,7 @@ async def test_execute_pipeline_collect_to_sender_list_flatten():
 
     async def fake_run_flow(run_id, job_type, payload, provider, model):
         call_payloads.append(dict(payload))
-        return (collect_result if len(call_payloads) == 1 else send_result), {}
+        return (collect_result if len(call_payloads) == 1 else send_result), {}, {}
 
     with patch("src.automation.pipeline.append_log"), \
          patch("src.automation.executor._run_flow", side_effect=fake_run_flow):
@@ -183,8 +183,8 @@ async def test_execute_pipeline_collect_to_sender_list_flatten():
 
 async def test_execute_pipeline_usage_tokens_summed():
     mock_run_flow = AsyncMock(side_effect=[
-        ({"out": "a"}, {"prompt_tokens": 100, "completion_tokens": 50}),
-        ({"out": "b"}, {"prompt_tokens": 200, "completion_tokens": 80}),
+        ({"out": "a"}, {"prompt_tokens": 100, "completion_tokens": 50}, {}),
+        ({"out": "b"}, {"prompt_tokens": 200, "completion_tokens": 80}, {}),
     ])
 
     with patch("src.automation.pipeline.append_log"), \
@@ -206,7 +206,7 @@ async def test_execute_pipeline_usage_tokens_summed():
 
 async def test_execute_pipeline_steps_have_required_keys():
     step_result = {"data": "value"}
-    mock_run_flow = AsyncMock(return_value=(step_result, {}))
+    mock_run_flow = AsyncMock(return_value=(step_result, {}, {}))
 
     with patch("src.automation.pipeline.append_log"), \
          patch("src.automation.executor._run_flow", mock_run_flow):
