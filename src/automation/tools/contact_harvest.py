@@ -91,29 +91,49 @@ def rank_emails(emails) -> list[str]:
 
 # ── obfuscation ─────────────────────────────────────────────────────────────
 #
-# Matches a whole obfuscated address in one shot so we never rewrite stray "at"
-# / "dot" words elsewhere in the text. Handles: local (at) domain (dot) tld with
-# the separators written as @/[at]/(at)/{at}/" at " and ./[dot]/(dot)/" dot ",
-# where the domain itself may contain further (possibly obfuscated) dots.
-_AT = r"(?:@|＠|[\[\(\{]\s*at\s*[\]\)\}]|\s+at\s+)"
-_DOT = r"(?:\.|[\[\(\{]\s*dot\s*[\]\)\}]|\s+dot\s+)"
-_OBFUSCATED_RE = re.compile(
-    rf"([a-z0-9._%+\-]+)\s*{_AT}\s*"
-    rf"([a-z0-9\-]+(?:\s*{_DOT}\s*[a-z0-9\-]+)*)\s*{_DOT}\s*([a-z]{{2,}})",
-    re.IGNORECASE,
-)
+# Reconstruct a whole obfuscated address in one shot (never rewriting stray "at"
+# / "dot" words elsewhere). Two tiers, deliberately conservative because "at" is
+# an ordinary English word — an over-eager rule turns prose like
+# "advocate at Netlify. Evangelist" into a bogus "at@netlify.evangelist":
+#
+#   1. SYMBOL form — the at-marker is a fullwidth ＠ or bracketed [at]/(at)/{at};
+#      here a literal "." is a safe dot separator (john[at]gmail.com). A plain
+#      ASCII "@" is deliberately excluded — real "@" addresses are already found
+#      by _EMAIL_RE, and admitting it here (with the loose whitespace this
+#      pattern allows) turns an "@mention . Word" fragment into a bogus address.
+#   2. WORD form — the at-marker is the bare word "at"; this is only trusted
+#      when the dot separators are ALSO obfuscated ([dot]/(dot)/{dot}/ dot ),
+#      never a literal "." (so "john at gmail dot com" matches, prose doesn't).
+_AT_SYMBOL = r"(?:＠|[\[\(\{]\s*at\s*[\]\)\}])"
+_DOT_SYMBOL = r"(?:\.|[\[\(\{]\s*dot\s*[\]\)\}])"
+_DOT_WORD = r"(?:[\[\(\{]\s*dot\s*[\]\)\}]|\s+dot\s+)"
+_LOCAL = r"([a-z0-9._%+\-]+)"
+_TLD = r"([a-z]{2,})"
+
+
+def _obf_re(at, dot):
+    return re.compile(
+        rf"{_LOCAL}\s*{at}\s*"
+        rf"([a-z0-9\-]+(?:\s*{dot}\s*[a-z0-9\-]+)*)\s*{dot}\s*{_TLD}",
+        re.IGNORECASE,
+    )
+
+
+_OBFUSCATED_RES = (_obf_re(_AT_SYMBOL, _DOT_SYMBOL),
+                   _obf_re(r"\s+at\s+", _DOT_WORD))
 
 
 def deobfuscate_emails(text: str) -> set[str]:
     """Reconstruct obfuscated addresses (`a [at] b [dot] com` → `a@b.com`)."""
     out: set[str] = set()
-    for local, domain, tld in _OBFUSCATED_RE.findall(text or ""):
-        domain = re.sub(_DOT, ".", domain, flags=re.IGNORECASE)
-        domain = re.sub(r"\s+", "", domain)
-        candidate = f"{local}@{domain}.{tld}".lower()
-        # Round-trip through the strict regex so only well-formed results survive.
-        if _EMAIL_RE.fullmatch(candidate):
-            out.add(candidate)
+    for rx in _OBFUSCATED_RES:
+        for local, domain, tld in rx.findall(text or ""):
+            domain = re.sub(_DOT_WORD, ".", domain, flags=re.IGNORECASE)
+            domain = re.sub(r"\s+", "", domain).strip(".")
+            candidate = f"{local}@{domain}.{tld}".lower()
+            # Round-trip through the strict regex so only well-formed results survive.
+            if _EMAIL_RE.fullmatch(candidate):
+                out.add(candidate)
     return out
 
 

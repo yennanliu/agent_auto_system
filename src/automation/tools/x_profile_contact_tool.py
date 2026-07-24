@@ -60,7 +60,7 @@ def fetch_x_profile_contact(username: str, log=None) -> dict:
     a populated `warnings` list.
     """
     _log = log or (lambda _m: None)
-    handle = (username or "").lstrip("@").strip()
+    handle = _extract_handle(username)
     if not handle:
         return _empty("", ["empty username"])
 
@@ -102,11 +102,46 @@ def fetch_x_profile_contact(username: str, log=None) -> dict:
             "warnings": warnings[:6],
         }
 
-    _log(f"X profile @{handle}: no nitter instance returned a profile")
-    return _empty(handle, warnings[:6] or ["all nitter instances failed"])
+    # Nitter is largely dead/blocked in practice — fall back to reading the
+    # logged-out x.com profile directly with Playwright. x.com serves a static
+    # "lite" header (bio + destination links) before the login wall.
+    _log(f"X profile @{handle}: nitter unavailable, trying x.com via Playwright")
+    try:
+        prof = _scrape_profile_with_playwright(handle)
+    except Exception as exc:  # noqa: BLE001 — browser missing / timeout / wall
+        warnings.append(f"x.com playwright: {type(exc).__name__}")
+        prof = None
+    if prof and (prof["emails"] or prof["bio"]):
+        _log(f"X profile @{handle}: {len(prof['emails'])} email(s) via x.com, "
+             f"website={prof['website'] or '—'}")
+        return {"username": handle, "source": "x.com (playwright)", **prof,
+                "warnings": warnings[:6]}
+    if prof is not None:
+        warnings.append("x.com playwright: no bio/email on profile")
+
+    _log(f"X profile @{handle}: no source returned a profile")
+    return _empty(handle, warnings[:6] or ["all sources failed"])
 
 
 # ── nitter profile-header parsing ────────────────────────────────────────────
+
+def _extract_handle(username: str) -> str:
+    """Normalize a bare handle or a full X URL down to the handle.
+
+    The funnel passes the business's Maps "website" here, which is usually a
+    full profile URL (`https://x.com/acmebiz`), not a bare handle.
+    """
+    s = (username or "").strip()
+    if not s:
+        return ""
+    # Anything URL-shaped (scheme, slash, or a dot — handles never contain dots).
+    if s.startswith(("http://", "https://")) or "/" in s or "." in s:
+        p = urllib.parse.urlparse(s if s.startswith(("http://", "https://"))
+                                  else "https://" + s)
+        first = p.path.strip("/").split("/")[0]
+        return first.lstrip("@")
+    return s.lstrip("@")
+
 
 def _fetch(url: str) -> str:
     jar = http.cookiejar.CookieJar()
@@ -154,6 +189,66 @@ def _profile_website(card: str) -> str:
     if href:
         return _html_mod.unescape(href.group(1))
     return ""
+
+
+# ── x.com Playwright fallback ────────────────────────────────────────────────
+#
+# Logged out, x.com serves a static "lite" header whose markup carries no stable
+# data-testids, but the bio (with its destination links) is the first
+# `dir="auto" … text-body` block and always precedes the follow-stats links and
+# the post feed. We bound parsing to that header so a tweet's text/email can't
+# leak in.
+_CDN_HOSTS = ("x.com", "twitter.com", "t.co", "twimg.com", "google.", "apple.")
+
+
+def _scrape_profile_with_playwright(handle: str) -> dict:
+    """Read the logged-out x.com profile header via headless Chromium."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        ctx = browser.new_context(
+            user_agent=_HEADERS["User-Agent"], locale="en-US",
+            viewport={"width": 1280, "height": 900},
+        )
+        page = ctx.new_page()
+        page.route("**/*.{png,jpg,jpeg,gif,mp4,webm,svg,woff,woff2}",
+                   lambda r: r.abort())
+        try:
+            page.goto(f"https://x.com/{urllib.parse.quote(handle)}",
+                      timeout=30_000, wait_until="domcontentloaded")
+            page.wait_for_timeout(3_000)
+            html = page.content()
+        finally:
+            browser.close()
+
+    return _parse_xcom_header(html, handle)
+
+
+def _parse_xcom_header(html: str, handle: str) -> dict:
+    """Extract bio / emails / website from the x.com lite-HTML profile header."""
+    # Bound to the header: everything before the follow-count links (or the
+    # post feed). Keeps the bio-scoped parse clear of tweet content.
+    bounds = [html.find(f"/{handle}/{seg}")
+              for seg in ("following", "verified_followers", "followers")]
+    bounds = [b for b in bounds if b != -1]
+    header = html[: min(bounds)] if bounds else html
+
+    # The bio is the first `dir="auto" … text-body` block in the header.
+    bios = re.findall(r'<div dir="auto"[^>]*\btext-body\b[^>]*>(.*?)</div>',
+                      header, re.DOTALL)
+    bio_html = bios[0] if bios else ""
+    bio = _clean(bio_html)
+
+    emails = harvest_emails_from_text(bio)
+    website = ""
+    for raw in re.findall(r'href=["\'](https?://[^"\']+)["\']', header):
+        url = _html_mod.unescape(raw)
+        host = urllib.parse.urlparse(url).netloc.lower()
+        if host and not any(c in host for c in _CDN_HOSTS):
+            website = url
+            break
+    return {"emails": emails, "website": website, "location": "", "bio": bio}
 
 
 def _empty(handle: str, warnings: list[str]) -> dict:
