@@ -34,7 +34,7 @@ Output → leads table + `GET /api/runs/{id}/leads.csv` (BOM-encoded for Excel/C
 Today there is exactly **one source: Google Maps → the business's own website.**
 It's a strong ICP-fit source, but it structurally misses:
 
-- Every business whose Maps "website" is Facebook / IG / Linktree — **skipped entirely** (`_NO_GUESS_DOMAINS`).
+- Every business whose Maps "website" is Facebook / IG / Linktree — the page is still fetched and any *published* email harvested, but on these shared hosts `_is_shared_host` (backed by `_NO_GUESS_DOMAINS`) suppresses the `info@` fallback guess, and a JS/login-walled social page almost never exposes an email to the plain `urllib` fetch — so in practice these yield **nothing**.
 - Every business not on Maps, or not near the searched region.
 - It over-produces low-confidence guessed `info@` addresses.
 

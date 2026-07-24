@@ -24,11 +24,9 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
-from src.automation.tools.contact_harvest import (
-    _EMAIL_RE,
-    is_valid_email as _is_valid,
-    rank_emails as _rank,
-)
+from src.automation.tools.contact_harvest import _EMAIL_RE
+from src.automation.tools.contact_harvest import is_valid_email as _is_valid
+from src.automation.tools.contact_harvest import rank_emails as _rank
 
 _HEADERS = {
     "User-Agent": (
