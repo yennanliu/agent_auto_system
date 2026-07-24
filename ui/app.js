@@ -165,7 +165,7 @@ const AUTO_CATALOG = {
   },
   pipeline: {
     icon: '🔗', name: 'Pipeline',
-    desc: 'Chain multiple automations in sequence. Each step\'s output is available to later steps via {{steps.N.result}} or {{steps.N.result.field}} template variables in any payload field.',
+    desc: 'Chain multiple automations in sequence. Each step\'s output is available to later steps via {{steps.N.result}}, {{steps.N.result.field}}, or {{steps.N.result.field[].subfield}} (flattens a list of objects into a comma-joined string, e.g. leads[].email) template variables in any payload field.',
     inputs: [
       { name: 'steps', type: 'list', desc: 'Ordered list of {job_type, payload} step definitions' },
     ],
@@ -1610,6 +1610,7 @@ function renderPipelineStepFields(stepIdx, jobType) {
     ? `<div style="font-size:0.67rem;color:var(--accent);margin-bottom:0.45rem">
          Prev output: <code style="font-family:ui-monospace,monospace">{{steps.${stepIdx - 1}.result}}</code>
          &nbsp;·&nbsp; field: <code style="font-family:ui-monospace,monospace">{{steps.${stepIdx - 1}.result.summary}}</code>
+         &nbsp;·&nbsp; list → CSV: <code style="font-family:ui-monospace,monospace">{{steps.${stepIdx - 1}.result.leads[].email}}</code>
        </div>`
     : '';
   switch (jobType) {
@@ -1635,7 +1636,7 @@ function renderPipelineStepFields(stepIdx, jobType) {
         <div class="field"><label>Post Limit</label><input type="text" class="ps-field" data-field="limit" value="5" placeholder="5" /></div>`;
     case 'email_sender':
       return `${tipHtml}
-        <div class="field"><label>To</label><textarea class="ps-field" data-field="to" rows="2" placeholder="recipient@example.com"></textarea></div>
+        <div class="field"><label>To</label><textarea class="ps-field" data-field="to" rows="2" placeholder="recipient@example.com — or {{steps.${Math.max(0, stepIdx - 1)}.result.leads[].email}} to email everyone a prior step collected"></textarea></div>
         <div class="field"><label>CC (optional)</label><input type="text" class="ps-field" data-field="cc" placeholder="cc@example.com" /></div>
         <div class="field"><label>Subject</label><input type="text" class="ps-field" data-field="subject" placeholder="Subject line" /></div>
         <div class="field"><label>Body</label><textarea class="ps-field" data-field="body" rows="3" placeholder="Email body or {{steps.${Math.max(0, stepIdx - 1)}.result.summary}}"></textarea></div>`;

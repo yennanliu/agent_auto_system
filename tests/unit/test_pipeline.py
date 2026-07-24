@@ -44,6 +44,42 @@ def test_interpolate_list_values_substituted():
     assert out["items"] == ["x", "static"]
 
 
+def test_interpolate_list_flatten_subfield_comma_joined():
+    # email_collect → email_sender: leads[].email → "a@x.com,b@y.com"
+    results = [{"leads": [{"email": "a@x.com"}, {"email": "b@y.com"}]}]
+    payload = {"to": "{{steps.0.result.leads[].email}}"}
+    out = _interpolate(payload, results)
+    assert out["to"] == "a@x.com,b@y.com"
+
+
+def test_interpolate_list_flatten_skips_empty_and_missing():
+    results = [{"leads": [{"email": "a@x.com"}, {"email": ""}, {"other": 1}]}]
+    payload = {"to": "{{steps.0.result.leads[].email}}"}
+    out = _interpolate(payload, results)
+    assert out["to"] == "a@x.com"
+
+
+def test_interpolate_list_flatten_raw_items_no_subfield():
+    results = [{"emails": ["a@x.com", "b@y.com"]}]
+    payload = {"to": "{{steps.0.result.emails[]}}"}
+    out = _interpolate(payload, results)
+    assert out["to"] == "a@x.com,b@y.com"
+
+
+def test_interpolate_list_flatten_non_list_field_is_empty():
+    results = [{"leads": "not-a-list"}]
+    payload = {"to": "{{steps.0.result.leads[].email}}"}
+    out = _interpolate(payload, results)
+    assert out["to"] == ""
+
+
+def test_interpolate_scalar_field_still_works_after_list_support():
+    results = [{"summary": "great content"}]
+    payload = {"prompt": "{{steps.0.result.summary}}"}
+    out = _interpolate(payload, results)
+    assert out["prompt"] == "great content"
+
+
 def test_interpolate_out_of_range_index_left_as_is():
     payload = {"key": "{{steps.5.result}}"}
     out = _interpolate(payload, [])
@@ -112,6 +148,37 @@ async def test_execute_pipeline_two_steps_interpolation():
         )
 
     assert call_payloads[1]["context"] == "first result summary"
+
+
+async def test_execute_pipeline_collect_to_sender_list_flatten():
+    # email_collect → email_sender: the sender's `to` is assembled from the
+    # collected leads via {{steps.0.result.leads[].email}} — the real use case.
+    collect_result = {
+        "leads": [{"email": "a@x.com"}, {"email": "b@y.com"}, {"email": "c@z.com"}],
+    }
+    send_result = {"sent": True}
+    call_payloads: list[dict] = []
+
+    async def fake_run_flow(run_id, job_type, payload, provider, model):
+        call_payloads.append(dict(payload))
+        return (collect_result if len(call_payloads) == 1 else send_result), {}
+
+    with patch("src.automation.pipeline.append_log"), \
+         patch("src.automation.executor._run_flow", side_effect=fake_run_flow):
+        from src.automation.pipeline import execute_pipeline
+        await execute_pipeline(
+            1,
+            [
+                {"job_type": "email_collect", "payload": {"query": "marketing agency"}},
+                {"job_type": "email_sender", "payload": {
+                    "to": "{{steps.0.result.leads[].email}}",
+                    "subject": "hi", "body": "hello"}},
+            ],
+            "openai",
+            "gpt-4o-mini",
+        )
+
+    assert call_payloads[1]["to"] == "a@x.com,b@y.com,c@z.com"
 
 
 async def test_execute_pipeline_usage_tokens_summed():
