@@ -8,9 +8,12 @@ from src.automation.progress import append_log
 # subfield — e.g. email_collect's `leads[].email` → "a@x.com,b@y.com" — so it can
 # feed a later step's scalar input (email_sender's `to`). `field[]` (no subfield)
 # joins the raw list items instead.
+# A `.subfield` is only meaningful in the list-flatten branch, so it is gated
+# behind `[]`: `.field.subfield` (no brackets) is not a supported token and is
+# left literal rather than silently returning the stringified list.
 _TOKEN_RE = re.compile(
     r'\{\{steps\.(\d+)\.result'
-    r'(?:\.([a-zA-Z_]\w*)(\[\])?(?:\.([a-zA-Z_]\w*))?)?\}\}'
+    r'(?:\.([a-zA-Z_]\w*)(?:(\[\])(?:\.([a-zA-Z_]\w*))?)?)?\}\}'
 )
 
 

@@ -1634,12 +1634,20 @@ function renderPipelineStepFields(stepIdx, jobType) {
       return `${tipHtml}
         <div class="field"><label>X Username</label><input type="text" class="ps-field" data-field="username" placeholder="username (no @)" /></div>
         <div class="field"><label>Post Limit</label><input type="text" class="ps-field" data-field="limit" value="5" placeholder="5" /></div>`;
-    case 'email_sender':
+    case 'email_sender': {
+      // Only suggest a prior-step token when a prior step actually exists.
+      const toPh = stepIdx > 0
+        ? `recipient@example.com — or {{steps.${stepIdx - 1}.result.leads[].email}} to email everyone a prior step collected`
+        : 'recipient@example.com, another@example.com';
+      const bodyPh = stepIdx > 0
+        ? `Email body or {{steps.${stepIdx - 1}.result.summary}}`
+        : 'Email body';
       return `${tipHtml}
-        <div class="field"><label>To</label><textarea class="ps-field" data-field="to" rows="2" placeholder="recipient@example.com — or {{steps.${Math.max(0, stepIdx - 1)}.result.leads[].email}} to email everyone a prior step collected"></textarea></div>
+        <div class="field"><label>To</label><textarea class="ps-field" data-field="to" rows="2" placeholder="${toPh}"></textarea></div>
         <div class="field"><label>CC (optional)</label><input type="text" class="ps-field" data-field="cc" placeholder="cc@example.com" /></div>
         <div class="field"><label>Subject</label><input type="text" class="ps-field" data-field="subject" placeholder="Subject line" /></div>
-        <div class="field"><label>Body</label><textarea class="ps-field" data-field="body" rows="3" placeholder="Email body or {{steps.${Math.max(0, stepIdx - 1)}.result.summary}}"></textarea></div>`;
+        <div class="field"><label>Body</label><textarea class="ps-field" data-field="body" rows="3" placeholder="${bodyPh}"></textarea></div>`;
+    }
     case 'google_sheet_reader':
       return `${tipHtml}
         <div class="field"><label>Sheet URL</label><input type="text" class="ps-field" data-field="url" placeholder="https://docs.google.com/spreadsheets/d/…" /></div>

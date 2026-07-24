@@ -73,6 +73,15 @@ def test_interpolate_list_flatten_non_list_field_is_empty():
     assert out["to"] == ""
 
 
+def test_interpolate_subfield_without_brackets_left_literal():
+    # `.field.subfield` (no []) is not a supported token: it must NOT silently
+    # return the stringified list — it stays literal.
+    results = [{"leads": [{"email": "a@x.com"}]}]
+    payload = {"to": "{{steps.0.result.leads.email}}"}
+    out = _interpolate(payload, results)
+    assert out["to"] == "{{steps.0.result.leads.email}}"
+
+
 def test_interpolate_scalar_field_still_works_after_list_support():
     results = [{"summary": "great content"}]
     payload = {"prompt": "{{steps.0.result.summary}}"}
