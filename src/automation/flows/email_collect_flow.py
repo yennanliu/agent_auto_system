@@ -10,8 +10,12 @@ from src.automation.progress import append_log
 from src.automation.tools.contact_harvest import social_platform
 from src.automation.tools.email_extract_tool import extract_emails
 from src.automation.tools.email_verify_tool import verify_email
+from src.automation.tools.facebook_contact_tool import fetch_facebook_contact
 from src.automation.tools.maps_search_tool import search_maps
 from src.automation.tools.x_profile_contact_tool import fetch_x_profile_contact
+
+# Social "websites" we can mine for a contact instead of scraping HTML.
+_SOCIAL_SOURCES = ("facebook", "x")
 
 # The LLM qualifier is the expensive stage — cap how many leads we send it.
 _MAX_QUALIFY = 30
@@ -77,24 +81,12 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             prefix = f"[{i}/{len(businesses)}]"
 
             # A social profile as the "website" is a dead end for the plain
-            # scraper (login-walled, JS-rendered) — route it to a profile
+            # scraper (login-walled, JS-rendered) — route it to a dedicated
             # extractor and chase through to any real site it links out to.
-            if self.state.include_social and social_platform(website) == "x":
-                append_log(self.state.run_id,
-                           f"{prefix} Mining X profile {website}")
-                prof = fetch_x_profile_contact(
-                    website, log=lambda m: append_log(self.state.run_id, m))
-                self._append_leads(leads, seen_emails, biz, rid,
-                                   website, prof.get("emails", []), source="x")
-                linked = prof.get("website", "")
-                if linked and not social_platform(linked):
-                    append_log(self.state.run_id,
-                               f"{prefix} Following X-linked site {linked}")
-                    ext = extract_emails(
-                        linked, log=lambda m: append_log(self.state.run_id, m))
-                    self._append_leads(
-                        leads, seen_emails, biz, rid, linked, ext.get("emails", []),
-                        source="guessed" if ext.get("guessed") else "website")
+            platform = social_platform(website) if self.state.include_social else None
+            if platform in _SOCIAL_SOURCES:
+                self._mine_social(platform, prefix, biz, rid, website,
+                                  leads, seen_emails)
                 continue
 
             append_log(self.state.run_id,
@@ -133,6 +125,28 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             result["warnings"] = warnings
         append_log(self.state.run_id, "Lead collection complete, formatting result...")
         return json.dumps(result, ensure_ascii=False)
+
+    def _mine_social(self, platform, prefix, biz, region, website,
+                     leads, seen_emails) -> None:
+        """Mine a social 'website' for contacts, then chase through to any real
+        site it links. Shared by the X and Facebook sources."""
+        label = {"x": "X profile", "facebook": "Facebook Page"}[platform]
+        fetch = {"x": fetch_x_profile_contact,
+                 "facebook": fetch_facebook_contact}[platform]
+        append_log(self.state.run_id, f"{prefix} Mining {label} {website}")
+        prof = fetch(website, log=lambda m: append_log(self.state.run_id, m))
+        self._append_leads(leads, seen_emails, biz, region, website,
+                           prof.get("emails", []), source=platform)
+
+        linked = prof.get("website", "")
+        if linked and not social_platform(linked):
+            append_log(self.state.run_id,
+                       f"{prefix} Following {label}-linked site {linked}")
+            ext = extract_emails(linked,
+                                 log=lambda m: append_log(self.state.run_id, m))
+            self._append_leads(
+                leads, seen_emails, biz, region, linked, ext.get("emails", []),
+                source="guessed" if ext.get("guessed") else "website")
 
     def _append_leads(self, leads, seen_emails, biz, region,
                       website, emails, source) -> None:

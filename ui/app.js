@@ -158,10 +158,10 @@ const AUTO_CATALOG = {
       { name: 'offer',    type: 'str (optional)', desc: "What you're pitching — drives ICP scoring & hooks" },
       { name: 'limit',    type: 'int (1–40)', desc: 'Number of businesses to discover' },
       { name: 'smtp_check', type: 'bool', desc: 'Run the SMTP RCPT probe during verification' },
-      { name: 'include_social', type: 'bool', desc: 'Mine social profiles (X) for contacts and follow any real site they link' },
+      { name: 'include_social', type: 'bool', desc: 'Mine social profiles (Facebook, X) for contacts and follow any real site they link' },
     ],
     crew: 'EmailCollectCrew', flow: 'EmailCollectFlow',
-    agent: 'Lead Qualifier', tools: ['Google Maps Search', 'Web Email Extractor', 'Email Verifier', 'X Profile Contact'],
+    agent: 'Lead Qualifier', tools: ['Google Maps Search', 'Web Email Extractor', 'Email Verifier', 'Facebook Contact', 'X Profile Contact'],
   },
   pipeline: {
     icon: '🔗', name: 'Pipeline',
