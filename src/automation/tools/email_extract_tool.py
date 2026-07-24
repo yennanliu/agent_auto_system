@@ -82,7 +82,7 @@ def extract_emails(website: str, log=None) -> dict:
     if not base:
         return {"website": website, "emails": [], "pages_scanned": 0, "guessed": False}
 
-    host = urllib.parse.urlparse(base).netloc
+    host = urllib.parse.urlparse(base).netloc.lower()
     domain = host[4:] if host.startswith("www.") else host
 
     found: set[str] = set()

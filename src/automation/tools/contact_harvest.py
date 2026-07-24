@@ -70,9 +70,7 @@ def is_valid_email(email: str, site_domain: str = "") -> bool:
     local, _, dom = email.partition("@")
     if not local or local in _JUNK_LOCALPARTS:
         return False
-    if dom in _JUNK_DOMAINS:
-        return False
-    if any(dom.endswith("." + d) or dom == d for d in _JUNK_DOMAINS):
+    if any(dom == d or dom.endswith("." + d) for d in _JUNK_DOMAINS):
         return False
     # Reject obvious asset hashes: very long hex local parts.
     if len(local) > 40:

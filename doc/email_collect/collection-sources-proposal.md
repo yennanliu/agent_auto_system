@@ -34,7 +34,7 @@ Output → leads table + `GET /api/runs/{id}/leads.csv` (BOM-encoded for Excel/C
 Today there is exactly **one source: Google Maps → the business's own website.**
 It's a strong ICP-fit source, but it structurally misses:
 
-- Every business whose Maps "website" is Facebook / IG / Linktree — the page is still fetched and any *published* email harvested, but on these shared hosts `_is_shared_host` (backed by `_NO_GUESS_DOMAINS`) suppresses the `info@` fallback guess, and a JS/login-walled social page almost never exposes an email to the plain `urllib` fetch — so in practice these yield **nothing**.
+- *(Historical baseline — see the status update below; Facebook and X are now mined.)* Every business whose Maps "website" is Facebook / IG / Linktree — the page is still fetched and any *published* email harvested, but on these shared hosts `_is_shared_host` (backed by `_NO_GUESS_DOMAINS`) suppresses the `info@` fallback guess, and a JS/login-walled social page rarely exposes an email to the plain `urllib` fetch — so with the Maps-only funnel these yielded **nothing**.
 - Every business not on Maps, or not near the searched region.
 - It over-produces low-confidence guessed `info@` addresses.
 
@@ -52,26 +52,28 @@ matching the project's stated philosophy of not buying from paid databases.
 
 | Idea | Why | Effort |
 |---|---|---|
-| **Facebook / IG "About" block extractor** | Biggest gap. Many TW SMEs use a FB page *as* their website; the About / 聯絡資訊 block often lists email + phone openly. Already flagged "next" in the README. | Medium |
+| **Facebook / IG "About" block extractor** | Biggest gap. Many TW SMEs use a FB page *as* their website; the About / 聯絡資訊 block often lists email + phone openly. **Facebook is now implemented** (`facebook_contact_tool.py`); IG is next. | Medium |
 | **Google Maps profile contact field** | Scrape any contact info Maps surfaces on the listing itself before falling through to website extraction. | Low |
 
 ### Tier 2 — New public directories (high fit for TW SMEs)
 
 | Idea | Why | Effort |
 |---|---|---|
-| **政府 / 法人登記資料** (經濟部商業司, 台灣公司網) | Verified company identity (統一編號, registered name, address); pair with domain-guessing for higher-confidence `contact@`. | Medium |
+| **政府 / 法人登記資料** (經濟部商業司, 台灣公司網) | Verified company identity (統一編號, registered name, address); pair with domain-guessing to produce a low-confidence `contact@` *candidate* that still needs independent MX/SMTP verification before it earns higher confidence. | Medium |
 | **Chambers of commerce & industry associations** (工商協進會, 中小企業總會, sector guilds) | Frequently publish member emails openly — *exactly* the ICP. | Medium |
 | **B2B directories** (台灣經貿網 / Taiwantrade, 中華黃頁, 104 / 1111 company pages) | Structured, email-rich, SME-heavy. | Medium |
 | **Government procurement lists** (政府採購網) | Companies bidding on tenders are actively spending and usually list a contact. | Medium |
 
-> **Status update.** The **X (Twitter) profile-bio source** from Tier 1 is now
-> implemented (`x_profile_contact_tool.py`, opt-in via the `include_social`
-> flag). When a business's Maps "website" is an X profile — previously dropped
-> by `_NO_GUESS_DOMAINS` — the funnel now mines the profile bio for a contact
-> email (de-obfuscating `name [at] domain [dot] com` forms), tags the lead
-> `source=x`, and *chases through* to any real website the profile links, running
-> it back through the normal website extractor. Facebook / IG About extractors
-> are next and reuse the shared `contact_harvest.py` harvest/validation helper.
+> **Status update.** The **Facebook Page** and **X (Twitter) profile-bio**
+> sources from Tier 1 are now implemented (`facebook_contact_tool.py`,
+> `x_profile_contact_tool.py`, opt-in via the `include_social` flag). When a
+> business's Maps "website" is a Facebook Page or X profile — previously dropped
+> by `_NO_GUESS_DOMAINS` — the funnel now mines it for a contact email
+> (de-obfuscating `name [at] domain [dot] com` forms), tags the lead
+> `source=facebook` / `source=x`, and *chases through* to any real website it
+> links, running that back through the normal website extractor. Both reuse the
+> shared `contact_harvest.py` harvest/validation helper. Instagram About
+> extraction is next.
 
 ### Tier 3 — Smarter extraction on sources we already hit
 

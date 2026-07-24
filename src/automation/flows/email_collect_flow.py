@@ -152,9 +152,13 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
                       website, emails, source) -> None:
         """Verify each email and append a lead row, deduped across businesses."""
         for email in emails:
-            if email in seen_emails:
+            # Normalize the dedupe key to match verify_email (strip + lowercase),
+            # so the same address in different casing from two sources — e.g. a
+            # guessed info@Acme.com vs a published info@acme.com — dedupes to one lead.
+            key = email.strip().lower()
+            if key in seen_emails:
                 continue
-            seen_emails.add(email)
+            seen_emails.add(key)
             v = verify_email(email, smtp_check=self.state.smtp_check)
             if v["confidence"] == "invalid":
                 continue
