@@ -64,6 +64,15 @@ matching the project's stated philosophy of not buying from paid databases.
 | **B2B directories** (台灣經貿網 / Taiwantrade, 中華黃頁, 104 / 1111 company pages) | Structured, email-rich, SME-heavy. | Medium |
 | **Government procurement lists** (政府採購網) | Companies bidding on tenders are actively spending and usually list a contact. | Medium |
 
+> **Status update.** The **X (Twitter) profile-bio source** from Tier 1 is now
+> implemented (`x_profile_contact_tool.py`, opt-in via the `include_social`
+> flag). When a business's Maps "website" is an X profile — previously dropped
+> by `_NO_GUESS_DOMAINS` — the funnel now mines the profile bio for a contact
+> email (de-obfuscating `name [at] domain [dot] com` forms), tags the lead
+> `source=x`, and *chases through* to any real website the profile links, running
+> it back through the normal website extractor. Facebook / IG About extractors
+> are next and reuse the shared `contact_harvest.py` harvest/validation helper.
+
 ### Tier 3 — Smarter extraction on sources we already hit
 
 | Idea | Why | Effort |
