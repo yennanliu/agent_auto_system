@@ -24,6 +24,10 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation.tools.contact_harvest import _EMAIL_RE
+from src.automation.tools.contact_harvest import is_valid_email as _is_valid
+from src.automation.tools.contact_harvest import rank_emails as _rank
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -35,8 +39,6 @@ _MAX_BYTES = 3 * 1024 * 1024
 # public HTML (no credentials sent), so skip verification to avoid losing leads.
 _SSL_CTX = ssl._create_unverified_context()
 
-_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
-
 # Common contact-page paths across locales (EU 'impressum' is often where a
 # German site legally must list its email).
 _CANDIDATE_PATHS = [
@@ -44,15 +46,6 @@ _CANDIDATE_PATHS = [
     "about", "about-us", "kontakt", "contacto", "impressum", "team", "support",
 ]
 
-# Emails that are never a real contact: analytics/CDN/CMS placeholders and the
-# fake addresses templates ship with.
-_JUNK_DOMAINS = {
-    "sentry.io", "wixpress.com", "example.com", "example.org", "example.net",
-    "domain.com", "email.com", "yourdomain.com", "sentry-next.wixpress.com",
-    "godaddy.com", "schema.org", "w3.org", "googleapis.com", "gstatic.com",
-    "cloudflare.com", "wordpress.com", "wix.com", "squarespace.com",
-}
-_JUNK_LOCALPARTS = {"you", "your", "name", "email", "user", "username", "example"}
 # Shared platforms where a business's Maps "website" often points: guessing
 # info@<here> is nonsense (info@facebook.com is not the shop's inbox), so we skip
 # the role-address fallback when the site itself lives on one of these hosts.
@@ -62,11 +55,6 @@ _NO_GUESS_DOMAINS = {
     "whatsapp.com", "google.com", "business.site", "shopee.tw", "yelp.com",
     "wixsite.com", "blogspot.com", "pinterest.com", "threads.net",
 }
-_IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico")
-_ROLE_LOCALPARTS = (
-    "info", "contact", "hello", "sales", "office", "enquiries", "enquiry",
-    "inquiries", "admin", "support", "hi", "team", "mail", "business",
-)
 
 
 class EmailExtractInput(BaseModel):
@@ -94,7 +82,7 @@ def extract_emails(website: str, log=None) -> dict:
     if not base:
         return {"website": website, "emails": [], "pages_scanned": 0, "guessed": False}
 
-    host = urllib.parse.urlparse(base).netloc
+    host = urllib.parse.urlparse(base).netloc.lower()
     domain = host[4:] if host.startswith("www.") else host
 
     found: set[str] = set()
@@ -187,31 +175,3 @@ def _harvest(html: str) -> set[str]:
     # Then anything email-shaped in the raw HTML/text.
     emails.update(_EMAIL_RE.findall(html))
     return emails
-
-
-def _is_valid(email: str, site_domain: str) -> bool:
-    email = email.strip().lower()
-    if email.endswith(_IMG_EXT):
-        return False
-    if "@" not in email or email.count("@") != 1:
-        return False
-    local, _, dom = email.partition("@")
-    if not local or local in _JUNK_LOCALPARTS:
-        return False
-    if dom in _JUNK_DOMAINS:
-        return False
-    if any(dom.endswith("." + d) or dom == d for d in _JUNK_DOMAINS):
-        return False
-    # Reject obvious asset hashes: very long hex local parts.
-    if len(local) > 40:
-        return False
-    return True
-
-
-def _rank(emails: set[str]) -> list[str]:
-    """Role addresses first, then alphabetical for stable output."""
-    def key(e: str):
-        local = e.split("@", 1)[0]
-        is_role = any(local == r or local.startswith(r) for r in _ROLE_LOCALPARTS)
-        return (0 if is_role else 1, e)
-    return sorted(emails, key=key)

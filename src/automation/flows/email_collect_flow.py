@@ -7,9 +7,15 @@ from src.automation.crews.email_collect_crew.crew import EmailCollectCrew
 from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
+from src.automation.tools.contact_harvest import social_platform
 from src.automation.tools.email_extract_tool import extract_emails
 from src.automation.tools.email_verify_tool import verify_email
+from src.automation.tools.facebook_contact_tool import fetch_facebook_contact
 from src.automation.tools.maps_search_tool import search_maps
+from src.automation.tools.x_profile_contact_tool import fetch_x_profile_contact
+
+# Social "websites" we can mine for a contact instead of scraping HTML.
+_SOCIAL_SOURCES = ("facebook", "x")
 
 # The LLM qualifier is the expensive stage — cap how many leads we send it.
 _MAX_QUALIFY = 30
@@ -26,6 +32,7 @@ class EmailCollectState(BaseModel):
     offer: str = ""              # what you're pitching (drives qualification)
     limit: int = 15              # businesses to discover
     smtp_check: bool = True      # run the SMTP RCPT probe during verification
+    include_social: bool = False # also mine social profiles (X) for contacts
     run_id: int = 0
     usage: dict = {}
     llm_provider: str = ""
@@ -71,30 +78,23 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             if not website:
                 continue
             with_website += 1
+            prefix = f"[{i}/{len(businesses)}]"
+
+            # A social profile as the "website" is a dead end for the plain
+            # scraper (login-walled, JS-rendered) — route it to a dedicated
+            # extractor and chase through to any real site it links out to.
+            platform = social_platform(website) if self.state.include_social else None
+            if platform in _SOCIAL_SOURCES:
+                self._mine_social(platform, prefix, biz, rid, website,
+                                  leads, seen_emails)
+                continue
+
             append_log(self.state.run_id,
-                       f"[{i}/{len(businesses)}] Extracting email from {website}")
+                       f"{prefix} Extracting email from {website}")
             ext = extract_emails(website, log=lambda m: append_log(self.state.run_id, m))
-            for email in ext.get("emails", []):
-                if email in seen_emails:
-                    continue
-                seen_emails.add(email)
-                v = verify_email(email, smtp_check=self.state.smtp_check)
-                if v["confidence"] == "invalid":
-                    continue
-                leads.append({
-                    "company":  biz.get("name", ""),
-                    "email":    email,
-                    "website":  website,
-                    "category": biz.get("category", ""),
-                    "phone":    biz.get("phone", ""),
-                    "address":  biz.get("address", ""),
-                    "region":   rid,
-                    "maps_url": biz.get("maps_url", ""),
-                    "source":   "guessed" if ext.get("guessed") else "website",
-                    "confidence":  v["confidence"],
-                    "mx_found":    v["mx_found"],
-                    "smtp_status": v["smtp_status"],
-                })
+            self._append_leads(
+                leads, seen_emails, biz, rid, website, ext.get("emails", []),
+                source="guessed" if ext.get("guessed") else "website")
 
         leads.sort(key=lambda x: _CONF_RANK.get(x["confidence"], 9))
         append_log(self.state.run_id,
@@ -125,6 +125,57 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             result["warnings"] = warnings
         append_log(self.state.run_id, "Lead collection complete, formatting result...")
         return json.dumps(result, ensure_ascii=False)
+
+    def _mine_social(self, platform, prefix, biz, region, website,
+                     leads, seen_emails) -> None:
+        """Mine a social 'website' for contacts, then chase through to any real
+        site it links. Shared by the X and Facebook sources."""
+        label = {"x": "X profile", "facebook": "Facebook Page"}[platform]
+        fetch = {"x": fetch_x_profile_contact,
+                 "facebook": fetch_facebook_contact}[platform]
+        append_log(self.state.run_id, f"{prefix} Mining {label} {website}")
+        prof = fetch(website, log=lambda m: append_log(self.state.run_id, m))
+        self._append_leads(leads, seen_emails, biz, region, website,
+                           prof.get("emails", []), source=platform)
+
+        linked = prof.get("website", "")
+        if linked and not social_platform(linked):
+            append_log(self.state.run_id,
+                       f"{prefix} Following {label}-linked site {linked}")
+            ext = extract_emails(linked,
+                                 log=lambda m: append_log(self.state.run_id, m))
+            self._append_leads(
+                leads, seen_emails, biz, region, linked, ext.get("emails", []),
+                source="guessed" if ext.get("guessed") else "website")
+
+    def _append_leads(self, leads, seen_emails, biz, region,
+                      website, emails, source) -> None:
+        """Verify each email and append a lead row, deduped across businesses."""
+        for email in emails:
+            # Normalize the dedupe key to match verify_email (strip + lowercase),
+            # so the same address in different casing from two sources — e.g. a
+            # guessed info@Acme.com vs a published info@acme.com — dedupes to one lead.
+            key = email.strip().lower()
+            if key in seen_emails:
+                continue
+            seen_emails.add(key)
+            v = verify_email(email, smtp_check=self.state.smtp_check)
+            if v["confidence"] == "invalid":
+                continue
+            leads.append({
+                "company":  biz.get("name", ""),
+                "email":    email,
+                "website":  website,
+                "category": biz.get("category", ""),
+                "phone":    biz.get("phone", ""),
+                "address":  biz.get("address", ""),
+                "region":   region,
+                "maps_url": biz.get("maps_url", ""),
+                "source":   source,
+                "confidence":  v["confidence"],
+                "mx_found":    v["mx_found"],
+                "smtp_status": v["smtp_status"],
+            })
 
     def _qualify(self, leads: list[dict], offer: str) -> None:
         """Merge LLM-generated icp_fit / reason / hook into `leads` in place.
