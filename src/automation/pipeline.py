@@ -3,20 +3,44 @@ import re
 
 from src.automation.progress import append_log
 
+# {{steps.N.result}} | {{steps.N.result.field}} | {{steps.N.result.field[].subfield}}
+# The last form flattens a list-of-dicts field into a comma-joined string of one
+# subfield — e.g. email_collect's `leads[].email` → "a@x.com,b@y.com" — so it can
+# feed a later step's scalar input (email_sender's `to`). `field[]` (no subfield)
+# joins the raw list items instead.
+# A `.subfield` is only meaningful in the list-flatten branch, so it is gated
+# behind `[]`: `.field.subfield` (no brackets) is not a supported token and is
+# left literal rather than silently returning the stringified list.
+_TOKEN_RE = re.compile(
+    r'\{\{steps\.(\d+)\.result'
+    r'(?:\.([a-zA-Z_]\w*)(?:(\[\])(?:\.([a-zA-Z_]\w*))?)?)?\}\}'
+)
+
 
 def _interpolate(payload: dict, results: list) -> dict:
-    """Substitute {{steps.N.result}} and {{steps.N.result.field}} in payload string values."""
+    """Substitute {{steps.N.result[...]}} tokens in payload string values."""
     def _sub(value: str) -> str:
         def replacer(m):
             idx = int(m.group(1))
-            field = m.group(2)
+            field, is_list, subfield = m.group(2), m.group(3), m.group(4)
             if idx >= len(results):
                 return m.group(0)
             r = results[idx]
-            if field:
-                return str(r.get(field, '') if isinstance(r, dict) else '')
-            return json.dumps(r) if isinstance(r, dict) else str(r)
-        return re.sub(r'\{\{steps\.(\d+)\.result(?:\.([a-zA-Z_]\w*))?\}\}', replacer, value)
+            if not field:
+                return json.dumps(r) if isinstance(r, dict) else str(r)
+            val = r.get(field, '') if isinstance(r, dict) else ''
+            if not is_list:
+                return str(val)
+            # list-flatten: pull `subfield` from each item (or the item itself),
+            # drop empties, comma-join.
+            items = val if isinstance(val, list) else []
+            out = []
+            for it in items:
+                v = it.get(subfield) if (subfield and isinstance(it, dict)) else it
+                if v not in (None, ''):
+                    out.append(str(v))
+            return ','.join(out)
+        return _TOKEN_RE.sub(replacer, value)
 
     def _walk(obj):
         if isinstance(obj, str):
@@ -52,7 +76,8 @@ async def execute_pipeline(
         step_payload = _interpolate(dict(step.get("payload", {})), results)
 
         append_log(run_id, f"[Step {i + 1}/{n}] Starting {step_type}...")
-        result, usage = await _run_flow(
+        # _run_flow returns (result, usage, serve); the pipeline ignores serve.
+        result, usage, _serve = await _run_flow(
             run_id, step_type, step_payload, effective_provider, effective_model
         )
         total_usage["prompt_tokens"]     += usage.get("prompt_tokens", 0)
