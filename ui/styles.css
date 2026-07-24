@@ -582,7 +582,11 @@ input[type="checkbox"] {
 /* ── Pipeline builder ── */
 .chip-pipeline { background: var(--accent-soft); color: var(--accent); }
 .modal-wide { max-width: 600px !important; }
-#fields-pipeline { max-height: 52vh; overflow-y: auto; padding-right: 0.15rem; }
+/* No inner scroll/height cap: an overflow flex-item resolves min-height:auto to
+   0 and gets shrunk away when the modal is short (e.g. zoomed in), hiding the
+   steps. Let the single #run-form scroll region handle overflow instead; the
+   sticky action bar keeps "Run" reachable. */
+#fields-pipeline { padding-right: 0.15rem; }
 .pipeline-step-card {
   border: 1px solid var(--border); border-radius: var(--radius);
   margin-bottom: 0.5rem; background: var(--surface); overflow: hidden;
