@@ -180,12 +180,15 @@ tr.row-highlight { animation: rowGlow 2s ease-out forwards; }
 @keyframes badgePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
 /* ── Row action buttons ── */
-.btn-rerun, .btn-delete {
+.btn-rerun, .btn-delete, .btn-abort {
   background: none; border: 1px solid var(--border); border-radius: 999px;
   color: var(--text-muted); padding: 0.22rem 0.6rem; font-size: 0.82rem;
   cursor: pointer; transition: border-color 0.2s ease, color 0.2s ease;
 }
 .btn-rerun:hover          { border-color: var(--accent); color: var(--accent); }
+.btn-abort                { color: var(--red); border-color: var(--red-soft); }
+.btn-abort:hover:not(:disabled) { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+.btn-abort:disabled       { opacity: 0.5; cursor: wait; }
 .btn-retry                { color: var(--red) !important; border-color: var(--red-soft) !important; font-size: 0.72rem !important; }
 .btn-retry:hover          { border-color: var(--red) !important; }
 .btn-delete:hover:not(:disabled) { border-color: var(--red); color: var(--red); }

@@ -2021,6 +2021,30 @@ async function deleteRun(runId) {
   }
 }
 
+// ── Abort a running run ───────────────────────────────────────────────────────
+
+async function abortRun(runId, btn) {
+  const run = cachedRuns.find(r => r.id === runId);
+  if (run && run.status !== 'pending' && run.status !== 'running') {
+    showToast('Run is no longer active', 'error');
+    return;
+  }
+  const ok = await confirmDialog('Abort Run', `Force-cancel run #${runId}? The automation stops immediately and is marked failed.`);
+  if (!ok) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Aborting…'; }
+  try {
+    const resp = await fetch(`/api/runs/${runId}/cancel`, { method: 'POST' });
+    if (resp.status === 409) { showToast('Run is no longer active', 'error'); await loadHistory(); return; }
+    if (!resp.ok) throw new Error('Abort failed');
+    const { cancelled } = await resp.json();
+    showToast(cancelled ? `Run #${runId} aborted` : `Run #${runId} was already finishing`, 'success');
+    await loadHistory();
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '⨯ Abort'; }
+    showToast(err.message, 'error');
+  }
+}
+
 // ── Bulk delete ───────────────────────────────────────────────────────────────
 
 document.getElementById('delete-selected-btn').addEventListener('click', async () => {
@@ -2138,6 +2162,7 @@ document.getElementById('history-tbody').addEventListener('click', (e) => {
       case 'tab':    switchTab(runId, tab); return;
       case 'rerun':  rerun(jobId);          return;
       case 'delete': deleteRun(runId);      return;
+      case 'abort':  abortRun(runId, actionEl); return;
       case 'copy':   copyResult(runId);     return;
     }
     return;
@@ -2402,7 +2427,9 @@ function renderHistory(runs) {
         </td>
         <td style="padding:0.65rem 0.5rem">
           <div class="row-actions">
-            <button class="${rerunCls}" data-action="rerun" data-job-id="${run.job_id}" data-run-id="${run.id}" title="Re-run">${rerunLabel}</button>
+            ${isActive
+              ? `<button class="btn-abort" data-action="abort" data-run-id="${run.id}" title="Abort this running automation">⨯ Abort</button>`
+              : `<button class="${rerunCls}" data-action="rerun" data-job-id="${run.job_id}" data-run-id="${run.id}" title="Re-run">${rerunLabel}</button>`}
             <button class="btn-delete" data-action="delete" data-run-id="${run.id}" ${deleteDis}>🗑</button>
           </div>
         </td>
