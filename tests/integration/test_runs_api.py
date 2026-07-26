@@ -82,6 +82,66 @@ async def test_run_transitions_to_failed(client, seed_job, mocker):
     assert resp.json()["status"] == "failed"
 
 
+# ── Abort / cancel a run ─────────────────────────────────────────────────────────
+
+async def test_cancel_run_marks_failed(client, db_session, seed_job, mocker):
+    run = Run(job_id=seed_job.id, status="running")
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    # Registry has a live task for this run → cancel succeeds.
+    mocker.patch("src.routers.runs.cancel_task", return_value=True)
+
+    resp = await client.post(f"/api/runs/{run.id}/cancel")
+    assert resp.status_code == 200
+    assert resp.json() == {"cancelled": True, "run_id": run.id}
+
+    db_session.refresh(run)
+    assert run.status == "failed"
+    assert json.loads(run.result)["error"] == "Cancelled by user"
+    assert run.finished_at is not None
+
+
+async def test_cancel_run_no_live_task(client, db_session, seed_job, mocker):
+    # Run row says running but the registry has no task (e.g. after restart);
+    # the endpoint reports cancelled=False and leaves the row untouched.
+    run = Run(job_id=seed_job.id, status="running")
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    orig_result, orig_finished = run.result, run.finished_at
+    mocker.patch("src.routers.runs.cancel_task", return_value=False)
+
+    resp = await client.post(f"/api/runs/{run.id}/cancel")
+    assert resp.status_code == 200
+    assert resp.json()["cancelled"] is False
+    db_session.refresh(run)
+    # No live task → the row is left entirely as-is, not just its status.
+    assert run.status == "running"
+    assert run.result == orig_result
+    assert run.finished_at == orig_finished
+
+
+async def test_cancel_run_not_active_conflict(client, db_session, seed_job):
+    run = Run(job_id=seed_job.id, status="success", result=json.dumps({"ok": True}))
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    orig_result, orig_finished = run.result, run.finished_at
+    resp = await client.post(f"/api/runs/{run.id}/cancel")
+    assert resp.status_code == 409
+    # 409 rejects before any mutation — result/finished_at untouched.
+    db_session.refresh(run)
+    assert run.status == "success"
+    assert run.result == orig_result
+    assert run.finished_at == orig_finished
+
+
+async def test_cancel_run_not_found(client):
+    resp = await client.post("/api/runs/9999/cancel")
+    assert resp.status_code == 404
+
+
 async def test_sse_stream_returns_event_stream(client, db_session, seed_job):
     # Seed a completed run so the generator exits immediately
     run = Run(job_id=seed_job.id, status="success", result=json.dumps({"submitted": True}))
