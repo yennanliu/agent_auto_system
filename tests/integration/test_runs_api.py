@@ -109,13 +109,17 @@ async def test_cancel_run_no_live_task(client, db_session, seed_job, mocker):
     db_session.add(run)
     db_session.commit()
     db_session.refresh(run)
+    orig_result, orig_finished = run.result, run.finished_at
     mocker.patch("src.routers.runs.cancel_task", return_value=False)
 
     resp = await client.post(f"/api/runs/{run.id}/cancel")
     assert resp.status_code == 200
     assert resp.json()["cancelled"] is False
     db_session.refresh(run)
-    assert run.status == "running"  # unchanged
+    # No live task → the row is left entirely as-is, not just its status.
+    assert run.status == "running"
+    assert run.result == orig_result
+    assert run.finished_at == orig_finished
 
 
 async def test_cancel_run_not_active_conflict(client, db_session, seed_job):
@@ -123,8 +127,14 @@ async def test_cancel_run_not_active_conflict(client, db_session, seed_job):
     db_session.add(run)
     db_session.commit()
     db_session.refresh(run)
+    orig_result, orig_finished = run.result, run.finished_at
     resp = await client.post(f"/api/runs/{run.id}/cancel")
     assert resp.status_code == 409
+    # 409 rejects before any mutation — result/finished_at untouched.
+    db_session.refresh(run)
+    assert run.status == "success"
+    assert run.result == orig_result
+    assert run.finished_at == orig_finished
 
 
 async def test_cancel_run_not_found(client):
