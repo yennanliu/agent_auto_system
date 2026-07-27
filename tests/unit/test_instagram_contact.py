@@ -67,6 +67,36 @@ def test_parse_profile_html_drops_social_external_url():
     assert r["website"] == ""     # a social/linktree link is not a real site
 
 
+def test_meta_description_bio_fallback_when_no_biography_json():
+    """With no `biography` JSON, the bio (and its email) come from the meta tag."""
+    from src.automation.tools.instagram_contact_tool import _parse_profile_html
+    html = ('<meta property="og:description" '
+            'content="Acme Studio — bookings hello@acme.tw">')
+    r = _parse_profile_html(html)
+    assert r["bio"].startswith("Acme Studio")
+    assert "hello@acme.tw" in r["emails"]   # harvested from the meta fallback
+
+
+def test_meta_description_direct():
+    from src.automation.tools.instagram_contact_tool import _meta_description
+    assert _meta_description('<meta name="description" content="hi there">') == "hi there"
+    assert _meta_description(
+        '<meta property="og:description" content="og bio">') == "og bio"
+    assert _meta_description("<html>no meta tag here</html>") == ""
+
+
+def test_website_from_hrefs_decodes_and_skips_social():
+    """The Playwright header links the external site via an l.instagram wrapper."""
+    from src.automation.tools.instagram_contact_tool import _website_from_hrefs
+    hrefs = [
+        "https://l.instagram.com/?u=https%3A%2F%2Finstagram.com%2Fother&e=1",  # social → skip
+        "https://l.instagram.com/?u=https%3A%2F%2Facme.com.tw%2F&e=2",
+    ]
+    assert _website_from_hrefs(hrefs) == "https://acme.com.tw/"
+    assert _website_from_hrefs([]) == ""
+    assert _website_from_hrefs(["https://example.com"]) == ""  # not a wrapper href
+
+
 # ── fetch_instagram_contact orchestration (network mocked) ──────────────────
 
 def test_fetch_instagram_static_success(mocker):
