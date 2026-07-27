@@ -91,6 +91,38 @@ def test_flow_passes_cc_when_provided(mocker):
     assert call_kwargs.kwargs.get("cc") == "cc@x.com"
 
 
+def test_flow_passes_bcc_when_provided(mocker):
+    mock_tool = _make_send_mock()
+    mocker.patch("src.automation.flows.email_sender_flow.GmailSendTool", return_value=mock_tool)
+
+    from src.automation.flows.email_sender_flow import EmailSenderFlow
+    EmailSenderFlow().kickoff(inputs={
+        "to": "r@x.com", "subject": "S", "body": "B",
+        "bcc": "a@x.com,b@x.com",
+    })
+
+    assert mock_tool._run.call_args.kwargs.get("bcc") == "a@x.com,b@x.com"
+
+
+def test_tool_bcc_in_envelope_not_headers(mocker):
+    """BCC must reach the SMTP envelope but never appear in the message headers."""
+    from src.automation.tools.gmail_send_tool import GmailSendTool
+    mocker.patch.dict("os.environ",
+                      {"GMAIL_ADDRESS": "me@gmail.com", "GMAIL_APP_PASSWORD": "x"})
+    smtp = MagicMock()
+    ctx = mocker.patch("smtplib.SMTP")
+    ctx.return_value.__enter__.return_value = smtp
+
+    out = GmailSendTool()._run(to="me@gmail.com", subject="S", body="B",
+                               bcc="hidden1@x.com,hidden2@x.com")
+
+    assert out["sent"] is True and out["bcc_count"] == 2
+    envelope_recipients = smtp.sendmail.call_args.args[1]
+    assert "hidden1@x.com" in envelope_recipients and "hidden2@x.com" in envelope_recipients
+    raw_message = smtp.sendmail.call_args.args[2]
+    assert "hidden1@x.com" not in raw_message  # blind: not in headers/body
+
+
 def test_flow_result_is_json_string(mocker):
     mock_tool = _make_send_mock(sent=True)
     mocker.patch("src.automation.flows.email_sender_flow.GmailSendTool", return_value=mock_tool)
