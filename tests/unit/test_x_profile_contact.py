@@ -184,7 +184,7 @@ def test_flow_routes_x_website_to_profile_tool(mocker):
     })
 
     prof.assert_called_once()                    # X profile mined
-    ext.assert_called_once_with("https://acmestudio.tw", log=mocker.ANY)  # chase-through
+    ext.assert_called_once_with("https://acmestudio.tw", log=mocker.ANY, render=mocker.ANY)  # chase-through
     import json
     data = json.loads(result)
     sources = {lead["source"] for lead in data["leads"]}

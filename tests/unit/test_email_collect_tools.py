@@ -36,7 +36,7 @@ def test_harvest_decodes_obfuscated_and_cloudflare():
     plain = "hi@acme.com"
     key = 0x7a
     blob = bytes([key] + [ord(ch) ^ key for ch in plain]).hex()
-    assert f"hi@acme.com" in decode_cfemail(f'<a data-cfemail="{blob}">[email protected]</a>')
+    assert "hi@acme.com" in decode_cfemail(f'<a data-cfemail="{blob}">[email protected]</a>')
 
 
 def test_widget_and_placeholder_domains_are_junk():
