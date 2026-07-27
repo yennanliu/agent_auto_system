@@ -68,6 +68,26 @@ def test_single_role_guess_on_real_domain(mocker):
     assert r["emails"] == ["info@acme.com"]
 
 
+def test_render_fallback_recovers_when_static_empty(mocker):
+    """render=True: a rendered hit prevents the guess fallback."""
+    from src.automation.tools import email_extract_tool as m
+    mocker.patch.object(m, "_fetch", return_value="<html>no emails here</html>")
+    mocker.patch.object(m, "_render_and_harvest", return_value=({"hello@acme.com"}, 1))
+    r = m.extract_emails("https://acme.com", render=True)
+    assert r["guessed"] is False
+    assert r["emails"] == ["hello@acme.com"]
+
+
+def test_render_not_invoked_without_flag(mocker):
+    """render defaults off — the browser path must never fire for the tool/tests."""
+    from src.automation.tools import email_extract_tool as m
+    mocker.patch.object(m, "_fetch", return_value="<html>no emails here</html>")
+    spy = mocker.patch.object(m, "_render_and_harvest")
+    r = m.extract_emails("https://acme.com")
+    spy.assert_not_called()
+    assert r["guessed"] is True
+
+
 # ── email_verify: layered confidence ────────────────────────────────────────────
 
 def test_verify_rejects_bad_syntax():

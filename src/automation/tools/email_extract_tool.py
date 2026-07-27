@@ -77,8 +77,16 @@ class WebEmailExtractTool(BaseTool):
         return extract_emails(website)
 
 
-def extract_emails(website: str, log=None) -> dict:
-    """Return {"website", "emails": [...], "pages_scanned", "guessed"}."""
+def extract_emails(website: str, log=None, render: bool = False) -> dict:
+    """Return {"website", "emails": [...], "pages_scanned", "guessed"}.
+
+    When `render` is set and the cheap static (urllib) pass finds nothing, retry
+    with a headless browser before falling back to a guess: most JS-heavy SMB
+    sites (Wix/Squarespace/SPAs) never put their email in the raw HTML, so the
+    static scraper would otherwise guess `info@<domain>` on a site that actually
+    publishes a real address. The browser is the expensive path, so it fires
+    only on an otherwise-empty result.
+    """
     _log = log or (lambda _m: None)
     base = _normalize(website)
     if not base:
@@ -107,6 +115,12 @@ def extract_emails(website: str, log=None) -> dict:
             if _is_valid(em, domain):
                 found.add(em.lower())
 
+    # JS fallback — only now that the static pass came up empty.
+    if not found and render and domain and not _is_shared_host(domain):
+        rendered, r_pages = _render_and_harvest(base, domain, _log)
+        found |= rendered
+        pages_scanned += r_pages
+
     guessed = False
     if not found and domain and not _is_shared_host(domain):
         found.add(f"info@{domain}")  # single best-guess role address
@@ -119,6 +133,73 @@ def extract_emails(website: str, log=None) -> dict:
         "pages_scanned": pages_scanned,
         "guessed": guessed,
     }
+
+
+# The browser is the slow path — two loads (homepage + one contact page) catch
+# the overwhelming majority, so cap rendered pages low.
+_MAX_RENDERED = 3
+
+
+def _render_and_harvest(base: str, domain: str, log) -> tuple[set[str], int]:
+    """Load the site in a headless browser (JS executed) and harvest emails.
+
+    Reuses one browser to render the homepage, then — if still nothing — the
+    contact links it discovers (including Chinese-labelled ones). Best-effort:
+    a missing Playwright, nav timeout, or crash just returns what we have.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:  # noqa: BLE001 — playwright not installed → skip render
+        return set(), 0
+
+    found: set[str] = set()
+    scanned = 0
+    log(f"Static scrape found nothing on {domain}; rendering with browser...")
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            try:
+                page = browser.new_context(
+                    user_agent=_HEADERS["User-Agent"]
+                ).new_page()
+
+                def render(url: str) -> str | None:
+                    try:
+                        page.goto(url, wait_until="networkidle", timeout=20000)
+                        return page.content()
+                    except Exception:  # noqa: BLE001 — nav timeout / crash
+                        return None
+
+                def harvest_into(html: str) -> None:
+                    for em in _harvest(html):
+                        if _is_valid(em, domain):
+                            found.add(em.lower())
+
+                home = render(base)
+                if home:
+                    scanned += 1
+                    harvest_into(home)
+                    for url in ([] if found else _discover_contact_links(base, home)):
+                        if scanned >= _MAX_RENDERED:
+                            break
+                        html = render(url)
+                        if not html:
+                            continue
+                        scanned += 1
+                        harvest_into(html)
+                        if found:
+                            break
+            finally:
+                browser.close()
+    except Exception:  # noqa: BLE001 — launch failure → fall through to guess
+        return found, scanned
+
+    if found:
+        log(f"Browser render recovered {len(found)} email(s) on {domain}")
+    return found, scanned
 
 
 def _is_shared_host(domain: str) -> bool:

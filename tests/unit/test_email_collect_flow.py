@@ -25,7 +25,7 @@ def _patch_funnel(mocker, businesses, emails_by_site, verify_conf="medium"):
     mocker.patch(f"{lc}.search_maps", return_value={"businesses": businesses, "warnings": []})
     mocker.patch(
         f"{lc}.extract_emails",
-        side_effect=lambda site, log=None: {"emails": emails_by_site.get(site, []), "guessed": False},
+        side_effect=lambda site, log=None, render=False: {"emails": emails_by_site.get(site, []), "guessed": False},
     )
     mocker.patch(
         f"{lc}.verify_email",
