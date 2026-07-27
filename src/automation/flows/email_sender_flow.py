@@ -13,6 +13,7 @@ class EmailSenderState(BaseModel):
     subject: str = ""
     body: str = ""
     cc: str = ""
+    bcc: str = ""
     run_id: int = 0
     usage: dict = {}
     llm_provider: str = ""
@@ -25,8 +26,10 @@ class EmailSenderFlow(FlowMixin, Flow[EmailSenderState]):
     @start()
     def validate_payload(self):
         self._check_required("to", "subject", "body")
-        recipients = [e.strip() for e in self.state.to.split(",") if e.strip()]
-        append_log(self.state.run_id, f"Sending to {len(recipients)} recipient(s): {self.state.to}")
+        to_n = len([e for e in self.state.to.split(",") if e.strip()])
+        bcc_n = len([e for e in self.state.bcc.split(",") if e.strip()])
+        append_log(self.state.run_id,
+                   f"Sending to {to_n} To + {bcc_n} Bcc recipient(s)")
         return self.state.model_dump()
 
     @listen(validate_payload)
@@ -38,6 +41,7 @@ class EmailSenderFlow(FlowMixin, Flow[EmailSenderState]):
             subject=self.state.subject,
             body=self.state.body,
             cc=self.state.cc or None,
+            bcc=self.state.bcc or None,
         )
         if isinstance(result, dict) and result.get("sent"):
             append_log(self.state.run_id, f"Email sent successfully to {self.state.to}")

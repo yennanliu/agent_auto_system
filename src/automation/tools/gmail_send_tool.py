@@ -28,6 +28,7 @@ class SendEmailInput(BaseModel):
     subject: str = Field(description="Email subject line")
     body: str = Field(description="HTML or plain-text email body")
     cc: str | None = Field(default=None, description="CC recipients, comma-separated")
+    bcc: str | None = Field(default=None, description="BCC recipients, comma-separated")
 
 
 class GmailSendTool(BaseTool):
@@ -45,6 +46,7 @@ class GmailSendTool(BaseTool):
         subject: str,
         body: str,
         cc: str | None = None,
+        bcc: str | None = None,
     ) -> dict:
         gmail_address = os.environ.get("GMAIL_ADDRESS", "").strip()
         app_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
@@ -61,12 +63,16 @@ class GmailSendTool(BaseTool):
         msg["Subject"] = subject
         if cc:
             msg["Cc"] = cc
+        # NB: Bcc is deliberately NOT written to the headers — that's what makes
+        # it blind. The addresses only go into the SMTP envelope below, so no
+        # recipient sees the others (the point of a BCC blast).
 
         # Attach as HTML if it looks like HTML, otherwise plain text
         mime_type = "html" if "<" in body and ">" in body else "plain"
         msg.attach(MIMEText(body, mime_type))
 
-        recipients = _parse_emails(to) + (_parse_emails(cc) if cc else [])
+        recipients = (_parse_emails(to) + (_parse_emails(cc) if cc else [])
+                      + (_parse_emails(bcc) if bcc else []))
 
         try:
             with smtplib.SMTP(_SMTP_HOST, _SMTP_PORT) as server:
@@ -82,6 +88,7 @@ class GmailSendTool(BaseTool):
             "from": gmail_address,
             "to": to,
             "cc": cc or "",
+            "bcc_count": len(_parse_emails(bcc)) if bcc else 0,
             "subject": subject,
-            "confirmation": f"Email sent successfully to {to}",
+            "confirmation": f"Email sent to {len(recipients)} recipient(s)",
         }
