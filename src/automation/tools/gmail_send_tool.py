@@ -83,12 +83,14 @@ class GmailSendTool(BaseTool):
         except Exception as exc:
             return {"sent": False, "error": f"SMTP error: {exc}"}
 
+        bcc_count = len(_parse_emails(bcc)) if bcc else 0
         return {
             "sent": True,
             "from": gmail_address,
             "to": to,
             "cc": cc or "",
-            "bcc_count": len(_parse_emails(bcc)) if bcc else 0,
+            "bcc_count": bcc_count,
             "subject": subject,
-            "confirmation": f"Email sent to {len(recipients)} recipient(s)",
+            "confirmation": (f"Email sent to {to}"
+                             + (f" plus {bcc_count} bcc recipient(s)" if bcc_count else "")),
         }
