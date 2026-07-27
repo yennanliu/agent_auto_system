@@ -25,6 +25,8 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel
 
 from src.automation.tools.contact_harvest import _EMAIL_RE
+from src.automation.tools.contact_harvest import decode_cfemail as _decode_cfemail
+from src.automation.tools.contact_harvest import deobfuscate_emails as _deobfuscate
 from src.automation.tools.contact_harvest import is_valid_email as _is_valid
 from src.automation.tools.contact_harvest import rank_emails as _rank
 
@@ -147,24 +149,41 @@ def _fetch(url: str) -> str | None:
         return None
 
 
+# href hints (latin) and visible-text hints (incl. Chinese) for a contact/about
+# page. TW SMB sites routinely label the link 聯絡我們 / 關於我們 while the href is
+# an opaque slug, so we must look at the anchor's inner text too.
+_LINK_HREF_HINTS = ("contact", "kontakt", "about", "impressum", "contacto",
+                    "connect", "reach-us", "get-in-touch")
+_LINK_TEXT_HINTS = ("contact", "about", "聯絡", "聯繫", "連絡", "關於",
+                    "關於我們", "聯絡我們", "聯繫我們", "客服", "諮詢")
+
+
 def _discover_contact_links(base: str, html: str | None) -> list[str]:
-    """Pull same-site anchors whose href/text hints at a contact/about page."""
+    """Pull same-site anchors whose href OR link text hints at a contact page."""
     if not html:
         return []
+    base_host = urllib.parse.urlparse(base).netloc
     links: list[str] = []
-    for href in re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.I):
+    # Capture href and the anchor's inner text together so a Chinese label on an
+    # opaque href still gets picked up.
+    for href, text in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                                 html, re.I | re.S):
         low = href.lower()
-        if any(k in low for k in ("contact", "kontakt", "about", "impressum", "contacto")):
-            full = urllib.parse.urljoin(base + "/", href)
-            if urllib.parse.urlparse(full).netloc == urllib.parse.urlparse(base).netloc:
-                links.append(full.split("#")[0])
+        text_plain = re.sub(r"<[^>]+>", "", text)
+        hit = (any(k in low for k in _LINK_HREF_HINTS)
+               or any(k in text_plain for k in _LINK_TEXT_HINTS))
+        if not hit:
+            continue
+        full = urllib.parse.urljoin(base + "/", href)
+        if urllib.parse.urlparse(full).netloc == base_host:
+            links.append(full.split("#")[0])
     # de-dupe, keep order, cap
     out, seen = [], set()
     for link in links:
         if link not in seen:
             seen.add(link)
             out.append(link)
-    return out[:4]
+    return out[:5]
 
 
 def _harvest(html: str) -> set[str]:
@@ -174,4 +193,9 @@ def _harvest(html: str) -> set[str]:
         emails.add(urllib.parse.unquote(m))
     # Then anything email-shaped in the raw HTML/text.
     emails.update(_EMAIL_RE.findall(html))
+    # Obfuscated forms static regex misses: `info [at] domain [dot] com` and
+    # Cloudflare's hex-encoded addresses — both very common on SMB sites and the
+    # difference between a real address and a fallback guess.
+    emails.update(_deobfuscate(html))
+    emails.update(_decode_cfemail(html))
     return emails

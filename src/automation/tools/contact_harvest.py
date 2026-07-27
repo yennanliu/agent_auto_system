@@ -23,6 +23,13 @@ _JUNK_DOMAINS = {
     "domain.com", "email.com", "yourdomain.com", "sentry-next.wixpress.com",
     "godaddy.com", "schema.org", "w3.org", "googleapis.com", "gstatic.com",
     "cloudflare.com", "wordpress.com", "wix.com", "squarespace.com",
+    # Template placeholders the site owner never edited.
+    "website.com", "mysite.com", "yoursite.com", "site.com", "test.com",
+    "company.com", "business.com", "mail.com",
+    # Third-party widgets/aggregators embedded in pages — never the biz's inbox.
+    "inline.app", "surveycake.com", "lin.ee", "line.me", "forms.gle",
+    "bit.ly", "no8.io", "s.no8.io", "typeform.com", "calendly.com",
+    "jotform.com", "hotjar.com", "intercom.io", "zendesk.com",
 }
 _JUNK_LOCALPARTS = {"you", "your", "name", "email", "user", "username", "example"}
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico")
@@ -141,6 +148,29 @@ def harvest_emails_from_text(text: str, site_domain: str = "") -> list[str]:
     found |= deobfuscate_emails(text or "")
     valid = {e for e in found if is_valid_email(e, site_domain)}
     return rank_emails(valid)
+
+
+# Cloudflare "Email Address Obfuscation" hides addresses behind a hex blob that
+# JS decodes client-side — so a static fetch sees no email and we'd fall back to
+# a guess. The scheme is trivial (XOR every byte by the first), so decode it here.
+_CFEMAIL_RE = re.compile(
+    r'(?:data-cfemail="|/cdn-cgi/l/email-protection#)([0-9a-fA-F]{4,})'
+)
+
+
+def decode_cfemail(html: str) -> set[str]:
+    """Decode Cloudflare-obfuscated emails (`data-cfemail` / email-protection#)."""
+    out: set[str] = set()
+    for blob in _CFEMAIL_RE.findall(html or ""):
+        try:
+            raw = bytes.fromhex(blob)
+            key = raw[0]
+            email = "".join(chr(b ^ key) for b in raw[1:])
+        except (ValueError, IndexError):
+            continue
+        if _EMAIL_RE.fullmatch(email):
+            out.add(email.lower())
+    return out
 
 
 def _with_scheme(url: str) -> str:

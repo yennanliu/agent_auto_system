@@ -162,6 +162,12 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             v = verify_email(email, smtp_check=self.state.smtp_check)
             if v["confidence"] == "invalid":
                 continue
+            # A guessed info@<domain> is unproven: MX-present just means the
+            # domain accepts mail, not that this mailbox exists. Don't let it
+            # earn "medium" (the send-worthy tier) on the role-address bonus —
+            # only a real SMTP accept ("high") can lift a guess above "low".
+            if source == "guessed" and v["confidence"] == "medium":
+                v = {**v, "confidence": "low"}
             leads.append({
                 "company":  biz.get("name", ""),
                 "email":    email,

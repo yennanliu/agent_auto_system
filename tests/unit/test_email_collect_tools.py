@@ -27,6 +27,32 @@ def test_harvest_pulls_mailto_and_text():
     assert "owner@shop.com" in got
 
 
+def test_harvest_decodes_obfuscated_and_cloudflare():
+    from src.automation.tools.contact_harvest import decode_cfemail
+    from src.automation.tools.email_extract_tool import _harvest
+    # `info [at] shop [dot] com` textual obfuscation is now recovered.
+    assert "info@shop.com" in _harvest("mail us at info [at] shop [dot] com please")
+    # Cloudflare hex blob for "hi@acme.com" (XOR each byte by the first).
+    plain = "hi@acme.com"
+    key = 0x7a
+    blob = bytes([key] + [ord(ch) ^ key for ch in plain]).hex()
+    assert f"hi@acme.com" in decode_cfemail(f'<a data-cfemail="{blob}">[email protected]</a>')
+
+
+def test_widget_and_placeholder_domains_are_junk():
+    from src.automation.tools.email_extract_tool import _is_valid
+    for bad in ("info@website.com", "info@mysite.com", "support@inline.app",
+                "hi@surveycake.com", "x@bit.ly"):
+        assert not _is_valid(bad, "acme.com"), bad
+
+
+def test_chinese_contact_link_discovered():
+    from src.automation.tools.email_extract_tool import _discover_contact_links
+    html = '<a href="/p/8821">聯絡我們</a><a href="/x">首頁</a>'
+    links = _discover_contact_links("https://clinic.tw", html)
+    assert "https://clinic.tw/p/8821" in links
+
+
 def test_no_guess_on_social_hosts(mocker):
     from src.automation.tools import email_extract_tool as m
     mocker.patch.object(m, "_fetch", return_value="<html>no emails here</html>")
