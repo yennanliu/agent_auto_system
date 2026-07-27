@@ -11,11 +11,12 @@ from src.automation.tools.contact_harvest import social_platform
 from src.automation.tools.email_extract_tool import extract_emails
 from src.automation.tools.email_verify_tool import verify_email
 from src.automation.tools.facebook_contact_tool import fetch_facebook_contact
+from src.automation.tools.instagram_contact_tool import fetch_instagram_contact
 from src.automation.tools.maps_search_tool import search_maps
 from src.automation.tools.x_profile_contact_tool import fetch_x_profile_contact
 
 # Social "websites" we can mine for a contact instead of scraping HTML.
-_SOCIAL_SOURCES = ("facebook", "x")
+_SOCIAL_SOURCES = ("facebook", "x", "instagram")
 
 # The LLM qualifier is the expensive stage — cap how many leads we send it.
 _MAX_QUALIFY = 30
@@ -32,7 +33,7 @@ class EmailCollectState(BaseModel):
     offer: str = ""              # what you're pitching (drives qualification)
     limit: int = 15              # businesses to discover
     smtp_check: bool = True      # run the SMTP RCPT probe during verification
-    include_social: bool = False # also mine social profiles (X) for contacts
+    include_social: bool = False # also mine social profiles (Facebook, X, Instagram)
     render_js: bool = True       # browser-render sites where static scrape finds nothing
     run_id: int = 0
     usage: dict = {}
@@ -132,9 +133,11 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
                      leads, seen_emails) -> None:
         """Mine a social 'website' for contacts, then chase through to any real
         site it links. Shared by the X and Facebook sources."""
-        label = {"x": "X profile", "facebook": "Facebook Page"}[platform]
+        label = {"x": "X profile", "facebook": "Facebook Page",
+                 "instagram": "Instagram profile"}[platform]
         fetch = {"x": fetch_x_profile_contact,
-                 "facebook": fetch_facebook_contact}[platform]
+                 "facebook": fetch_facebook_contact,
+                 "instagram": fetch_instagram_contact}[platform]
         append_log(self.state.run_id, f"{prefix} Mining {label} {website}")
         prof = fetch(website, log=lambda m: append_log(self.state.run_id, m))
         self._append_leads(leads, seen_emails, biz, region, website,
