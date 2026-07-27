@@ -25,6 +25,8 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel
 
 from src.automation.tools.contact_harvest import _EMAIL_RE
+from src.automation.tools.contact_harvest import decode_cfemail as _decode_cfemail
+from src.automation.tools.contact_harvest import deobfuscate_emails as _deobfuscate
 from src.automation.tools.contact_harvest import is_valid_email as _is_valid
 from src.automation.tools.contact_harvest import rank_emails as _rank
 
@@ -75,8 +77,16 @@ class WebEmailExtractTool(BaseTool):
         return extract_emails(website)
 
 
-def extract_emails(website: str, log=None) -> dict:
-    """Return {"website", "emails": [...], "pages_scanned", "guessed"}."""
+def extract_emails(website: str, log=None, render: bool = False) -> dict:
+    """Return {"website", "emails": [...], "pages_scanned", "guessed"}.
+
+    When `render` is set and the cheap static (urllib) pass finds nothing, retry
+    with a headless browser before falling back to a guess: most JS-heavy SMB
+    sites (Wix/Squarespace/SPAs) never put their email in the raw HTML, so the
+    static scraper would otherwise guess `info@<domain>` on a site that actually
+    publishes a real address. The browser is the expensive path, so it fires
+    only on an otherwise-empty result.
+    """
     _log = log or (lambda _m: None)
     base = _normalize(website)
     if not base:
@@ -105,6 +115,12 @@ def extract_emails(website: str, log=None) -> dict:
             if _is_valid(em, domain):
                 found.add(em.lower())
 
+    # JS fallback — only now that the static pass came up empty.
+    if not found and render and domain and not _is_shared_host(domain):
+        rendered, r_pages = _render_and_harvest(base, domain, _log)
+        found |= rendered
+        pages_scanned += r_pages
+
     guessed = False
     if not found and domain and not _is_shared_host(domain):
         found.add(f"info@{domain}")  # single best-guess role address
@@ -117,6 +133,73 @@ def extract_emails(website: str, log=None) -> dict:
         "pages_scanned": pages_scanned,
         "guessed": guessed,
     }
+
+
+# The browser is the slow path — two loads (homepage + one contact page) catch
+# the overwhelming majority, so cap rendered pages low.
+_MAX_RENDERED = 3
+
+
+def _render_and_harvest(base: str, domain: str, log) -> tuple[set[str], int]:
+    """Load the site in a headless browser (JS executed) and harvest emails.
+
+    Reuses one browser to render the homepage, then — if still nothing — the
+    contact links it discovers (including Chinese-labelled ones). Best-effort:
+    a missing Playwright, nav timeout, or crash just returns what we have.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:  # noqa: BLE001 — playwright not installed → skip render
+        return set(), 0
+
+    found: set[str] = set()
+    scanned = 0
+    log(f"Static scrape found nothing on {domain}; rendering with browser...")
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            try:
+                page = browser.new_context(
+                    user_agent=_HEADERS["User-Agent"]
+                ).new_page()
+
+                def render(url: str) -> str | None:
+                    try:
+                        page.goto(url, wait_until="networkidle", timeout=20000)
+                        return page.content()
+                    except Exception:  # noqa: BLE001 — nav timeout / crash
+                        return None
+
+                def harvest_into(html: str) -> None:
+                    for em in _harvest(html):
+                        if _is_valid(em, domain):
+                            found.add(em.lower())
+
+                home = render(base)
+                if home:
+                    scanned += 1
+                    harvest_into(home)
+                    for url in ([] if found else _discover_contact_links(base, home)):
+                        if scanned >= _MAX_RENDERED:
+                            break
+                        html = render(url)
+                        if not html:
+                            continue
+                        scanned += 1
+                        harvest_into(html)
+                        if found:
+                            break
+            finally:
+                browser.close()
+    except Exception:  # noqa: BLE001 — launch failure → fall through to guess
+        return found, scanned
+
+    if found:
+        log(f"Browser render recovered {len(found)} email(s) on {domain}")
+    return found, scanned
 
 
 def _is_shared_host(domain: str) -> bool:
@@ -147,24 +230,41 @@ def _fetch(url: str) -> str | None:
         return None
 
 
+# href hints (latin) and visible-text hints (incl. Chinese) for a contact/about
+# page. TW SMB sites routinely label the link 聯絡我們 / 關於我們 while the href is
+# an opaque slug, so we must look at the anchor's inner text too.
+_LINK_HREF_HINTS = ("contact", "kontakt", "about", "impressum", "contacto",
+                    "connect", "reach-us", "get-in-touch")
+_LINK_TEXT_HINTS = ("contact", "about", "聯絡", "聯繫", "連絡", "關於",
+                    "關於我們", "聯絡我們", "聯繫我們", "客服", "諮詢")
+
+
 def _discover_contact_links(base: str, html: str | None) -> list[str]:
-    """Pull same-site anchors whose href/text hints at a contact/about page."""
+    """Pull same-site anchors whose href OR link text hints at a contact page."""
     if not html:
         return []
+    base_host = urllib.parse.urlparse(base).netloc
     links: list[str] = []
-    for href in re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.I):
+    # Capture href and the anchor's inner text together so a Chinese label on an
+    # opaque href still gets picked up.
+    for href, text in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                                 html, re.I | re.S):
         low = href.lower()
-        if any(k in low for k in ("contact", "kontakt", "about", "impressum", "contacto")):
-            full = urllib.parse.urljoin(base + "/", href)
-            if urllib.parse.urlparse(full).netloc == urllib.parse.urlparse(base).netloc:
-                links.append(full.split("#")[0])
+        text_plain = re.sub(r"<[^>]+>", "", text)
+        hit = (any(k in low for k in _LINK_HREF_HINTS)
+               or any(k in text_plain for k in _LINK_TEXT_HINTS))
+        if not hit:
+            continue
+        full = urllib.parse.urljoin(base + "/", href)
+        if urllib.parse.urlparse(full).netloc == base_host:
+            links.append(full.split("#")[0])
     # de-dupe, keep order, cap
     out, seen = [], set()
     for link in links:
         if link not in seen:
             seen.add(link)
             out.append(link)
-    return out[:4]
+    return out[:5]
 
 
 def _harvest(html: str) -> set[str]:
@@ -174,4 +274,9 @@ def _harvest(html: str) -> set[str]:
         emails.add(urllib.parse.unquote(m))
     # Then anything email-shaped in the raw HTML/text.
     emails.update(_EMAIL_RE.findall(html))
+    # Obfuscated forms static regex misses: `info [at] domain [dot] com` and
+    # Cloudflare's hex-encoded addresses — both very common on SMB sites and the
+    # difference between a real address and a fallback guess.
+    emails.update(_deobfuscate(html))
+    emails.update(_decode_cfemail(html))
     return emails

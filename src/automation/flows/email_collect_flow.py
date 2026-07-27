@@ -33,6 +33,7 @@ class EmailCollectState(BaseModel):
     limit: int = 15              # businesses to discover
     smtp_check: bool = True      # run the SMTP RCPT probe during verification
     include_social: bool = False # also mine social profiles (X) for contacts
+    render_js: bool = True       # browser-render sites where static scrape finds nothing
     run_id: int = 0
     usage: dict = {}
     llm_provider: str = ""
@@ -91,7 +92,8 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
 
             append_log(self.state.run_id,
                        f"{prefix} Extracting email from {website}")
-            ext = extract_emails(website, log=lambda m: append_log(self.state.run_id, m))
+            ext = extract_emails(website, log=lambda m: append_log(self.state.run_id, m),
+                                 render=self.state.render_js)
             self._append_leads(
                 leads, seen_emails, biz, rid, website, ext.get("emails", []),
                 source="guessed" if ext.get("guessed") else "website")
@@ -143,7 +145,8 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             append_log(self.state.run_id,
                        f"{prefix} Following {label}-linked site {linked}")
             ext = extract_emails(linked,
-                                 log=lambda m: append_log(self.state.run_id, m))
+                                 log=lambda m: append_log(self.state.run_id, m),
+                                 render=self.state.render_js)
             self._append_leads(
                 leads, seen_emails, biz, region, linked, ext.get("emails", []),
                 source="guessed" if ext.get("guessed") else "website")
@@ -162,6 +165,12 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             v = verify_email(email, smtp_check=self.state.smtp_check)
             if v["confidence"] == "invalid":
                 continue
+            # A guessed info@<domain> is unproven: MX-present just means the
+            # domain accepts mail, not that this mailbox exists. Don't let it
+            # earn "medium" (the send-worthy tier) on the role-address bonus —
+            # only a real SMTP accept ("high") can lift a guess above "low".
+            if source == "guessed" and v["confidence"] == "medium":
+                v = {**v, "confidence": "low"}
             leads.append({
                 "company":  biz.get("name", ""),
                 "email":    email,
