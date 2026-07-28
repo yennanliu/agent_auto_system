@@ -6,16 +6,19 @@ Stage 2 of the lead-collection funnel (see doc/email_collect):
 
 Given a website, fetch the homepage plus a handful of common contact pages
 (/contact, /about, /impressum for EU sites, localized variants), then pull
-emails from both `mailto:` links and the rendered text. Junk (tracking/CDN/
-placeholder addresses, image filenames mistaken for emails) is filtered out and
-role addresses (info@, contact@, hello@…) are ranked first — they're the safest
-to cold-email and the most likely to be monitored.
+emails from `mailto:` links, the rendered text, and schema.org JSON-LD
+structured data (`Organization`/`LocalBusiness`/`ContactPoint` `email` fields —
+often the real address even when it never appears as visible text). Junk
+(tracking/CDN/placeholder addresses, image filenames mistaken for emails) is
+filtered out and role addresses (info@, contact@, hello@…) are ranked first —
+they're the safest to cold-email and the most likely to be monitored.
 
 Pure `urllib` (no browser): SMB sites are mostly static and this keeps the stage
 cheap. If nothing is found, a single role address (`info@<domain>`) is *guessed*
 and flagged `guessed=True` so the verify stage can confirm it before use — never
 on shared hosts (facebook.com, etc.), where a guess would be meaningless.
 """
+import json
 import re
 import ssl
 import urllib.parse
@@ -348,4 +351,71 @@ def _harvest(html: str) -> set[str]:
     # difference between a real address and a fallback guess.
     emails.update(_deobfuscate(html))
     emails.update(_decode_cfemail(html))
+    # Structured data: schema.org Organization/LocalBusiness/ContactPoint often
+    # carries the real contact email even when it never appears as visible text
+    # or a mailto: (SPAs, sites that render contact info from JS state).
+    emails.update(_harvest_jsonld(html))
     return emails
+
+
+# Recursion cap: real JSON-LD graphs are shallow; the bound just stops a
+# pathological/adversarial deeply-nested blob from blowing the stack.
+_JSONLD_MAX_DEPTH = 12
+
+
+def _harvest_jsonld(html: str) -> set[str]:
+    """Pull emails from any `<script type="application/ld+json">` blocks.
+
+    schema.org markup embeds contact info as JSON (an Organization's `email`,
+    a `contactPoint` list, a `@graph` of nodes…). We walk every block and
+    collect the value of any `email` key, wherever it sits — the downstream
+    `_is_valid` / off-domain / verify stages judge each one like any other hit.
+    Best-effort: a malformed block is skipped, never raised.
+    """
+    emails: set[str] = set()
+    for block in re.findall(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html or "", re.I | re.S,
+    ):
+        block = block.strip()
+        if not block:
+            continue
+        try:
+            data = json.loads(block)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue  # concatenated objects / trailing junk / not JSON — skip
+        _collect_jsonld_emails(data, emails, 0)
+    return emails
+
+
+def _collect_jsonld_emails(node, out: set[str], depth: int) -> None:
+    """Recursively collect values of any `email` key in a parsed JSON-LD node."""
+    if depth > _JSONLD_MAX_DEPTH:
+        return
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key.lower() == "email":
+                for addr in _as_email_strings(value):
+                    out.add(addr)
+            else:
+                _collect_jsonld_emails(value, out, depth + 1)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_jsonld_emails(item, out, depth + 1)
+
+
+def _as_email_strings(value) -> list[str]:
+    """Normalize an `email` field (str or list of str) to bare addresses,
+    stripping any `mailto:` scheme and `?subject=…` query."""
+    values = value if isinstance(value, list) else [value]
+    out = []
+    for v in values:
+        if not isinstance(v, str):
+            continue
+        addr = v.strip()
+        if addr.lower().startswith("mailto:"):
+            addr = addr[len("mailto:"):]
+        addr = addr.split("?", 1)[0].strip()
+        if addr:
+            out.append(addr)
+    return out
