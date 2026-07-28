@@ -140,6 +140,15 @@ def test_same_site_domain_psl_backed_for_uncurated_suffix():
     assert _same_site_domain("mail.acme.co.za", "acme.co.za")    # real subdomain
 
 
+def test_same_site_domain_separates_private_psl_tenants():
+    """Hosting platforms (github.io, wixsite.com, …) are PSL *private* suffixes:
+    two unrelated tenants must not be treated as the same site."""
+    from src.automation.tools.email_extract_tool import _registrable_domain, _same_site_domain
+    assert _registrable_domain("acme.github.io") == "acme.github.io"
+    assert not _same_site_domain("vendor.github.io", "acme.github.io")  # diff tenants
+    assert _same_site_domain("shop.acme.github.io", "acme.github.io")   # same tenant
+
+
 def test_same_site_domain_matches_sub_and_parent():
     from src.automation.tools.email_extract_tool import _same_site_domain
     assert _same_site_domain("acme.com.tw", "acme.com.tw")

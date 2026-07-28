@@ -70,8 +70,14 @@ _MAX_EMAILS_PER_SITE = 3
 # tldextract) so every multi-label suffix — .com.tw, .co.uk, .co.za, … — is
 # handled, not just a hand-curated few. `suffix_list_urls=()` pins it to the
 # snapshot bundled with the package: no network fetch on the hot path, and
-# deterministic in tests.
-_TLD_EXTRACT = tldextract.TLDExtract(suffix_list_urls=())
+# deterministic in tests. `include_psl_private_domains=True` also treats hosting
+# platforms (github.io, wixsite.com, blogspot.com, …) as suffixes, so two
+# unrelated tenants — `acme.github.io` vs `vendor.github.io` — resolve to
+# *different* registrable domains instead of both collapsing to `github.io` and
+# passing the same-site filter. SMB sites live on exactly these hosts, so this
+# matters here.
+_TLD_EXTRACT = tldextract.TLDExtract(
+    suffix_list_urls=(), include_psl_private_domains=True)
 
 
 class EmailExtractInput(BaseModel):
