@@ -195,3 +195,61 @@ def test_extract_caps_per_site_and_prefers_generic_role(mocker):
     assert len(r["emails"]) == 3                 # capped
     assert "info@acme.com" in r["emails"]        # generic role kept
     assert "info.taiwan@acme.com" not in r["emails"]  # regional variant dropped
+
+
+# ── JSON-LD / schema.org structured-data source ─────────────────────────────
+
+def test_jsonld_harvests_organization_email():
+    from src.automation.tools.email_extract_tool import _harvest_jsonld
+    html = ('<script type="application/ld+json">'
+            '{"@context":"https://schema.org","@type":"Organization",'
+            '"name":"Acme","email":"info@acme.com.tw"}</script>')
+    assert _harvest_jsonld(html) == {"info@acme.com.tw"}
+
+
+def test_jsonld_harvests_nested_contactpoint_and_strips_mailto():
+    from src.automation.tools.email_extract_tool import _harvest_jsonld
+    html = ('<script type="application/ld+json">'
+            '{"@type":"LocalBusiness","contactPoint":['
+            '{"@type":"ContactPoint","email":"mailto:sales@acme.com.tw?subject=hi"},'
+            '{"@type":"ContactPoint","email":"support@acme.com.tw"}]}</script>')
+    assert _harvest_jsonld(html) == {"sales@acme.com.tw", "support@acme.com.tw"}
+
+
+def test_jsonld_walks_graph_and_email_list():
+    from src.automation.tools.email_extract_tool import _harvest_jsonld
+    html = ('<script type="application/ld+json">'
+            '{"@graph":[{"@type":"WebSite"},'
+            '{"@type":"Organization","email":["a@acme.com","b@acme.com"]}]}</script>')
+    assert _harvest_jsonld(html) == {"a@acme.com", "b@acme.com"}
+
+
+def test_jsonld_malformed_block_is_skipped():
+    from src.automation.tools.email_extract_tool import _harvest_jsonld
+    html = ('<script type="application/ld+json">{oops not json,,,</script>'
+            '<script type="application/ld+json">{"email":"ok@acme.com"}</script>')
+    assert _harvest_jsonld(html) == {"ok@acme.com"}   # bad block skipped, good kept
+
+
+def test_extract_recovers_jsonld_only_email(mocker):
+    """A site that exposes its email ONLY in JSON-LD (no mailto:/visible text)
+    now yields a real lead instead of a guess."""
+    from src.automation.tools import email_extract_tool as m
+    html = ('<html><body>No visible contact here.'
+            '<script type="application/ld+json">'
+            '{"@type":"Organization","email":"hello@acme.com.tw"}</script>'
+            '</body></html>')
+    mocker.patch.object(m, "_fetch", return_value=html)
+    r = m.extract_emails("https://acme.com.tw")
+    assert "hello@acme.com.tw" in r["emails"]
+    assert r["guessed"] is False        # a real address was found, not guessed
+
+
+def test_jsonld_deeply_nested_blob_does_not_raise():
+    """A deeply-nested JSON-LD blob makes json.loads raise RecursionError; the
+    harvester must skip it (never raise) and still read a sibling good block."""
+    from src.automation.tools.email_extract_tool import _harvest_jsonld
+    bomb = "[" * 100_000 + "0" + "]" * 100_000
+    html = (f'<script type="application/ld+json">{bomb}</script>'
+            '<script type="application/ld+json">{"email":"ok@acme.com"}</script>')
+    assert _harvest_jsonld(html) == {"ok@acme.com"}
