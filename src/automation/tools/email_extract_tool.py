@@ -21,10 +21,11 @@ import ssl
 import urllib.parse
 import urllib.request
 
+import tldextract
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
-from src.automation.tools.contact_harvest import _EMAIL_RE
+from src.automation.tools.contact_harvest import _EMAIL_RE, _ROLE_LOCALPARTS
 from src.automation.tools.contact_harvest import decode_cfemail as _decode_cfemail
 from src.automation.tools.contact_harvest import deobfuscate_emails as _deobfuscate
 from src.automation.tools.contact_harvest import is_valid_email as _is_valid
@@ -57,6 +58,26 @@ _NO_GUESS_DOMAINS = {
     "whatsapp.com", "google.com", "business.site", "shopee.tw", "yelp.com",
     "wixsite.com", "blogspot.com", "pinterest.com", "threads.net",
 }
+
+
+# At most this many addresses per site. One business's site routinely lists a
+# long tail of regional/branch role addresses (info.taiwan@, info.brazil@, …) —
+# for cold outreach we only need the best few, and keeping all of them lets one
+# big company swamp a send. Applied after the off-domain filter + ranking.
+_MAX_EMAILS_PER_SITE = 3
+
+# Registrable-domain parsing is backed by the Public Suffix List (via
+# tldextract) so every multi-label suffix — .com.tw, .co.uk, .co.za, … — is
+# handled, not just a hand-curated few. `suffix_list_urls=()` pins it to the
+# snapshot bundled with the package: no network fetch on the hot path, and
+# deterministic in tests. `include_psl_private_domains=True` also treats hosting
+# platforms (github.io, wixsite.com, blogspot.com, …) as suffixes, so two
+# unrelated tenants — `acme.github.io` vs `vendor.github.io` — resolve to
+# *different* registrable domains instead of both collapsing to `github.io` and
+# passing the same-site filter. SMB sites live on exactly these hosts, so this
+# matters here.
+_TLD_EXTRACT = tldextract.TLDExtract(
+    suffix_list_urls=(), include_psl_private_domains=True)
 
 
 class EmailExtractInput(BaseModel):
@@ -129,7 +150,7 @@ def extract_emails(website: str, log=None, render: bool = False) -> dict:
 
     return {
         "website": base,
-        "emails": _rank(found),
+        "emails": _finalize_emails(found, domain),
         "pages_scanned": pages_scanned,
         "guessed": guessed,
     }
@@ -204,6 +225,54 @@ def _render_and_harvest(base: str, domain: str, log) -> tuple[set[str], int]:
 
 def _is_shared_host(domain: str) -> bool:
     return any(domain == d or domain.endswith("." + d) for d in _NO_GUESS_DOMAINS)
+
+
+def _registrable_domain(host: str) -> str:
+    """Collapse a host to its registrable domain (eTLD+1) via the Public Suffix
+    List: `www.shop.acme.com.tw` → `acme.com.tw`; `mail.acme.com` → `acme.com`.
+
+    Falls back to the bare host when there's no registrable domain (e.g. an IP
+    or an unqualified name) so callers still get a stable, comparable value.
+    """
+    host = (host or "").lower().strip().strip(".")
+    if not host:
+        return ""
+    return _TLD_EXTRACT(host).top_domain_under_public_suffix or host
+
+
+def _same_site_domain(email_domain: str, site_domain: str) -> bool:
+    """True if an email's domain belongs to the site (same registrable domain
+    or a sub/parent-domain relation). Used to drop third-party addresses —
+    a vendor's, a font CDN's, a distributor's — scraped off the page."""
+    a, b = (email_domain or "").lower(), (site_domain or "").lower()
+    if not a or not b:
+        return False
+    if a == b or a.endswith("." + b) or b.endswith("." + a):
+        return True
+    return _registrable_domain(a) == _registrable_domain(b)
+
+
+def _finalize_emails(found: set[str], site_domain: str) -> list[str]:
+    """Off-domain filter + per-site cap over the harvested set.
+
+    1. Keep only addresses on the site's own domain (a business's real inbox);
+       fall back to the off-domain ones only when nothing on-domain was found,
+       so a site that publishes solely a `@gmail.com` still yields a lead.
+    2. Rank role-first, then keep at most `_MAX_EMAILS_PER_SITE`, preferring a
+       generic role address (`info@`, `contact@`) over a regional variant
+       (`info.taiwan@`) so one company's branch list can't flood the results.
+    """
+    on = {e for e in found if _same_site_domain(e.split("@", 1)[-1], site_domain)}
+    kept = on or found
+
+    def cap_key(e: str):
+        local = e.split("@", 1)[0].lower()
+        exact_role = local in _ROLE_LOCALPARTS
+        role_prefix = any(local.startswith(r) for r in _ROLE_LOCALPARTS)
+        tier = 0 if exact_role else (1 if role_prefix else 2)
+        return (tier, len(local), e)
+
+    return sorted(_rank(kept), key=cap_key)[:_MAX_EMAILS_PER_SITE]
 
 
 def _normalize(website: str) -> str:
