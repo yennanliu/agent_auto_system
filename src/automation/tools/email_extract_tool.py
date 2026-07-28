@@ -382,8 +382,12 @@ def _harvest_jsonld(html: str) -> set[str]:
             continue
         try:
             data = json.loads(block)
-        except (json.JSONDecodeError, ValueError, TypeError):
-            continue  # concatenated objects / trailing junk / not JSON — skip
+        except (json.JSONDecodeError, ValueError, TypeError, RecursionError):
+            # concatenated objects / trailing junk / not JSON — skip. RecursionError
+            # too: json.loads recurses while parsing, so a deeply-nested (or
+            # adversarial) blob can blow the stack — swallow it rather than let it
+            # abort extraction (scraper contract: never raise).
+            continue
         _collect_jsonld_emails(data, emails, 0)
     return emails
 

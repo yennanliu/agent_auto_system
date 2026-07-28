@@ -243,3 +243,13 @@ def test_extract_recovers_jsonld_only_email(mocker):
     r = m.extract_emails("https://acme.com.tw")
     assert "hello@acme.com.tw" in r["emails"]
     assert r["guessed"] is False        # a real address was found, not guessed
+
+
+def test_jsonld_deeply_nested_blob_does_not_raise():
+    """A deeply-nested JSON-LD blob makes json.loads raise RecursionError; the
+    harvester must skip it (never raise) and still read a sibling good block."""
+    from src.automation.tools.email_extract_tool import _harvest_jsonld
+    bomb = "[" * 100_000 + "0" + "]" * 100_000
+    html = (f'<script type="application/ld+json">{bomb}</script>'
+            '<script type="application/ld+json">{"email":"ok@acme.com"}</script>')
+    assert _harvest_jsonld(html) == {"ok@acme.com"}
