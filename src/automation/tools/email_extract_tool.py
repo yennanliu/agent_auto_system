@@ -21,6 +21,7 @@ import ssl
 import urllib.parse
 import urllib.request
 
+import tldextract
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
@@ -65,15 +66,12 @@ _NO_GUESS_DOMAINS = {
 # big company swamp a send. Applied after the off-domain filter + ranking.
 _MAX_EMAILS_PER_SITE = 3
 
-# Multi-label public suffixes we must treat as one unit so `info@acme.com.tw`
-# and `sales@shop.acme.com.tw` resolve to the same registrable domain
-# (`acme.com.tw`). Not exhaustive — just the ones common in this funnel's markets.
-_TWO_LEVEL_TLDS = {
-    "com.tw", "org.tw", "net.tw", "gov.tw", "edu.tw", "idv.tw", "game.tw",
-    "ebiz.tw", "club.tw", "com.cn", "net.cn", "org.cn", "com.hk", "org.hk",
-    "com.au", "net.au", "org.au", "co.uk", "org.uk", "co.jp", "or.jp", "ne.jp",
-    "com.sg", "com.my", "co.kr", "com.br", "co.nz", "com.mx", "co.th", "com.vn",
-}
+# Registrable-domain parsing is backed by the Public Suffix List (via
+# tldextract) so every multi-label suffix — .com.tw, .co.uk, .co.za, … — is
+# handled, not just a hand-curated few. `suffix_list_urls=()` pins it to the
+# snapshot bundled with the package: no network fetch on the hot path, and
+# deterministic in tests.
+_TLD_EXTRACT = tldextract.TLDExtract(suffix_list_urls=())
 
 
 class EmailExtractInput(BaseModel):
@@ -224,19 +222,16 @@ def _is_shared_host(domain: str) -> bool:
 
 
 def _registrable_domain(host: str) -> str:
-    """Collapse a host to its registrable domain (eTLD+1), TW/CN/etc. aware.
+    """Collapse a host to its registrable domain (eTLD+1) via the Public Suffix
+    List: `www.shop.acme.com.tw` → `acme.com.tw`; `mail.acme.com` → `acme.com`.
 
-    `www.shop.acme.com.tw` → `acme.com.tw`; `mail.acme.com` → `acme.com`.
+    Falls back to the bare host when there's no registrable domain (e.g. an IP
+    or an unqualified name) so callers still get a stable, comparable value.
     """
     host = (host or "").lower().strip().strip(".")
-    if host.startswith("www."):
-        host = host[4:]
-    labels = host.split(".")
-    if len(labels) <= 2:
-        return host
-    last2 = ".".join(labels[-2:])
-    take = 3 if last2 in _TWO_LEVEL_TLDS else 2
-    return ".".join(labels[-take:])
+    if not host:
+        return ""
+    return _TLD_EXTRACT(host).top_domain_under_public_suffix or host
 
 
 def _same_site_domain(email_domain: str, site_domain: str) -> bool:

@@ -129,6 +129,15 @@ def test_registrable_domain_handles_multilevel_tlds():
     assert _registrable_domain("mail.acme.com") == "acme.com"
     assert _registrable_domain("acme.com") == "acme.com"
     assert _registrable_domain("acme.co.uk") == "acme.co.uk"
+    # PSL-backed, so suffixes beyond any hand-curated list resolve correctly and
+    # two unrelated businesses under the same public suffix are NOT same-site.
+    assert _registrable_domain("shop.acme.co.za") == "acme.co.za"
+
+
+def test_same_site_domain_psl_backed_for_uncurated_suffix():
+    from src.automation.tools.email_extract_tool import _same_site_domain
+    assert not _same_site_domain("vendor.co.za", "acme.co.za")   # co.za is a suffix
+    assert _same_site_domain("mail.acme.co.za", "acme.co.za")    # real subdomain
 
 
 def test_same_site_domain_matches_sub_and_parent():
