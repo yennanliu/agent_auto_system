@@ -119,3 +119,61 @@ def test_verify_no_mx_is_low(mocker):
     r = m.verify_email("info@acme.com", smtp_check=False)
     assert r["mx_found"] is False
     assert r["confidence"] == "low"
+
+
+# ── off-domain filter + per-site cap (data-quality gates) ────────────────────
+
+def test_registrable_domain_handles_multilevel_tlds():
+    from src.automation.tools.email_extract_tool import _registrable_domain
+    assert _registrable_domain("www.shop.acme.com.tw") == "acme.com.tw"
+    assert _registrable_domain("mail.acme.com") == "acme.com"
+    assert _registrable_domain("acme.com") == "acme.com"
+    assert _registrable_domain("acme.co.uk") == "acme.co.uk"
+
+
+def test_same_site_domain_matches_sub_and_parent():
+    from src.automation.tools.email_extract_tool import _same_site_domain
+    assert _same_site_domain("acme.com.tw", "acme.com.tw")
+    assert _same_site_domain("mail.acme.com.tw", "acme.com.tw")      # subdomain
+    assert _same_site_domain("acme.com.tw", "shop.acme.com.tw")      # parent
+    assert not _same_site_domain("latofonts.com", "acme.com.tw")     # third party
+    assert not _same_site_domain("vendor.io", "acme.com")
+    assert not _same_site_domain("", "acme.com")
+
+
+def test_extract_drops_offdomain_third_party_emails(mocker):
+    """A vendor / CDN / distributor email scraped off the page is dropped when
+    the site publishes its own on-domain address."""
+    from src.automation.tools import email_extract_tool as m
+    html = ('<a href="mailto:info@acme.com.tw">us</a> '
+            'font by team@latofonts.com and partner info@vendor.io')
+    mocker.patch.object(m, "_fetch", return_value=html)
+    r = m.extract_emails("https://www.acme.com.tw")
+    assert "info@acme.com.tw" in r["emails"]
+    assert "team@latofonts.com" not in r["emails"]
+    assert "info@vendor.io" not in r["emails"]
+
+
+def test_extract_keeps_offdomain_when_no_ondomain(mocker):
+    """If the only address is off-domain (e.g. a gmail), keep it — better than
+    nothing — rather than falling through to a guess."""
+    from src.automation.tools import email_extract_tool as m
+    mocker.patch.object(m, "_fetch",
+                        return_value='<a href="mailto:acme.tw@gmail.com">x</a>')
+    r = m.extract_emails("https://acme.com")
+    assert r["emails"] == ["acme.tw@gmail.com"]
+    assert r["guessed"] is False
+
+
+def test_extract_caps_per_site_and_prefers_generic_role(mocker):
+    """One company's long branch list is capped; a generic role beats a
+    regionalized variant."""
+    from src.automation.tools import email_extract_tool as m
+    html = " ".join(f'<a href="mailto:{e}">x</a>' for e in [
+        "info.taiwan@acme.com", "info.brazil@acme.com", "info.asia@acme.com",
+        "info@acme.com", "sales@acme.com"])
+    mocker.patch.object(m, "_fetch", return_value=html)
+    r = m.extract_emails("https://acme.com")
+    assert len(r["emails"]) == 3                 # capped
+    assert "info@acme.com" in r["emails"]        # generic role kept
+    assert "info.taiwan@acme.com" not in r["emails"]  # regional variant dropped
