@@ -158,7 +158,7 @@ const AUTO_CATALOG = {
       { name: 'offer',    type: 'str (optional)', desc: "What you're pitching — drives ICP scoring & hooks" },
       { name: 'limit',    type: 'int (1–500)', desc: 'Number of businesses to discover (across all sources, after dedupe)' },
       { name: 'sources',  type: 'list', desc: "Discovery sources: 'maps', 'association' (公會 member directories), 'govbiz' (經濟部 商工登記). Default: maps" },
-      { name: 'associations', type: 'list', desc: "公會 directories to search — a built-in slug ('tca' = 台北市電腦商業同業公會) or any member-list URL" },
+      { name: 'associations', type: 'list', desc: "公會 directories to search — a built-in slug (see GET /api/associations; 'tca' = 台北市電腦商業同業公會) or any member-list URL" },
       { name: 'resolve_missing_websites', type: 'bool', desc: 'Look up a website on Maps for companies discovered without one (registry rows) so they can yield an email' },
       { name: 'gcis_enrich', type: 'bool', desc: 'Attach 統一編號 / 資本額 / 負責人 / 設立日期 from the 經濟部 registry to each lead' },
       { name: 'smtp_check', type: 'bool', desc: 'Run the SMTP RCPT probe during verification' },
@@ -780,6 +780,9 @@ function onAuthenticated(user) {
 function bootApp() {
   const initialPage = (location.hash.slice(1) || 'landing');
   navigate(VALID_PAGES.includes(initialPage) ? initialPage : 'landing');
+  // Authenticated-only fetch, so it belongs here rather than at module scope —
+  // firing it before sign-in only 401s and bounces back to the login overlay.
+  loadAssociationDirectories();
 }
 
 // Any 401 from an /api/ call (e.g. session expiry) re-shows the login overlay.
@@ -1385,15 +1388,129 @@ document.getElementById('job-schedule-preset').addEventListener('change', (e) =>
 document.getElementById('ph-files').addEventListener('change', renderPhClassified);
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModalFn(); });
 
+// ── email_collect run form ────────────────────────────────────────────────────
+// The Taiwan sources (公會 名錄, 經濟部 登記) match Chinese company names, so an
+// English query or region silently discovers nothing. Presets, a real directory
+// picker and a live language warning exist to keep that from happening.
+
+const LEAD_PRESETS = {
+  'tw-marketing': { query: '行銷', region: '台北', tw: true,
+                    offer: 'an AI agent / automation consulting proposal for small businesses' },
+  'tw-tech':      { query: '科技', region: '台北', tw: true,
+                    offer: 'an AI agent / automation consulting proposal for small businesses' },
+  'tw-ecom':      { query: '電商', region: '台北', tw: true,
+                    offer: 'an AI agent that automates customer support & order follow-up' },
+  'tw-design':    { query: '設計', region: '台北', tw: true,
+                    offer: 'an AI agent / automation consulting proposal for small businesses' },
+  'global-maps':  { query: 'marketing agency', region: '', tw: false, offer: '' },
+};
+
+const hasChinese = (s) => /[㐀-鿿]/.test(s || '');
+// 經濟部 routes an F###### 營業項目 code to the business-item dataset, so a query
+// with no Chinese in it is still perfectly valid for that one source.
+const isRegistryCode = (s) => /^F\d{6}$/i.test((s || '').trim());
+
+// Whether a source can do anything with this query at all. Both Taiwan sources
+// match registered Chinese company names; only 經濟部 also takes an F-code.
+function leadSourceAcceptsQuery(source, query) {
+  if (source === 'maps') return true;
+  if (source === 'govbiz') return hasChinese(query) || isRegistryCode(query);
+  return hasChinese(query);   // association
+}
+
+function leadSelectedSources() {
+  const ids = { maps: 'lead-src-maps', association: 'lead-src-assoc', govbiz: 'lead-src-gov' };
+  return Object.keys(ids).filter(s => document.getElementById(ids[s]).checked);
+}
+
+// Built-in 公會 slugs come from the server (src/automation/tools/tw_association_tool.py)
+// so the picker can never drift from the slugs the tool actually accepts.
+async function loadAssociationDirectories() {
+  const box = document.getElementById('lead-assoc-builtin');
+  if (!box) return;
+  let dirs = [];
+  try {
+    const resp = await fetch('/api/associations');
+    if (resp.ok) dirs = (await resp.json()).associations || [];
+  } catch { /* fall through to the built-in default below */ }
+  if (!dirs.length) dirs = [{ slug: 'tca', name: '台北市電腦商業同業公會 (TCA)', url: '' }];
+  box.innerHTML = dirs.map((d, i) => `
+    <div class="lead-check">
+      <input type="checkbox" class="lead-assoc-slug" value="${escHtml(d.slug)}" ${i === 0 ? 'checked' : ''}
+             id="lead-assoc-${escHtml(d.slug)}" />
+      <label for="lead-assoc-${escHtml(d.slug)}">${escHtml(d.name)}
+        <span class="lead-check-sub">slug <code>${escHtml(d.slug)}</code> — 會員e名錄, searched with your Business Query</span></label>
+    </div>`).join('');
+}
+
+function selectedAssociations() {
+  const slugs = [...document.querySelectorAll('.lead-assoc-slug:checked')].map(c => c.value);
+  const urls = document.getElementById('lead-associations').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  return [...slugs, ...urls];
+}
+
+// The sources that are on but cannot use the current query — each of these
+// contributes exactly 0 businesses to the run.
+function leadDeadSources() {
+  const query = document.getElementById('lead-query').value.trim();
+  if (!query) return [];
+  const labels = { association: '公會 名錄', govbiz: '經濟部 登記' };
+  return leadSelectedSources()
+    .filter(s => !leadSourceAcceptsQuery(s, query))
+    .map(s => labels[s]);
+}
+
+function syncLeadLangWarning() {
+  const warn = document.getElementById('lead-lang-warn');
+  const query = document.getElementById('lead-query').value.trim();
+  const region = document.getElementById('lead-region').value.trim();
+  const dead = leadDeadSources();
+  const msgs = [];
+  if (dead.length) {
+    msgs.push(`Business Query <b>“${escHtml(query)}”</b> has no Chinese characters, so ${dead.join(' and ')} ` +
+              'will find 0 businesses — those sources search registered Chinese company names. ' +
+              'Try 行銷 / 科技 / 設計' +
+              (dead.includes('經濟部 登記') ? ', or an F###### 營業項目 code such as F401010.' : '.'));
+  }
+  if (document.getElementById('lead-src-gov').checked && region && !hasChinese(region)) {
+    msgs.push(`Region <b>“${escHtml(region)}”</b> is matched against the registered address, which is written in ` +
+              'Chinese — use 台北 / 台中 / 高雄 instead, or leave it blank.');
+  }
+  warn.innerHTML = msgs.join('<br><br>');
+  warn.classList.toggle('show', msgs.length > 0);
+}
+
 // email_collect: reveal each discovery source's own options only when it's on.
 function syncLeadSourceOptions() {
   document.getElementById('lead-assoc-wrap').style.display =
     document.getElementById('lead-src-assoc').checked ? '' : 'none';
   document.getElementById('lead-gov-wrap').style.display =
     document.getElementById('lead-src-gov').checked ? '' : 'none';
+  syncLeadLangWarning();
 }
-['lead-src-assoc', 'lead-src-gov'].forEach(id =>
+['lead-src-assoc', 'lead-src-gov', 'lead-src-maps'].forEach(id =>
   document.getElementById(id).addEventListener('change', syncLeadSourceOptions));
+['lead-query', 'lead-region'].forEach(id =>
+  document.getElementById(id).addEventListener('input', syncLeadLangWarning));
+
+document.getElementById('lead-preset').addEventListener('change', (e) => {
+  const preset = LEAD_PRESETS[e.target.value];
+  if (!preset) return;
+  document.getElementById('lead-query').value = preset.query;
+  document.getElementById('lead-region').value = preset.region;
+  document.getElementById('lead-offer').value = preset.offer;
+  document.getElementById('lead-src-maps').checked = !preset.tw;
+  document.getElementById('lead-src-assoc').checked = preset.tw;
+  document.getElementById('lead-src-gov').checked = preset.tw;
+  document.getElementById('lead-gcis-enrich').checked = preset.tw;
+  document.getElementById('lead-resolve-sites').checked = true;
+  // A Taiwan preset is useless without a directory to read, so make sure the
+  // first built-in slug is on even if the user had cleared it.
+  const slugs = [...document.querySelectorAll('.lead-assoc-slug')];
+  if (preset.tw && slugs.length && !slugs.some(c => c.checked)) slugs[0].checked = true;
+  syncLeadSourceOptions();
+});
 
 // ── Job type card selection ───────────────────────────────────────────────────
 
@@ -1900,10 +2017,18 @@ runForm.addEventListener('submit', async (e) => {
     if (document.getElementById('lead-src-assoc').checked) sources.push('association');
     if (document.getElementById('lead-src-gov').checked)   sources.push('govbiz');
     if (!sources.length) { showToast('Pick at least one discovery source', 'error'); return; }
-    const associations = document.getElementById('lead-associations').value
-      .split('\n').map(s => s.trim()).filter(Boolean);
+    const associations = selectedAssociations();
     if (sources.includes('association') && !associations.length) {
-      showToast('Add at least one 公會 directory (slug or URL)', 'error'); return;
+      showToast('Pick at least one 公會 directory (or add one by URL)', 'error'); return;
+    }
+    // Only block when the run cannot possibly return anything — i.e. not one
+    // chosen source can use this query. With Maps on, English is legitimate;
+    // so is an F###### 營業項目 code when 經濟部 is on.
+    if (!sources.some(s => leadSourceAcceptsQuery(s, query))) {
+      showToast(`"${query}" has no Chinese characters — 公會 名錄 / 經濟部 登記 would find 0 businesses. `
+                + 'Use a Chinese keyword (行銷, 科技, 設計), an F###### 營業項目 code, or also tick Google Maps.',
+                'error');
+      return;
     }
     payload = {
       query, limit, sources,
