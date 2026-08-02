@@ -610,7 +610,9 @@
           <div class="lead-hint">Fills every field below; you can still edit anything afterwards.</div>
         </div>
 
-        <div id="lead-lang-warn" class="lead-warn"></div>
+        <!-- Announced live: it appears while focus is already inside the query
+             or region field, so a screen reader would otherwise never see it. -->
+        <div id="lead-lang-warn" class="lead-warn" role="status" aria-live="polite"></div>
 
         <div class="field">
           <label for="lead-query">Business Query <span style="color:var(--red)">*</span></label>
@@ -618,6 +620,7 @@
           <div class="lead-hint">
             What to search for. The Taiwan sources match it against registered <b>Chinese</b> company names, so use
             <code>行銷</code> / <code>科技</code> / <code>設計</code> there — <code>marketing</code> finds nothing.
+            經濟部 also accepts an <code>F######</code> 營業項目 code (e.g. <code>F401010</code>) instead of a name.
           </div>
         </div>
 

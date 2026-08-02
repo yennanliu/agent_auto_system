@@ -1406,6 +1406,22 @@ const LEAD_PRESETS = {
 };
 
 const hasChinese = (s) => /[㐀-鿿]/.test(s || '');
+// 經濟部 routes an F###### 營業項目 code to the business-item dataset, so a query
+// with no Chinese in it is still perfectly valid for that one source.
+const isRegistryCode = (s) => /^F\d{6}$/i.test((s || '').trim());
+
+// Whether a source can do anything with this query at all. Both Taiwan sources
+// match registered Chinese company names; only 經濟部 also takes an F-code.
+function leadSourceAcceptsQuery(source, query) {
+  if (source === 'maps') return true;
+  if (source === 'govbiz') return hasChinese(query) || isRegistryCode(query);
+  return hasChinese(query);   // association
+}
+
+function leadSelectedSources() {
+  const ids = { maps: 'lead-src-maps', association: 'lead-src-assoc', govbiz: 'lead-src-gov' };
+  return Object.keys(ids).filter(s => document.getElementById(ids[s]).checked);
+}
 
 // Built-in 公會 slugs come from the server (src/automation/tools/tw_association_tool.py)
 // so the picker can never drift from the slugs the tool actually accepts.
@@ -1434,26 +1450,30 @@ function selectedAssociations() {
   return [...slugs, ...urls];
 }
 
-// True when every chosen source is Chinese-only — i.e. an English query is not
-// just suboptimal but guaranteed to return zero rows.
-function leadTwOnly() {
-  const assoc = document.getElementById('lead-src-assoc').checked;
-  const gov = document.getElementById('lead-src-gov').checked;
-  return (assoc || gov) && !document.getElementById('lead-src-maps').checked;
+// The sources that are on but cannot use the current query — each of these
+// contributes exactly 0 businesses to the run.
+function leadDeadSources() {
+  const query = document.getElementById('lead-query').value.trim();
+  if (!query) return [];
+  const labels = { association: '公會 名錄', govbiz: '經濟部 登記' };
+  return leadSelectedSources()
+    .filter(s => !leadSourceAcceptsQuery(s, query))
+    .map(s => labels[s]);
 }
 
 function syncLeadLangWarning() {
   const warn = document.getElementById('lead-lang-warn');
-  const assoc = document.getElementById('lead-src-assoc').checked;
-  const gov = document.getElementById('lead-src-gov').checked;
   const query = document.getElementById('lead-query').value.trim();
   const region = document.getElementById('lead-region').value.trim();
+  const dead = leadDeadSources();
   const msgs = [];
-  if ((assoc || gov) && query && !hasChinese(query)) {
-    msgs.push(`Business Query <b>“${escHtml(query)}”</b> has no Chinese characters. 公會 名錄 and 經濟部 登記 ` +
-              'search registered Chinese company names, so this finds 0 businesses there — try 行銷 / 科技 / 設計.');
+  if (dead.length) {
+    msgs.push(`Business Query <b>“${escHtml(query)}”</b> has no Chinese characters, so ${dead.join(' and ')} ` +
+              'will find 0 businesses — those sources search registered Chinese company names. ' +
+              'Try 行銷 / 科技 / 設計' +
+              (dead.includes('經濟部 登記') ? ', or an F###### 營業項目 code such as F401010.' : '.'));
   }
-  if (gov && region && !hasChinese(region)) {
+  if (document.getElementById('lead-src-gov').checked && region && !hasChinese(region)) {
     msgs.push(`Region <b>“${escHtml(region)}”</b> is matched against the registered address, which is written in ` +
               'Chinese — use 台北 / 台中 / 高雄 instead, or leave it blank.');
   }
@@ -2001,12 +2021,13 @@ runForm.addEventListener('submit', async (e) => {
     if (sources.includes('association') && !associations.length) {
       showToast('Pick at least one 公會 directory (or add one by URL)', 'error'); return;
     }
-    // Only block when the run cannot possibly return anything: every chosen
-    // source matches Chinese company names and the query has none. With Maps
-    // also on, an English query is legitimate.
-    if (leadTwOnly() && !hasChinese(query)) {
+    // Only block when the run cannot possibly return anything — i.e. not one
+    // chosen source can use this query. With Maps on, English is legitimate;
+    // so is an F###### 營業項目 code when 經濟部 is on.
+    if (!sources.some(s => leadSourceAcceptsQuery(s, query))) {
       showToast(`"${query}" has no Chinese characters — 公會 名錄 / 經濟部 登記 would find 0 businesses. `
-                + 'Use a Chinese keyword (行銷, 科技, 設計) or also tick Google Maps.', 'error');
+                + 'Use a Chinese keyword (行銷, 科技, 設計), an F###### 營業項目 code, or also tick Google Maps.',
+                'error');
       return;
     }
     payload = {
