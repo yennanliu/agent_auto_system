@@ -608,8 +608,49 @@
           <input type="checkbox" id="lead-social" style="width:auto;margin:0" />
           <label for="lead-social" style="margin:0">Mine social profiles (Facebook, X, Instagram) — recover leads whose Maps "website" is a Facebook Page / X or Instagram profile, and follow any real site it links</label>
         </div>
+
+        <div class="field">
+          <label>Discovery sources</label>
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+            <input type="checkbox" id="lead-src-maps" checked style="width:auto;margin:0" />
+            <label for="lead-src-maps" style="margin:0">Google Maps — businesses near a region (works worldwide)</label>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+            <input type="checkbox" id="lead-src-assoc" style="width:auto;margin:0" />
+            <label for="lead-src-assoc" style="margin:0">公會 / 工會 member directories — trade-association member lists (Taiwan)</label>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="lead-src-gov" style="width:auto;margin:0" />
+            <label for="lead-src-gov" style="margin:0">經濟部 商工登記 — the government company registry (Taiwan)</label>
+          </div>
+        </div>
+
+        <div class="field" id="lead-assoc-wrap" style="display:none">
+          <label>公會 directories — one per line: a built-in slug or any member-list URL</label>
+          <textarea id="lead-associations" rows="3" placeholder="tca&#10;https://www.example-guild.org.tw/members.php"></textarea>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">
+            Built-in: <code style="font-family:ui-monospace,monospace">tca</code> — 台北市電腦商業同業公會 會員e名錄 (searched with your Business Query, so use a Chinese keyword such as 科技 / 行銷).
+            Any other URL is crawled generically: member links, 公司名稱 / 網址 / 電話 / 地址 fields, and 下一頁 pagination.
+          </div>
+        </div>
+
+        <div class="field" id="lead-gov-wrap" style="display:none">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
+            <input type="checkbox" id="lead-resolve-sites" checked style="width:auto;margin:0" />
+            <label for="lead-resolve-sites" style="margin:0">Resolve missing websites via Google Maps — registry rows have no URL, so without this they can't yield an email (slower: one Maps lookup per company)</label>
+          </div>
+          <div style="font-size:0.72rem;color:var(--text-muted)">
+            The registry is searched by <b>company name</b> (Chinese) or an <code style="font-family:ui-monospace,monospace">F######</code> 營業項目 code; Region filters on the registered address.
+          </div>
+        </div>
+
+        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" id="lead-gcis-enrich" style="width:auto;margin:0" />
+          <label for="lead-gcis-enrich" style="margin:0">Enrich leads from 經濟部 registry — attach 統一編號, 資本額, 負責人 &amp; 設立日期 (a free company-size signal for ICP scoring)</label>
+        </div>
+
         <div style="font-size:0.75rem;color:var(--text-muted);background:var(--accent-soft);border:1px solid rgba(47,107,255,0.2);border-radius:10px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
-          Funnel: discover on Google Maps → scrape each website for emails → verify (MX + SMTP, no paid DB) → dedupe → AI qualifies ICP fit &amp; writes a per-lead hook. Uses headless Chromium (<code style="font-family:ui-monospace,monospace">uv run playwright install chromium</code>).
+          Funnel: discover (Google Maps / 公會名錄 / 經濟部商工登記) → scrape each website for emails → verify (MX + SMTP, no paid DB) → dedupe → optional registry enrichment → AI qualifies ICP fit &amp; writes a per-lead hook. Uses headless Chromium (<code style="font-family:ui-monospace,monospace">uv run playwright install chromium</code>).
           <b>For compliant B2B outreach only</b> — prefer role addresses, always include an unsubscribe + your identity, and honor opt-outs (GDPR / CAN-SPAM / PDPA).
         </div>
       </div>

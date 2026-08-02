@@ -423,7 +423,8 @@ register(AutomationSpec(
     start_log="Starting lead-collection funnel...", temperature=0.4, browser=True,
     steps=(("Start", "Starting"), ("Validate", "Payload validated"),
            ("Discover", "Discovering businesses"), ("Extract", "Extracting email"),
-           ("Collect", "Collected"), ("Qualify", "Qualifying"), *_QA, _DONE),
+           ("Collect", "Collected"), ("Enrich", "Enriching"),
+           ("Qualify", "Qualifying"), *_QA, _DONE),
     validate=lambda r: (r.get("discovered_count", 0) > 0, "no businesses discovered"),
     rubric="Real businesses were discovered with verified contact emails and useful personalization hooks.",
 ))

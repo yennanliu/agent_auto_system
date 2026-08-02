@@ -31,7 +31,8 @@ Output → leads table + `GET /api/runs/{id}/leads.csv` (BOM-encoded for Excel/C
 
 ### The one real limitation
 
-Today there is exactly **one source: Google Maps → the business's own website.**
+*(Historical baseline — Tier 2 below is now shipped; discovery is multi-source.)*
+As originally written there was exactly **one source: Google Maps → the business's own website.**
 It's a strong ICP-fit source, but it structurally misses:
 
 - *(Historical baseline — see the status update below; Facebook and X are now mined.)* Every business whose Maps "website" is Facebook / IG / Linktree — the page is still fetched and any *published* email harvested, but on these shared hosts `_is_shared_host` (backed by `_NO_GUESS_DOMAINS`) suppresses the `info@` fallback guess, and a JS/login-walled social page rarely exposes an email to the plain `urllib` fetch — so with the Maps-only funnel these yielded **nothing**.
@@ -57,12 +58,12 @@ matching the project's stated philosophy of not buying from paid databases.
 
 ### Tier 2 — New public directories (high fit for TW SMEs)
 
-| Idea | Why | Effort |
-|---|---|---|
-| **政府 / 法人登記資料** (經濟部商業司, 台灣公司網) | Verified company identity (統一編號, registered name, address); pair with domain-guessing to produce a low-confidence `contact@` *candidate* that still needs independent MX/SMTP verification before it earns higher confidence. | Medium |
-| **Chambers of commerce & industry associations** (工商協進會, 中小企業總會, sector guilds) | Frequently publish member emails openly — *exactly* the ICP. | Medium |
-| **B2B directories** (台灣經貿網 / Taiwantrade, 中華黃頁, 104 / 1111 company pages) | Structured, email-rich, SME-heavy. | Medium |
-| **Government procurement lists** (政府採購網) | Companies bidding on tenders are actively spending and usually list a contact. | Medium |
+| Idea | Why | Effort | Status |
+|---|---|---|---|
+| **政府 / 法人登記資料** (經濟部商業司, 台灣公司網) | Verified company identity (統一編號, registered name, address); pair with domain-guessing to produce a low-confidence `contact@` *candidate* that still needs independent MX/SMTP verification before it earns higher confidence. | Medium | **shipped** — `moea_gcis_tool.py` |
+| **Chambers of commerce & industry associations** (工商協進會, 中小企業總會, sector guilds) | Frequently publish member emails openly — *exactly* the ICP. | Medium | **shipped** — `tw_association_tool.py` |
+| **B2B directories** (台灣經貿網 / Taiwantrade, 中華黃頁, 104 / 1111 company pages) | Structured, email-rich, SME-heavy. | Medium | |
+| **Government procurement lists** (政府採購網) | Companies bidding on tenders are actively spending and usually list a contact. | Medium | |
 
 > **Status update.** The **Facebook Page** and **X (Twitter) profile-bio**
 > sources from Tier 1 are now implemented (`facebook_contact_tool.py`,
@@ -74,6 +75,24 @@ matching the project's stated philosophy of not buying from paid databases.
 > links, running that back through the normal website extractor. Both reuse the
 > shared `contact_harvest.py` harvest/validation helper. Instagram About
 > extraction is next.
+
+> **Status update (Tier 2).** Both Taiwan directory sources are now implemented
+> and stage 1 is **pluggable**: the `sources` payload field selects any
+> combination of `maps`, `association` (公會/工會 member directories —
+> `tw_association_tool.py`, with a first-class 台北市電腦商業同業公會 adapter and
+> a generic crawler for any member-list URL) and `govbiz` (經濟部 商工登記, via
+> the 商工行政資料開放平臺 open-data API — `moea_gcis_tool.py`). Results are
+> merged and deduped across sources on registrable domain, so the same company
+> found twice becomes one lead carrying every source's fields. The registry
+> publishes no URL, so `resolve_missing_websites` looks companies up on Maps by
+> their exact registered name — accepting a hit only when the place's own name
+> corroborates it, because Maps answers an unlisted company with whatever was
+> nearest. `gcis_enrich` attaches 統一編號 / 資本額 / 負責人 / 設立日期 to leads
+> from *any* source. See [README.md](README.md#multi-source-discovery-shipped).
+>
+> This also delivers two of the cross-cutting items below: leads now carry a
+> `discovery` field (which source found the company, separate from `source` =
+> where the email came from), and dedupe is cross-source, not just per-email.
 
 ### Tier 3 — Smarter extraction on sources we already hit
 

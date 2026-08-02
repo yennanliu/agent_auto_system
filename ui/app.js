@@ -150,18 +150,22 @@ const AUTO_CATALOG = {
   },
   email_collect: {
     icon: '📧', name: 'Email Collector',
-    desc: 'Find businesses on Google Maps and collect their contact emails — no paid database. For a search + region it discovers businesses, scrapes each website for emails, verifies them (MX + SMTP), removes duplicates, then uses AI to score fit and write a personalized opening line for each one, ready for your outreach.',
+    desc: 'Find businesses and collect their contact emails — no paid database. Discovers companies from Google Maps, Taiwan 公會/工會 member directories, and the 經濟部 商工登記 company registry, scrapes each website for emails, verifies them (MX + SMTP), removes duplicates across sources, optionally enriches each lead with registry facts (統一編號, 資本額, 負責人), then uses AI to score fit and write a personalized opening line for each one.',
     inputs: [
-      { name: 'query',    type: 'str', desc: 'What businesses to find (e.g. marketing agency, dental clinic)' },
-      { name: 'region',   type: 'str', desc: 'Where (e.g. Taipei / Berlin / Austin, TX). Blank = anywhere' },
+      { name: 'query',    type: 'str', desc: 'What businesses to find (e.g. marketing agency, dental clinic). Also the keyword for 公會 directory and 經濟部 registry search — use Chinese there' },
+      { name: 'region',   type: 'str', desc: 'Where (e.g. Taipei / Berlin / Austin, TX). Blank = anywhere. Filters the registered address for the 經濟部 source' },
       { name: 'industry', type: 'str (optional)', desc: 'Extra qualifier folded into the search term' },
       { name: 'offer',    type: 'str (optional)', desc: "What you're pitching — drives ICP scoring & hooks" },
-      { name: 'limit',    type: 'int (1–40)', desc: 'Number of businesses to discover' },
+      { name: 'limit',    type: 'int (1–500)', desc: 'Number of businesses to discover (across all sources, after dedupe)' },
+      { name: 'sources',  type: 'list', desc: "Discovery sources: 'maps', 'association' (公會 member directories), 'govbiz' (經濟部 商工登記). Default: maps" },
+      { name: 'associations', type: 'list', desc: "公會 directories to search — a built-in slug ('tca' = 台北市電腦商業同業公會) or any member-list URL" },
+      { name: 'resolve_missing_websites', type: 'bool', desc: 'Look up a website on Maps for companies discovered without one (registry rows) so they can yield an email' },
+      { name: 'gcis_enrich', type: 'bool', desc: 'Attach 統一編號 / 資本額 / 負責人 / 設立日期 from the 經濟部 registry to each lead' },
       { name: 'smtp_check', type: 'bool', desc: 'Run the SMTP RCPT probe during verification' },
       { name: 'include_social', type: 'bool', desc: 'Mine social profiles (Facebook, X, Instagram) for contacts and follow any real site they link' },
     ],
     crew: 'EmailCollectCrew', flow: 'EmailCollectFlow',
-    agent: 'Lead Qualifier', tools: ['Google Maps Search', 'Web Email Extractor', 'Email Verifier', 'Facebook Contact', 'X Profile Contact', 'Instagram Contact'],
+    agent: 'Lead Qualifier', tools: ['Google Maps Search', '公會 Member Directory', '經濟部 Company Registry', 'Web Email Extractor', 'Email Verifier', 'Facebook Contact', 'X Profile Contact', 'Instagram Contact'],
   },
   pipeline: {
     icon: '🔗', name: 'Pipeline',
@@ -1381,6 +1385,16 @@ document.getElementById('job-schedule-preset').addEventListener('change', (e) =>
 document.getElementById('ph-files').addEventListener('change', renderPhClassified);
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModalFn(); });
 
+// email_collect: reveal each discovery source's own options only when it's on.
+function syncLeadSourceOptions() {
+  document.getElementById('lead-assoc-wrap').style.display =
+    document.getElementById('lead-src-assoc').checked ? '' : 'none';
+  document.getElementById('lead-gov-wrap').style.display =
+    document.getElementById('lead-src-gov').checked ? '' : 'none';
+}
+['lead-src-assoc', 'lead-src-gov'].forEach(id =>
+  document.getElementById(id).addEventListener('change', syncLeadSourceOptions));
+
 // ── Job type card selection ───────────────────────────────────────────────────
 
 document.getElementById('type-grid').addEventListener('click', (e) => {
@@ -1881,10 +1895,25 @@ runForm.addEventListener('submit', async (e) => {
     const industry = document.getElementById('lead-industry').value.trim();
     const offer    = document.getElementById('lead-offer').value.trim();
     const limit    = parseInt(document.getElementById('lead-limit').value, 10) || 15;
+    const sources = [];
+    if (document.getElementById('lead-src-maps').checked)  sources.push('maps');
+    if (document.getElementById('lead-src-assoc').checked) sources.push('association');
+    if (document.getElementById('lead-src-gov').checked)   sources.push('govbiz');
+    if (!sources.length) { showToast('Pick at least one discovery source', 'error'); return; }
+    const associations = document.getElementById('lead-associations').value
+      .split('\n').map(s => s.trim()).filter(Boolean);
+    if (sources.includes('association') && !associations.length) {
+      showToast('Add at least one 公會 directory (slug or URL)', 'error'); return;
+    }
     payload = {
-      query, limit,
+      query, limit, sources,
       smtp_check: document.getElementById('lead-smtp').checked,
       include_social: document.getElementById('lead-social').checked,
+      gcis_enrich: document.getElementById('lead-gcis-enrich').checked,
+      ...(associations.length ? { associations } : {}),
+      ...(sources.includes('govbiz')
+        ? { resolve_missing_websites: document.getElementById('lead-resolve-sites').checked }
+        : {}),
       ...(region   ? { region }   : {}),
       ...(industry ? { industry } : {}),
       ...(offer    ? { offer }    : {}),

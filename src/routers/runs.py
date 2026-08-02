@@ -203,8 +203,10 @@ def get_run_report(run_id: int):
 # Column order for the email_collect CSV export — most useful for outreach first.
 _LEAD_CSV_FIELDS = [
     "company", "email", "confidence", "icp_fit", "hook", "category", "phone",
-    "website", "address", "region", "source", "mx_found", "smtp_status",
-    "reason", "maps_url",
+    "website", "address", "region", "source", "discovery", "mx_found",
+    "smtp_status", "reason", "maps_url",
+    # 經濟部 registry enrichment — present only when gcis_enrich was on.
+    "tax_id", "responsible", "capital", "setup_date", "registered_address",
 ]
 
 

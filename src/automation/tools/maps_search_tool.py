@@ -100,6 +100,158 @@ def search_maps(query: str, region: str = "", limit: int = 15, log=None) -> dict
             browser.close()
 
 
+def resolve_websites(names, region: str = "", log=None) -> dict:
+    """Look up a website for each company name. Returns {name: website or ""}.
+
+    The bridge that makes website-less sources usable by the funnel: 經濟部's
+    company registry publishes an authoritative name + address but never a URL,
+    and without a URL there is nothing for the email extractor to scrape. Maps
+    already knows the mapping, so we ask it — searching the *exact registered
+    name* rather than a category, which is a far more precise query than the
+    discovery search and usually lands straight on the place panel.
+
+    One browser is reused across every lookup: launching Chromium per name would
+    dominate the cost of the whole stage. Each name is independently guarded, so
+    one dead lookup never sinks the batch.
+
+    Deliberately conservative — a hit is only returned when the place's own name
+    corroborates it (see :func:`_name_matches`). Some real companies are missed
+    that way, notably ones Maps lists under an English trade name while the
+    registry holds the Chinese legal one, but a missed website costs one lead
+    whereas a wrong one puts a stranger's email under a real company's name.
+    """
+    _log = log or (lambda _m: None)
+    names = [n for n in dict.fromkeys(n.strip() for n in names) if n]
+    out: dict[str, str] = {}
+    if not names:
+        return out
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:  # noqa: BLE001
+        _log(f"Cannot resolve websites (playwright unavailable: {exc})")
+        return out
+
+    # Unlike the discovery search, this one runs in Chinese: the names we're
+    # resolving are Taiwanese legal names, and an English-locale Maps answers
+    # with English trade names ("Trend Micro" for 趨勢科技股份有限公司) that the
+    # corroboration check below can never match.
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--lang=zh-TW"],
+        )
+        ctx = browser.new_context(
+            user_agent=_UA, locale="zh-TW",
+            viewport={"width": 1366, "height": 900},
+        )
+        page = ctx.new_page()
+        try:
+            for i, name in enumerate(names, 1):
+                site = _resolve_one(page, name, region)
+                out[name] = site
+                _log(f"[{i}/{len(names)}] {name} → {site or 'no website found'}")
+        finally:
+            browser.close()
+    return out
+
+
+def _resolve_one(page, name: str, region: str) -> str:
+    """Website for a single business name, or "" if Maps has no confident match.
+
+    Maps never says "not found": search a company it doesn't list and it happily
+    returns whatever else is nearby. Taking that website would staple a
+    stranger's email onto the company we were asked about — a lead that looks
+    verified and is wrong — so the place's *name* has to corroborate the hit
+    before its website is accepted.
+    """
+    term = f"{name} {region}".strip()
+    try:
+        page.goto(f"{_BASE}{urllib.parse.quote(term)}?hl=zh-TW",
+                  wait_until="domcontentloaded", timeout=30_000)
+        _dismiss_consent(page)
+        # An unambiguous name skips the results feed — Maps opens the place
+        # panel directly, so look for the website link before anything else.
+        try:
+            page.wait_for_selector(
+                'a[data-item-id="authority"], a[href*="/maps/place/"]',
+                timeout=12_000)
+        except Exception:  # noqa: BLE001 — no panel and no feed → give up on this name
+            return ""
+        site = _attr(page, 'a[data-item-id="authority"]', "href")
+        if site:
+            found = _text(page, "h1.DUwDvf") or _text(page, "h1")
+            return site if _name_matches(name, found) else ""
+        # A results feed instead of a panel: the exact company is often not the
+        # top hit, so check the first few before concluding Maps doesn't have it.
+        hrefs = page.evaluate(
+            """(n) => Array.from(document.querySelectorAll('a[href*="/maps/place/"]'))
+                          .slice(0, n).map(a => a.href)""",
+            _RESOLVE_CANDIDATES,
+        )
+        for href in hrefs:
+            place = _read_place(page, href, []) or {}
+            if place.get("website") and _name_matches(name, place.get("name", "")):
+                return place["website"]
+        return ""
+    except Exception:  # noqa: BLE001 — nav crash / timeout → treat as unresolved
+        return ""
+
+
+# How many search results to check before giving up on a name. Each one is a
+# page load, so this trades wall-clock for recall; 3 covers the common case
+# where the exact company sits just under a sponsored/bigger neighbour.
+_RESOLVE_CANDIDATES = 3
+
+
+# Corporate suffixes carried by a registered name but almost never by the trade
+# name Maps shows ("鼎高網路行銷有限公司" is listed as "鼎高網路行銷"). Longest
+# first, and matched *after* punctuation is stripped — so "Co., Ltd." arrives
+# here as the single token "coltd".
+_CORP_SUFFIXES = (
+    "股份有限公司", "有限公司", "企業有限公司", "企業社", "工作室", "事務所",
+    "分公司", "行號", "商行", "公司",
+    "companylimited", "coltd", "limited", "corp", "llc", "ltd", "inc",
+)
+
+
+def _name_matches(query: str, found: str) -> bool:
+    """True if the place Maps opened is plausibly the company we searched for.
+
+    Compares the *cores* — names with punctuation, the bracketed Latin alias many
+    TW registries append, the 台/臺 spelling split, and the corporate suffix all
+    removed — and accepts a containment either way, since Maps lists trade names
+    and the registry lists legal ones. Short cores (a 1-character stem) must
+    match exactly; containment on those is coincidence, not evidence.
+    """
+    a, b = _name_core(query), _name_core(found)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if min(len(a), len(b)) < 2:
+        return False
+    return a in b or b in a
+
+
+def _name_core(name: str) -> str:
+    """A company name reduced to its distinctive stem, for comparison only."""
+    name = re.sub(r"[（(][^）)]*[）)]", "", name or "")     # drop "（Acme Co., Ltd.）"
+    name = re.sub(r"[\s\-_·・,，.。&＆'\"]+", "", name).lower()
+    name = name.replace("台", "臺")
+    # Repeat: one name can stack suffixes ("acme" + "co" + "ltd" → "acmecoltd").
+    # Never strip down past two characters — what's left would be noise.
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _CORP_SUFFIXES:
+            if name.endswith(suffix) and len(name) - len(suffix) >= 2:
+                name = name[: -len(suffix)]
+                changed = True
+                break
+    return name
+
+
 def _dismiss_consent(page) -> None:
     """Best-effort click through Google's EU consent wall if it appears."""
     if "consent." not in page.url and "consent" not in (page.title() or "").lower():

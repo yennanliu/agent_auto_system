@@ -501,7 +501,7 @@ _CATALOG: dict = {
             "tasks": [
                 {
                     "name": "qualify_task",
-                    "description": "Score ICP fit (1–5) and write one personalization hook per discovered business. Discovery, email extraction, and verification are done deterministically in EmailCollectFlow via the maps_search / web_email_extract / email_verify tools.",
+                    "description": "Score ICP fit (1–5) and write one personalization hook per discovered business. Discovery (Google Maps, 公會/工會 member directories, 經濟部 商工登記), email extraction, verification, and registry enrichment are done deterministically in EmailCollectFlow via the maps_search / tw_association_directory / moea_company_registry / web_email_extract / email_verify tools.",
                     "expected_output": '[{"i": 0, "icp_fit": 4, "reason": "...", "hook": "..."}]',
                     "config_file": "src/automation/crews/email_collect_crew/config/tasks.yaml",
                 }
