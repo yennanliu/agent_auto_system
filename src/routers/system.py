@@ -279,6 +279,32 @@ _CATALOG: dict = {
             "source_file": "src/automation/tools/maps_search_tool.py",
         },
         {
+            "id": "tw_association_directory",
+            "name": "公會 Member Directory",
+            "class": "TWAssociationTool",
+            "description": "Search a Taiwan trade-association (公會/工會) member directory for companies: name, website, phone, address, category. Built-in adapter for 台北市電腦商業同業公會 (TCA) 會員e名錄; any other member-list URL is crawled generically (outbound member links, 公司名稱/網址/電話/地址 labelled cells, 下一頁 paging). Public hosts only. Returns partial results + warnings.",
+            "inputs": [
+                {"name": "source",  "type": "str", "description": "Built-in slug ('tca') or a member-directory URL"},
+                {"name": "keyword", "type": "str", "description": "Company-name keyword, e.g. '科技' (TCA needs 2+ Chinese characters)"},
+                {"name": "limit",   "type": "int (1–500)", "description": "Number of members to collect"},
+            ],
+            "used_by": ["EmailCollectFlow"],
+            "source_file": "src/automation/tools/tw_association_tool.py",
+        },
+        {
+            "id": "moea_company_registry",
+            "name": "經濟部 Company Registry",
+            "class": "MoeaGcisTool",
+            "description": "Search Taiwan's 經濟部 商工登記公示資料 (company registry) through the 商工行政資料開放平臺 open-data API: 統一編號, registered name, address, 負責人, capital, 設立日期. Accepts a company-name keyword or an F###### 營業項目 code; `city` filters the registered address. Registry rows carry no website or email — the flow resolves those via Maps.",
+            "inputs": [
+                {"name": "keyword", "type": "str", "description": "Company-name fragment (Chinese) or an F###### 營業項目 code"},
+                {"name": "limit",   "type": "int (1–500)", "description": "Number of companies to return"},
+                {"name": "city",    "type": "str", "description": "Optional — filters on the registered address, e.g. '台北'"},
+            ],
+            "used_by": ["EmailCollectFlow"],
+            "source_file": "src/automation/tools/moea_gcis_tool.py",
+        },
+        {
             "id": "web_email_extract",
             "name": "Web Email Extractor",
             "class": "WebEmailExtractTool",
@@ -501,7 +527,7 @@ _CATALOG: dict = {
             "tasks": [
                 {
                     "name": "qualify_task",
-                    "description": "Score ICP fit (1–5) and write one personalization hook per discovered business. Discovery, email extraction, and verification are done deterministically in EmailCollectFlow via the maps_search / web_email_extract / email_verify tools.",
+                    "description": "Score ICP fit (1–5) and write one personalization hook per discovered business. Discovery (Google Maps, 公會/工會 member directories, 經濟部 商工登記), email extraction, verification, and registry enrichment are done deterministically in EmailCollectFlow via the maps_search / tw_association_directory / moea_company_registry / web_email_extract / email_verify tools.",
                     "expected_output": '[{"i": 0, "icp_fit": 4, "reason": "...", "hook": "..."}]',
                     "config_file": "src/automation/crews/email_collect_crew/config/tasks.yaml",
                 }

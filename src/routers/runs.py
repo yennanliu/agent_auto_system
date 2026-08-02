@@ -203,8 +203,12 @@ def get_run_report(run_id: int):
 # Column order for the email_collect CSV export — most useful for outreach first.
 _LEAD_CSV_FIELDS = [
     "company", "email", "confidence", "icp_fit", "hook", "category", "phone",
-    "website", "address", "region", "source", "mx_found", "smtp_status",
-    "reason", "maps_url",
+    "website", "address", "region", "source", "discovery", "mx_found",
+    "smtp_status", "reason", "maps_url",
+    # 經濟部 registry enrichment — present only when gcis_enrich was on.
+    # `responsible` (負責人) names a natural person: this CSV then carries
+    # personal data and falls under the PDPA/GDPR handling you apply elsewhere.
+    "tax_id", "responsible", "capital", "setup_date", "registered_address",
 ]
 
 

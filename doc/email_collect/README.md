@@ -102,7 +102,9 @@ final ICP-fit + personalization-hook stage uses the LLM — mirroring the
 
 | File | Role |
 |---|---|
-| `src/automation/tools/maps_search_tool.py` | Stage 1 — Playwright scrape of Google Maps: name, website, phone, address, category |
+| `src/automation/tools/maps_search_tool.py` | Stage 1 — Playwright scrape of Google Maps: name, website, phone, address, category. Also `resolve_websites()`, the name→website lookup that makes website-less sources usable |
+| `src/automation/tools/tw_association_tool.py` | Stage 1 (TW) — 公會/工會 member directories: a built-in TCA adapter plus a generic crawler for any member-list URL |
+| `src/automation/tools/moea_gcis_tool.py` | Stage 1 (TW) + enrichment — 經濟部 商工登記公示資料 via the 商工行政資料開放平臺 API: keyword / 營業項目 search, and per-company 統編 / 資本額 / 負責人 lookup |
 | `src/automation/tools/email_extract_tool.py` | Stage 2 — urllib fetch of homepage + contact/about/impressum pages; mailto+text emails; junk filter; role-address ranking; single `info@` guess (never on social hosts) |
 | `src/automation/tools/email_verify_tool.py` | Stage 3 — syntax → MX (dnspython, A-record fallback) → best-effort SMTP RCPT probe (no send); high/medium/low confidence |
 | `src/automation/flows/email_collect_flow.py` | `Flow[EmailCollectState]` — drives the funnel + dedupe, then the qualifier crew |
@@ -111,11 +113,52 @@ final ICP-fit + personalization-hook stage uses the LLM — mirroring the
 
 **Dependency added:** `dnspython` (MX lookups).
 
-**Inputs:** `query` (required), `region`, `industry`, `offer`, `limit` (1–40),
-`smtp_check`. **Result JSON:** `discovered_count`, `with_website`, `lead_count`,
+**Inputs:** `query` (required), `region`, `industry`, `offer`, `limit` (1–500),
+`smtp_check`, `include_social`, plus the multi-source controls: `sources`
+(`maps` · `association` · `govbiz`, default `["maps"]`), `associations`
+(公會 slugs / member-list URLs), `resolve_missing_websites`, `gcis_enrich`.
+**Result JSON:** `sources`, `discovered_count`, `with_website`, `lead_count`,
 `leads[]` (company, email, website, category, phone, address, source,
-confidence, mx_found, smtp_status, icp_fit, reason, hook), plus `businesses[]`
-(all discovered) and non-fatal `warnings[]`.
+`discovery`, confidence, mx_found, smtp_status, icp_fit, reason, hook, and —
+with `gcis_enrich` — tax_id, responsible, capital, setup_date), plus
+`businesses[]` (all discovered) and non-fatal `warnings[]`.
+
+### Multi-source discovery (shipped)
+
+Stage 1 is now pluggable. Every enabled source is asked for the full `limit`,
+results are **merged and deduped** on registrable domain (falling back to a
+normalized company name), then **interleaved round-robin** so one source can't
+consume the whole budget. A company found twice becomes one business carrying
+whatever each source knew — Maps supplies the `maps_url`, the 公會 row the
+業務類型, the registry the 統一編號.
+
+| Source | What it is | Gives a website? |
+|---|---|---|
+| `maps` | Google Maps search (default; the only worldwide source) | usually |
+| `association` | 公會/工會 member directories. Built-in slug `tca` (台北市電腦商業同業公會 會員e名錄, Big5 ASP: keyword list → per-member detail). Any other member-list URL is crawled generically — outbound member links, 公司名稱/網址/電話/地址 labelled cells, same-site detail pages, 下一頁 paging | usually |
+| `govbiz` | 經濟部 商工登記公示資料, via the 商工行政資料開放平臺 open-data API (`data.gcis.nat.gov.tw`). Keyword search on 公司名稱, or an `F######` 營業項目 code; `region` filters the registered address | **no** |
+
+Two notes on `govbiz`. First, we call the **API, not findbiz** — the public UI at
+`findbiz.nat.gov.tw` answers a plain HTTP GET with 403 and its markup is
+unstable, while the open-data platform serves the same registry with documented
+parameters and no key. Second, registry rows have no URL and therefore cannot
+produce an email on their own: `resolve_missing_websites` bridges that by
+looking each company up on Maps by its exact registered name.
+
+That lookup is deliberately strict. Maps never answers "not found" — search a
+company it doesn't list and it returns whichever business was nearest — so the
+place's own name has to corroborate the hit before its website is accepted
+(`_name_matches`, comparing name *cores* with the corporate suffix, bracketed
+Latin alias, and 台/臺 split removed). It runs in `hl=zh-TW`, since an
+English-locale Maps answers "Trend Micro" for 趨勢科技股份有限公司 and the check
+could never match. Real companies that Maps only lists in English are still
+missed — a missed website costs one lead, a wrong one files a stranger's email
+under a real company.
+
+Independently of discovery, `gcis_enrich` attaches 統一編號 / 資本額 / 負責人 /
+設立日期 to leads found by *any* source (exact-name match only — a wrong 統編 is
+worse than none). Capital and setup date are a free company-size signal for
+ICP scoring.
 
 **Output UX:** the run detail renders a leads table (company · email · confidence
 · ICP · hook · site) and a **Download CSV** button →
@@ -134,7 +177,11 @@ uv run pytest tests/unit/test_email_collect_tools.py tests/unit/test_email_colle
 are Google's own and drift over time — every field read is guarded, so a shift
 degrades one field rather than failing the run, but the selectors will need
 periodic refresh. SMTP port 25 is blocked on many networks/clouds → probes
-report `unknown` (verification falls back to MX-only). Businesses whose Maps
-"website" is a Facebook/Instagram page yield no email (we don't guess on shared
-hosts) — a future Facebook/IG "About"-block extractor would recover those.
-Directory / chamber-of-commerce sources are the next sources to add.
+report `unknown` (verification falls back to MX-only). The TCA adapter searches
+Chinese company names, so an English `query` returns nothing there. The generic
+公會 crawler is structural and best-effort: these sites are hand-rolled, and a
+directory that renders its member list from JavaScript (the crawler is
+`urllib`-only) or hides it behind a login will come back empty with a warning
+rather than a partial list. Next sources worth adding: B2B directories
+(台灣經貿網 / 中華黃頁), 政府採購網 tender participants, and inbound
+contact-form capture.
