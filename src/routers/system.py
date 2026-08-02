@@ -865,6 +865,19 @@ def get_system():
     return result
 
 
+@router.get("/associations")
+def get_associations():
+    """Built-in 公會 member directories, for the email_collect form's picker.
+
+    The form used to ask for the slug as free text, which is one typo — or one
+    keyword pasted into the wrong box — away from a run that discovers nothing.
+    Serving the real list keeps the picker and `ASSOCIATIONS` in step.
+    """
+    from src.automation.tools.tw_association_tool import list_associations
+
+    return {"associations": list_associations()}
+
+
 @router.get("/automations/manifest")
 def get_automations_manifest():
     """Declarative manifest of every automation, for the browser to render the

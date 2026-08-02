@@ -593,64 +593,126 @@
       </div>
 
       <div id="fields-email_collect" class="hidden">
-        <div class="field"><label>Business Query <span style="color:var(--red)">*</span></label><input type="text" id="lead-query" placeholder="e.g. marketing agency, dental clinic, coffee shop" /></div>
-        <div class="field"><label>Region</label><input type="text" id="lead-region" placeholder="e.g. Taipei / Berlin / Austin, TX — blank = anywhere" /></div>
-        <div class="field"><label>Industry (optional)</label><input type="text" id="lead-industry" placeholder="Extra qualifier folded into the search, e.g. B2B SaaS" /></div>
-        <div class="field"><label>Your Offer (optional — drives ICP scoring &amp; hooks)</label><textarea id="lead-offer" rows="2" placeholder="e.g. an AI agent that automates customer support & lead follow-up for SMBs"></textarea></div>
-        <div class="field" style="display:flex;gap:0.5rem">
-          <div style="flex:1"><label>Businesses to discover (1–500)</label><input type="number" id="lead-limit" value="15" min="1" max="500" /></div>
+        <div class="field">
+          <label for="lead-preset">Start from a preset</label>
+          <select id="lead-preset">
+            <option value="">Custom — I'll fill everything in myself</option>
+            <optgroup label="Taiwan — 公會名錄 + 經濟部登記 (Chinese keywords)">
+              <option value="tw-marketing">行銷 · 台北 — marketing &amp; 廣告 agencies</option>
+              <option value="tw-tech">科技 · 台北 — IT, 軟體 &amp; 系統整合</option>
+              <option value="tw-ecom">電商 · 台北 — e-commerce &amp; 網路 retail</option>
+              <option value="tw-design">設計 · 台北 — design &amp; branding studios</option>
+            </optgroup>
+            <optgroup label="Worldwide — Google Maps (any language)">
+              <option value="global-maps">Google Maps only — e.g. marketing agency in Berlin</option>
+            </optgroup>
+          </select>
+          <div class="lead-hint">Fills every field below; you can still edit anything afterwards.</div>
         </div>
-        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
-          <input type="checkbox" id="lead-smtp" checked style="width:auto;margin:0" />
-          <label for="lead-smtp" style="margin:0">SMTP verification probe (may be slow / blocked on some networks)</label>
+
+        <div id="lead-lang-warn" class="lead-warn"></div>
+
+        <div class="field">
+          <label for="lead-query">Business Query <span style="color:var(--red)">*</span></label>
+          <input type="text" id="lead-query" placeholder="e.g. marketing agency — or 行銷 for the Taiwan sources" />
+          <div class="lead-hint">
+            What to search for. The Taiwan sources match it against registered <b>Chinese</b> company names, so use
+            <code>行銷</code> / <code>科技</code> / <code>設計</code> there — <code>marketing</code> finds nothing.
+          </div>
         </div>
-        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
-          <input type="checkbox" id="lead-social" style="width:auto;margin:0" />
-          <label for="lead-social" style="margin:0">Mine social profiles (Facebook, X, Instagram) — recover leads whose Maps "website" is a Facebook Page / X or Instagram profile, and follow any real site it links</label>
+
+        <div class="field">
+          <label for="lead-region">Region</label>
+          <input type="text" id="lead-region" list="lead-region-options" placeholder="blank = anywhere" />
+          <datalist id="lead-region-options">
+            <option value="台北">台北 (Taipei)</option>
+            <option value="新北">新北 (New Taipei)</option>
+            <option value="桃園">桃園 (Taoyuan)</option>
+            <option value="台中">台中 (Taichung)</option>
+            <option value="台南">台南 (Tainan)</option>
+            <option value="高雄">高雄 (Kaohsiung)</option>
+            <option value="新竹">新竹 (Hsinchu)</option>
+          </datalist>
+          <div class="lead-hint">
+            For 經濟部 this filters the registered address, which is written in Chinese — use <code>台北</code>, not <code>Taipei</code>.
+            Google Maps accepts any language (Berlin, Austin TX…).
+          </div>
         </div>
 
         <div class="field">
           <label>Discovery sources</label>
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
-            <input type="checkbox" id="lead-src-maps" checked style="width:auto;margin:0" />
-            <label for="lead-src-maps" style="margin:0">Google Maps — businesses near a region (works worldwide)</label>
+          <div class="lead-check">
+            <input type="checkbox" id="lead-src-maps" checked />
+            <label for="lead-src-maps">Google Maps
+              <span class="lead-check-sub">Businesses near a region. Works worldwide, any language.</span></label>
           </div>
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
-            <input type="checkbox" id="lead-src-assoc" style="width:auto;margin:0" />
-            <label for="lead-src-assoc" style="margin:0">公會 / 工會 member directories — trade-association member lists (Taiwan)</label>
+          <div class="lead-check">
+            <input type="checkbox" id="lead-src-assoc" />
+            <label for="lead-src-assoc">公會 / 工會 member directories <span class="lead-check-sub">Taiwan trade-association member lists. Members usually publish a website, so these convert to emails well.</span></label>
           </div>
-          <div style="display:flex;align-items:center;gap:0.5rem">
-            <input type="checkbox" id="lead-src-gov" style="width:auto;margin:0" />
-            <label for="lead-src-gov" style="margin:0">經濟部 商工登記 — the government company registry (Taiwan)</label>
+          <div id="lead-assoc-wrap" class="lead-sub" style="display:none">
+            <div id="lead-assoc-builtin"></div>
+            <details class="lead-adv">
+              <summary>Add another directory by URL</summary>
+              <div>
+                <textarea id="lead-associations" rows="2" placeholder="https://www.example-guild.org.tw/members.php"></textarea>
+                <div class="lead-hint">
+                  One per line. Crawled generically: outbound member links, 公司名稱 / 網址 / 電話 / 地址 fields, and 下一頁 pagination.
+                  Only pages that list members in plain HTML work — search forms and JavaScript-rendered lists return little or nothing.
+                </div>
+              </div>
+            </details>
+          </div>
+          <div class="lead-check">
+            <input type="checkbox" id="lead-src-gov" />
+            <label for="lead-src-gov">經濟部 商工登記 <span class="lead-check-sub">The government company registry. Complete coverage, but rows carry no website — turn the option below on or they can't yield an email.</span></label>
+          </div>
+          <div id="lead-gov-wrap" class="lead-sub" style="display:none">
+            <div class="lead-check">
+              <input type="checkbox" id="lead-resolve-sites" checked />
+              <label for="lead-resolve-sites">Look up missing websites on Google Maps
+                <span class="lead-check-sub">One Maps lookup per company (slower). A hit is only kept when the name corroborates, so some rows stay blank by design.</span></label>
+            </div>
           </div>
         </div>
 
-        <div class="field" id="lead-assoc-wrap" style="display:none">
-          <label for="lead-associations">公會 directories — one per line: a built-in slug or any member-list URL</label>
-          <textarea id="lead-associations" rows="3" placeholder="tca&#10;https://www.example-guild.org.tw/members.php"></textarea>
-          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">
-            Built-in: <code style="font-family:ui-monospace,monospace">tca</code> — 台北市電腦商業同業公會 會員e名錄 (searched with your Business Query, so use a Chinese keyword such as 科技 / 行銷).
-            Any other URL is crawled generically: member links, 公司名稱 / 網址 / 電話 / 地址 fields, and 下一頁 pagination.
-          </div>
+        <div class="field">
+          <label for="lead-limit">Businesses to discover (1–500)</label>
+          <input type="number" id="lead-limit" value="15" min="1" max="500" />
         </div>
 
-        <div class="field" id="lead-gov-wrap" style="display:none">
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem">
-            <input type="checkbox" id="lead-resolve-sites" checked style="width:auto;margin:0" />
-            <label for="lead-resolve-sites" style="margin:0">Resolve missing websites via Google Maps — registry rows have no URL, so without this they can't yield an email (slower: one Maps lookup per company)</label>
-          </div>
-          <div style="font-size:0.72rem;color:var(--text-muted)">
-            The registry is searched by <b>company name</b> (Chinese) or an <code style="font-family:ui-monospace,monospace">F######</code> 營業項目 code; Region filters on the registered address.
-          </div>
+        <div class="field">
+          <label for="lead-offer">Your offer (optional — drives ICP scoring &amp; hooks)</label>
+          <textarea id="lead-offer" rows="2" placeholder="e.g. an AI agent that automates customer support & lead follow-up for SMBs"></textarea>
         </div>
 
-        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
-          <input type="checkbox" id="lead-gcis-enrich" style="width:auto;margin:0" />
-          <label for="lead-gcis-enrich" style="margin:0">Enrich leads from 經濟部 registry — attach 統一編號, 資本額, 負責人 &amp; 設立日期 (a free company-size signal for ICP scoring)</label>
-        </div>
+        <details class="lead-adv">
+          <summary>Advanced options</summary>
+          <div>
+            <div class="field">
+              <label for="lead-industry">Industry (optional)</label>
+              <input type="text" id="lead-industry" placeholder="Extra qualifier folded into the search, e.g. B2B SaaS" />
+            </div>
+            <div class="lead-check">
+              <input type="checkbox" id="lead-smtp" checked />
+              <label for="lead-smtp">SMTP verification probe
+                <span class="lead-check-sub">Confirms the mailbox accepts mail. May be slow or blocked on some networks.</span></label>
+            </div>
+            <div class="lead-check">
+              <input type="checkbox" id="lead-social" />
+              <label for="lead-social">Mine social profiles (Facebook, X, Instagram)
+                <span class="lead-check-sub">Recovers leads whose only "website" is a social page, and follows any real site it links.</span></label>
+            </div>
+            <div class="lead-check">
+              <input type="checkbox" id="lead-gcis-enrich" />
+              <label for="lead-gcis-enrich">Enrich from 經濟部 registry
+                <span class="lead-check-sub">Attaches 統一編號, 資本額, 負責人 &amp; 設立日期 — a free company-size signal for ICP scoring.</span></label>
+            </div>
+          </div>
+        </details>
 
-        <div style="font-size:0.75rem;color:var(--text-muted);background:var(--accent-soft);border:1px solid rgba(47,107,255,0.2);border-radius:10px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
-          Funnel: discover (Google Maps / 公會名錄 / 經濟部商工登記) → scrape each website for emails → verify (MX + SMTP, no paid DB) → dedupe → optional registry enrichment → AI qualifies ICP fit &amp; writes a per-lead hook. Uses headless Chromium (<code style="font-family:ui-monospace,monospace">uv run playwright install chromium</code>).
+        <div class="lead-note">
+          Funnel: discover (Google Maps / 公會名錄 / 經濟部商工登記) → scrape each website for emails → verify (MX + SMTP, no paid DB) → dedupe → optional registry enrichment → AI qualifies ICP fit &amp; writes a per-lead hook. Uses headless Chromium (<code>uv run playwright install chromium</code>).
           <b>For compliant B2B outreach only</b> — prefer role addresses, always include an unsubscribe + your identity, and honor opt-outs (GDPR / CAN-SPAM / PDPA).
         </div>
       </div>

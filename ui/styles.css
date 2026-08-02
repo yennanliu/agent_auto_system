@@ -945,6 +945,31 @@ html.theme-dark .hl-yv { color: #98c379; }
 .lead-guessed { font-size: 0.68rem; color: var(--text-muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 0.25rem; }
 html.theme-dark .lead-conf-low { background: rgba(255,255,255,0.08); color: #9aa4af; }
 
+/* email_collect run form */
+.lead-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.3rem; line-height: 1.5; }
+.lead-hint code, .lead-note code { font-family: ui-monospace, monospace; }
+.lead-check { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.35rem; }
+.lead-check input { width: auto; margin: 0.15rem 0 0; flex: none; }
+.lead-check label { margin: 0; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.82rem; color: var(--text); }
+.lead-check .lead-check-sub { display: block; font-size: 0.72rem; color: var(--text-muted); font-weight: 400; margin-top: 0.1rem; }
+.lead-sub { border-left: 2px solid var(--border); padding-left: 0.75rem; margin: 0.5rem 0 0.75rem 0.35rem; }
+.lead-warn {
+  display: none; font-size: 0.75rem; line-height: 1.5; border-radius: 8px;
+  padding: 0.5rem 0.65rem; margin-bottom: 0.75rem;
+  background: var(--yellow-soft); color: var(--yellow); border: 1px solid rgba(143,98,0,0.25);
+}
+.lead-warn.show { display: block; }
+html.theme-dark .lead-warn { border-color: rgba(224,182,74,0.3); }
+.lead-note {
+  font-size: 0.75rem; color: var(--text-muted); background: var(--accent-soft);
+  border: 1px solid rgba(47,107,255,0.2); border-radius: 10px;
+  padding: 0.6rem 0.75rem; margin-bottom: 0.5rem;
+}
+.lead-adv { margin-bottom: 0.75rem; }
+.lead-adv summary { font-size: 0.75rem; color: var(--text-muted); cursor: pointer; user-select: none; }
+.lead-adv summary:hover { color: var(--text); }
+.lead-adv > div { padding-top: 0.6rem; }
+
 /* ══════════════════════════════════════ TASK OVERVIEW (Airflow-style grid) ═════════ */
 .ov-layout { display: grid; grid-template-columns: 260px 1fr; gap: 1rem; align-items: start; }
 @media (max-width: 780px) { .ov-layout { grid-template-columns: 1fr; } }

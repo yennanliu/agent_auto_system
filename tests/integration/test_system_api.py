@@ -173,6 +173,25 @@ async def test_pipeline_workflow_has_source_code(client):
     assert pipeline_wf.get("source_code")
 
 
+# ── 公會 directories (email_collect form picker) ────────────────────────────────
+
+async def test_associations_lists_builtin_directories(client):
+    """The picker renders straight from this, so every row needs slug + name."""
+    data = (await client.get("/api/associations")).json()
+    by_slug = {a["slug"]: a for a in data["associations"]}
+    assert "tca" in by_slug, "the built-in TCA directory must be offered"
+    assert all(a["name"] for a in data["associations"])
+
+
+async def test_associations_slugs_are_accepted_by_the_tool(client):
+    """A slug the picker offers but search_association() rejects would send the
+    run straight to 'unknown association source' — the bug this list prevents."""
+    from src.automation.tools.tw_association_tool import ASSOCIATIONS
+
+    data = (await client.get("/api/associations")).json()
+    assert {a["slug"] for a in data["associations"]} == set(ASSOCIATIONS)
+
+
 # ── Automation manifest ─────────────────────────────────────────────────────────
 
 async def test_manifest_returns_all_automations(client):
