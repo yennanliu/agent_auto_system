@@ -1,10 +1,15 @@
 # Proposal: From One Source to a Multi-Source Lead Engine
 
-Status: **proposal / not implemented.** This document surveys how email collection
-works today and proposes new ways to collect emails. Scoped for a side-project
+Status: **partially shipped.** This document surveys how email collection worked
+when it had a single source and proposes new ones. Scoped for a side-project
 pitch (target: Taiwan SME AI-consulting outreach — see
 [brothersupport.github.io/ai_consultant](https://brothersupport.github.io/ai_consultant/)).
-It changes no code.
+
+Shipped since it was written: the Facebook / X / Instagram sources from Tier 1,
+and both Taiwan directory sources from Tier 2 — 公會/工會 member directories and
+the 經濟部 商工登記 registry. Each is marked in the tables below, and
+[README.md](README.md#multi-source-discovery-shipped) documents what actually
+landed. The rest of this document is still a proposal.
 
 See [README.md](README.md) for the original funnel rationale.
 
@@ -60,7 +65,7 @@ matching the project's stated philosophy of not buying from paid databases.
 
 | Idea | Why | Effort | Status |
 |---|---|---|---|
-| **政府 / 法人登記資料** (經濟部商業司, 台灣公司網) | Verified company identity (統一編號, registered name, address); pair with domain-guessing to produce a low-confidence `contact@` *candidate* that still needs independent MX/SMTP verification before it earns higher confidence. | Medium | **shipped** — `moea_gcis_tool.py` |
+| **政府 / 法人登記資料** (經濟部商業司, 台灣公司網) | Verified company identity (統一編號, registered name, address). *As shipped, the website is resolved by an exact-name-corroborated Google Maps lookup rather than the domain-guessing originally proposed — guessing a domain from a registered name produces a plausible address for the wrong company far too often.* | Medium | **shipped** — `moea_gcis_tool.py` |
 | **Chambers of commerce & industry associations** (工商協進會, 中小企業總會, sector guilds) | Frequently publish member emails openly — *exactly* the ICP. | Medium | **shipped** — `tw_association_tool.py` |
 | **B2B directories** (台灣經貿網 / Taiwantrade, 中華黃頁, 104 / 1111 company pages) | Structured, email-rich, SME-heavy. | Medium | |
 | **Government procurement lists** (政府採購網) | Companies bidding on tenders are actively spending and usually list a contact. | Medium | |

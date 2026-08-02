@@ -25,7 +25,9 @@ Two ways in:
 
 Like every scraper in this package it returns partial results instead of raising.
 """
+import ipaddress
 import re
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,7 +37,10 @@ from pydantic import BaseModel
 
 from src.automation.tools.contact_harvest import (
     harvest_emails_from_text,
+    merge_by_keys,
+    normalize_company_name,
     social_platform,
+    unique_records,
 )
 
 _UA = (
@@ -121,6 +126,11 @@ def search_association(source: str, keyword: str = "", limit: int = 30,
         label = spec["name"]
     elif source.lower().startswith(("http://", "https://")):
         label = urllib.parse.urlparse(source).netloc
+        # This URL comes straight from a run payload, so it is untrusted input.
+        reason = _reject_reason(source)
+        if reason:
+            return {"source": source, "association": label, "businesses": [],
+                    "warnings": [f"refusing to crawl {source}: {reason}"]}
         _log(f"Crawling member directory {source}...")
         businesses = _scrape_generic(source, keyword, limit, warnings, _log)
     else:
@@ -191,9 +201,19 @@ def _tca_search(keyword: str, limit: int, warnings: list[str], log) -> list[dict
         if len(members) >= limit:
             break
 
+    # One sequential POST per member at a 25 s timeout, so an unbounded `limit`
+    # (clamped only at 500) could hold the run for hours. Same ceiling the
+    # generic crawler applies to its detail pages, and the truncation is
+    # reported rather than silent.
+    take = min(len(members), limit, _MAX_DETAIL_PAGES)
+    if take < min(len(members), limit):
+        # Only when the safety cap is what bit — stopping at the caller's own
+        # `limit` is the limit working, not a truncation worth warning about.
+        warnings.append(f"TCA: read {take} of {len(members)} matched member "
+                        f"record(s) — narrow the keyword for the rest")
     businesses: list[dict] = []
-    for i, (sno, name, phone) in enumerate(members[:limit], 1):
-        log(f"[{i}/{min(len(members), limit)}] Reading TCA member {name}")
+    for i, (sno, name, phone) in enumerate(members[:take], 1):
+        log(f"[{i}/{take}] Reading TCA member {name}")
         detail = _tca_member(sno)
         businesses.append({
             "name": detail.get("name") or name,
@@ -264,7 +284,7 @@ def _scrape_generic(url: str, keyword: str, limit: int,
             if link not in detail_urls:
                 detail_urls.append(link)
 
-        if len(found) >= limit and not _needs_detail(found):
+        if len(_members(found)) >= limit and not _needs_detail(found):
             break
         page_url = _next_page(html, page_url, host)
         if page_url:
@@ -272,9 +292,9 @@ def _scrape_generic(url: str, keyword: str, limit: int,
 
     # Open member records for rows still missing a website (the field that
     # decides whether the lead can produce an email at all).
-    if detail_urls and (len(found) < limit or _needs_detail(found)):
+    if detail_urls and (len(_members(found)) < limit or _needs_detail(found)):
         for i, durl in enumerate(detail_urls[:_MAX_DETAIL_PAGES], 1):
-            if len(found) >= limit and not _needs_detail(found):
+            if len(_members(found)) >= limit and not _needs_detail(found):
                 break
             html = _fetch(durl)
             if html is None:
@@ -292,7 +312,7 @@ def _scrape_generic(url: str, keyword: str, limit: int,
             if i % 10 == 0:
                 log(f"Read {i} member record(s) from {host}")
 
-    businesses = [_normalize_business(b) for b in found.values()]
+    businesses = [_normalize_business(b) for b in _members(found)]
     if keyword:
         kw = keyword.strip().lower()
         matched = [b for b in businesses
@@ -311,17 +331,41 @@ def _scrape_generic(url: str, keyword: str, limit: int,
     return businesses[:limit]
 
 
+# Row delimiters for splitting a list page into per-member blocks.
+_ROW_SPLIT_RE = re.compile(r"(?=<(?:tr|li|article)\b)", re.I)
+
+
 def _members_from_list(html: str, base: str, host: str) -> list[dict]:
     """Members recognizable from a list page alone (outbound link + labels)."""
     out: list[dict] = []
     for text, href in _outbound_links(html, base, host):
         if text:
             out.append({"name": text, "website": href})
-    fields = _labelled_fields(html)
-    if fields.get("name"):
-        fields["source_url"] = base
-        out.append(fields)
+    for block in _label_blocks(html):
+        fields = _labelled_fields(block)
+        if fields.get("name"):
+            fields["source_url"] = base
+            out.append(fields)
     return out
+
+
+def _label_blocks(html: str) -> list[str]:
+    """Split a page into the units `_labelled_fields` may safely run over.
+
+    Two layouts both occur on these sites, and the split has to tell them apart:
+
+    * **One member, fields down the page** (`<tr>公司名稱…</tr><tr>電話…</tr>`) —
+      the fields belong together, so the whole page is one block. Splitting per
+      row here would strand the name from its phone and website.
+    * **Many members, one per row** — running `_labelled_fields` across the
+      whole page would return the *first* value for each label independently, so
+      a row missing a field silently borrows the next member's, fabricating a
+      company whose website then gets scraped for "its" email.
+
+    A page carrying more than one name label is the second kind.
+    """
+    names = sum(1 for c in _cells(html) if c.rstrip("：: 　") in _LABELS["name"])
+    return [html] if names <= 1 else _ROW_SPLIT_RE.split(html)
 
 
 def _member_emails(html: str, directory_host: str) -> list[str]:
@@ -343,25 +387,39 @@ def _member_emails(html: str, directory_host: str) -> list[str]:
     return out
 
 
+def _members(found: dict) -> list[dict]:
+    """The distinct member rows in the index (several keys share one row)."""
+    return unique_records(found)
+
+
 def _needs_detail(found: dict) -> bool:
     """True while some discovered member still has no website to scrape."""
-    return any(not b.get("website") for b in found.values())
+    return any(not b.get("website") for b in _members(found))
 
 
 def _add_business(found: dict, biz: dict) -> None:
-    """Insert or merge a member row, keyed by website domain, else by name."""
+    """Insert or merge a member row under both its website and name keys.
+
+    One member routinely arrives twice — once from an outbound link on the list
+    page (website known) and once from its detail page (name known, website not
+    yet parsed) — so indexing on either key alone yields two rows for one
+    company. See :func:`merge_by_keys`.
+    """
     website = (biz.get("website") or "").strip()
     name = (biz.get("name") or "").strip()
     if not name and not website:
         return
-    key = _dedupe_key(website) or name.lower()
-    existing = found.get(key)
-    if existing is None:
-        found[key] = dict(biz)
-        return
-    for field, value in biz.items():   # fill blanks, never overwrite
-        if value and not existing.get(field):
-            existing[field] = value
+    entry = merge_by_keys(found, biz, (_dedupe_key(website), _name_key(name)))
+    # A merge can supply a website the row didn't arrive with; register it so
+    # the next sighting of that domain finds this entry.
+    site_key = _dedupe_key(entry.get("website") or "")
+    if site_key:
+        found.setdefault(site_key, entry)
+
+
+def _name_key(name: str) -> str:
+    """Fold a member name for dedupe — shared with the flow's cross-source merge."""
+    return normalize_company_name(name) or name.strip().lower()
 
 
 def _dedupe_key(website: str) -> str:
@@ -536,21 +594,74 @@ def _unescape(text: str) -> str:
 _CHARSET_RE = re.compile(rb'charset=["\']?\s*([\w\-]+)', re.I)
 
 
+# ── SSRF guard ───────────────────────────────────────────────────────────────
+#
+# The generic crawler fetches a URL supplied in the run payload and hands the
+# page's text and any harvested emails back to the caller. Unguarded, that is a
+# read primitive against anything the server can reach — cloud metadata
+# (169.254.169.254), localhost admin panels, RFC1918 hosts. So every address a
+# URL resolves to must be public, and because urllib follows redirects, the
+# check has to run again on each hop rather than only on the URL we were given.
+
+def _reject_reason(url: str) -> str:
+    """Why `url` must not be fetched, or "" if it's a fine public target."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"unsupported scheme '{parsed.scheme}'"
+    host = parsed.hostname
+    if not host:
+        return "no host in URL"
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or
+                                   (443 if parsed.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        return f"host does not resolve ({type(exc).__name__})"
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return "host resolved to an unparseable address"
+        if not ip.is_global or ip.is_multicast:
+            return f"host resolves to the non-public address {ip}"
+    return ""
+
+
+class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-run the host check on every redirect hop.
+
+    Without this a public host can 302 to http://169.254.169.254/ and the guard
+    on the original URL buys nothing.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        reason = _reject_reason(newurl)
+        if reason:
+            raise urllib.error.HTTPError(
+                newurl, code, f"blocked redirect: {reason}", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_SAFE_OPENER = urllib.request.build_opener(_PublicOnlyRedirectHandler)
+
+
 def _fetch(url: str, encoding: str | None = None, data: bytes | None = None):
     """GET/POST a directory page, decoded with the right charset.
 
     Association sites are old: Big5 is still common and often only declared in a
     `<meta>` tag, so sniff the declared charset when the caller doesn't know it.
     Returns None on any transport error — the crawl continues without the page.
+    The decode is inside the `try` too, so a page declaring a charset Python
+    can't honour costs that one page rather than raising out of the tool.
     """
     try:
         req = urllib.request.Request(url, data=data, headers=_HEADERS)
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        with _SAFE_OPENER.open(req, timeout=_TIMEOUT) as resp:
             raw = resp.read(_MAX_BYTES)
             enc = encoding or _sniff_charset(raw, resp.headers.get("Content-Type", ""))
-    except Exception:  # noqa: BLE001 — dead link / timeout / TLS → skip the page
+        return raw.decode(enc, errors="replace")
+    except Exception:  # noqa: BLE001 — dead link / timeout / TLS / bad charset
         return None
-    return raw.decode(enc, errors="replace")
 
 
 def _sniff_charset(raw: bytes, content_type: str) -> str:
@@ -564,7 +675,10 @@ def _sniff_charset(raw: bytes, content_type: str) -> str:
         raw.decode("utf-8")
         return "utf-8"
     except UnicodeDecodeError:
-        return "big5"
+        # Undeclared and not UTF-8 → Big5, and route it through the canonical
+        # mapping like every declared charset so HKSCS characters in company
+        # names survive instead of decoding to replacement characters.
+        return _canonical_charset("big5")
 
 
 def _canonical_charset(name: str) -> str:

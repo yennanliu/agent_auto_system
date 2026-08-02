@@ -51,6 +51,79 @@ _SOCIAL_HOSTS = {
 }
 
 
+# ── company-name normalization ───────────────────────────────────────────────
+#
+# Taiwanese company names reach us in several spellings of the same thing: a 公會
+# directory appends the Latin alias in brackets ("慧與科技股份有限公司（Hewlett
+# Packard Enterprise Taiwan）"), 台 and 臺 are used interchangeably, and spacing
+# varies. Three call sites compare or query on these names — the cross-source
+# business merge, the 經濟部 registry lookup, and the Maps website resolver — and
+# they must agree, or the same company merges in one place and not another.
+_NAME_ALIAS_RE = re.compile(r"[（(\[【][^）)\]】]*[）)\]】]")
+
+
+def strip_name_alias(name: str) -> str:
+    """Drop a bracketed alias: `Acme（Acme Co., Ltd.）` → `Acme`."""
+    return _NAME_ALIAS_RE.sub("", name or "")
+
+
+def normalize_company_name(name: str) -> str:
+    """Fold a company name to a comparable form (alias, spacing, 台/臺, case)."""
+    return re.sub(r"\s+", "", strip_name_alias(name)).replace("台", "臺").lower()
+
+
+# ── multi-key record merge ───────────────────────────────────────────────────
+
+def merge_by_keys(index: dict, item: dict, keys) -> dict:
+    """Fold `item` into `index` under every key that can identify it.
+
+    A business is identified by more than one thing — its website domain and its
+    company name — and the sources rarely supply both at once. A single-key
+    index therefore splits one company in two: the 公會 list page knows the
+    website (domain key), its detail page and the 經濟部 registry know only the
+    name (name key), and neither insert can see the other.
+
+    So every key an entry is known by points at the *same* dict, and a later
+    arrival sharing any one of them merges instead of duplicating. If it bridges
+    two entries that were previously separate, they collapse into one. Existing
+    values always win; a later source only fills blanks. Because several keys
+    map to one object, read the result back with :func:`unique_records`.
+    """
+    keys = [k for k in keys if k]
+    if not keys:
+        return item
+    seen = [index[k] for k in keys if k in index]
+    entry = seen[0] if seen else dict(item)
+    for other in seen[1:]:                      # collapse entries this bridged
+        if other is entry:
+            continue
+        _fill_blanks(entry, other)
+        for key, value in list(index.items()):
+            if value is other:
+                index[key] = entry
+    if seen:
+        _fill_blanks(entry, item)
+    for key in keys:
+        index.setdefault(key, entry)
+    return entry
+
+
+def _fill_blanks(target: dict, source: dict) -> None:
+    for field, value in source.items():
+        if value and not target.get(field):
+            target[field] = value
+
+
+def unique_records(index: dict) -> list:
+    """The distinct entries of a :func:`merge_by_keys` index, in insert order."""
+    out, seen = [], set()
+    for entry in index.values():
+        if id(entry) not in seen:
+            seen.add(id(entry))
+            out.append(entry)
+    return out
+
+
 def social_platform(url: str) -> str | None:
     """Return the canonical platform name for a social URL, else None.
 

@@ -1,5 +1,4 @@
 import json
-import re
 import urllib.parse
 from itertools import zip_longest
 
@@ -10,8 +9,17 @@ from src.automation.crews.email_collect_crew.crew import EmailCollectCrew
 from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
-from src.automation.tools.contact_harvest import social_platform
-from src.automation.tools.email_extract_tool import _registrable_domain, extract_emails
+from src.automation.tools.contact_harvest import (
+    merge_by_keys,
+    normalize_company_name,
+    social_platform,
+    unique_records,
+)
+from src.automation.tools.email_extract_tool import (
+    _is_shared_host,
+    _registrable_domain,
+    extract_emails,
+)
 from src.automation.tools.email_verify_tool import verify_email
 from src.automation.tools.facebook_contact_tool import fetch_facebook_contact
 from src.automation.tools.instagram_contact_tool import fetch_instagram_contact
@@ -188,9 +196,9 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
                 _merge_business(merged, biz)
             append_log(self.state.run_id,
                        f"Source '{source}' contributed {len(found)} business(es); "
-                       f"{len(merged)} unique so far")
+                       f"{len(unique_records(merged))} unique so far")
 
-        businesses = _interleave_by_source(merged.values())[: self.state.limit]
+        businesses = _interleave_by_source(unique_records(merged))[: self.state.limit]
         append_log(self.state.run_id, f"Discovered {len(businesses)} business(es)")
         return businesses, warnings
 
@@ -213,8 +221,18 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
                 found: list[dict] = []
                 warns: list[str] = []
                 for target in targets:
-                    res = search_association(target, search_query,
-                                             self.state.limit, log=log)
+                    # Isolate each directory too, not just the source as a
+                    # whole: one guild's site being down must not discard the
+                    # members already collected from the others.
+                    try:
+                        res = search_association(target, search_query,
+                                                 self.state.limit, log=log)
+                    except Exception as exc:  # noqa: BLE001
+                        append_log(self.state.run_id,
+                                   f"Directory '{target}' failed: {exc}")
+                        warns.append(f"directory '{target}' failed: "
+                                     f"{type(exc).__name__}: {exc}")
+                        continue
                     found.extend(res.get("businesses", []))
                     warns.extend(res.get("warnings", []))
                 return found, warns
@@ -419,40 +437,49 @@ def _interleave_by_source(businesses) -> list[dict]:
 def _merge_business(merged: dict[str, dict], biz: dict) -> None:
     """Insert `biz` into `merged`, or fold it into the matching entry.
 
-    Keyed by the website's registrable domain when there is one, else the
-    company name — the same firm found on Maps and in a 公會 directory must
-    collapse to one row, or the funnel scrapes its site twice and the lead count
-    double-counts it. Existing values win; a later source only fills blanks
-    (Maps knows the maps_url, the directory knows the 業務類型, the registry
-    knows the 統編 — together they make one complete row).
+    Indexed under *both* the website's registrable domain and the company name,
+    because the sources disagree about which they know: Maps has a website,
+    the 經濟部 registry never does, and a 公會 row may have either. Keying on one
+    alone would list the same firm twice — the funnel would scrape its site
+    twice and the lead count would double-count it. Existing values win; a later
+    source only fills blanks (Maps knows the maps_url, the directory knows the
+    業務類型, the registry knows the 統編 — together they make one complete row).
     """
     name = (biz.get("name") or "").strip()
     website = (biz.get("website") or "").strip()
     if not name and not website:
         return
-    key = _business_key(website) or _name_key(name)
-    existing = merged.get(key)
-    if existing is None:
-        merged[key] = dict(biz)
-        return
-    for field, value in biz.items():
-        if value and not existing.get(field):
-            existing[field] = value
+    entry = merge_by_keys(merged, biz, (_business_key(website), _name_key(name)))
+    # Register a website contributed by the merge, so a later row carrying only
+    # that domain finds this entry.
+    site_key = _business_key(entry.get("website") or "")
+    if site_key:
+        merged.setdefault(site_key, entry)
 
 
 def _business_key(website: str) -> str:
+    """The website's registrable domain, or "" when it can't identify a company.
+
+    Shared hosts are excluded on purpose: `facebook.com/shopA` and
+    `facebook.com/shopB` both reduce to `facebook.com`, so keying on the domain
+    would merge two unrelated businesses into one and drop the second. Those
+    fall back to the name key. (Platform tenancies that the Public Suffix List
+    tracks — `a.wixsite.com` vs `b.wixsite.com` — already resolve to distinct
+    registrable domains, which is why `_registrable_domain` runs first.)
+    """
     host = urllib.parse.urlparse(
         website if website.startswith(("http://", "https://"))
         else f"https://{website}" if website else ""
     ).netloc.lower()
-    return _registrable_domain(host) if host else ""
+    if not host:
+        return ""
+    domain = _registrable_domain(host)
+    return "" if _is_shared_host(domain) else domain
 
 
 def _name_key(name: str) -> str:
-    """Normalize a company name for cross-source matching: drop whitespace, the
-    Latin alias many TW directories append in brackets, and the 台/臺 split."""
-    name = re.sub(r"[（(][^）)]*[）)]", "", name or "")
-    return re.sub(r"\s+", "", name).replace("台", "臺").lower()
+    """Normalize a company name for cross-source matching (alias, spacing, 台/臺)."""
+    return normalize_company_name(name)
 
 
 def _parse_qualifications(text: str) -> list[dict]:

@@ -75,17 +75,26 @@ GENERIC_PAGE2 = """
 
 @pytest.fixture
 def fake_fetch(monkeypatch):
-    """Route _fetch through an in-memory {url: html} map keyed by substring."""
+    """Route _fetch through an in-memory {url: html} map.
+
+    Matches the *longest* needle contained in the URL, so routing can't depend
+    on dict insertion order (`members.php` would otherwise shadow
+    `members.php?page=2` whenever it happened to be declared first).
+
+    Also neutralizes the SSRF host guard: it does a real DNS lookup, and the
+    fixture hosts are fictional. The guard has its own tests below.
+    """
     calls = []
 
     def install(pages: dict, default=None):
         def _fetch(url, encoding=None, data=None):
             calls.append((url, data))
-            for needle, html in pages.items():
-                if needle in url:
-                    return html
-            return default
+            matches = [(n, h) for n, h in pages.items() if n in url]
+            if not matches:
+                return default
+            return max(matches, key=lambda item: len(item[0]))[1]
         monkeypatch.setattr(T, "_fetch", _fetch)
+        monkeypatch.setattr(T, "_reject_reason", lambda _url: "")
         return calls
     return install
 
@@ -115,6 +124,23 @@ def test_tca_drops_the_associations_own_email(fake_fetch):
     fake_fetch({"tcaprdqc.asp": TCA_LIST, "members_list.asp": TCA_DETAIL})
     res = T.search_association("tca", "科技", limit=1)
     assert res["businesses"][0]["emails"] == []
+
+
+def test_tca_caps_detail_fetches_and_says_so(fake_fetch, monkeypatch):
+    """One sequential 25 s POST per member — an unbounded limit can't run for hours."""
+    monkeypatch.setattr(T, "_MAX_DETAIL_PAGES", 1)
+    fake_fetch({"tcaprdqc.asp": TCA_LIST, "members_list.asp": TCA_DETAIL})
+    res = T.search_association("tca", "科技", limit=50)
+    assert len(res["businesses"]) == 1
+    assert any("read 1 of 2 matched member" in w for w in res["warnings"])
+
+
+def test_tca_does_not_warn_when_the_callers_limit_is_the_binding_one(fake_fetch):
+    """Stopping at the requested limit is the limit working, not a truncation."""
+    fake_fetch({"tcaprdqc.asp": TCA_LIST, "members_list.asp": TCA_DETAIL})
+    res = T.search_association("tca", "科技", limit=1)
+    assert len(res["businesses"]) == 1
+    assert res["warnings"] == []
 
 
 def test_tca_requires_a_two_char_keyword(fake_fetch):
@@ -183,6 +209,121 @@ def test_generic_keyword_filters_but_never_empties_the_result(fake_fetch):
     assert any("matched no member names" in w for w in miss["warnings"])
 
 
+MULTI_MEMBER_LIST = """
+<html><head><meta charset="utf-8"></head><body>
+<table>
+  <tr><td>公司名稱</td><td>頭一家有限公司</td><td>地址</td><td>台北市中山區1號</td></tr>
+  <tr><td>公司名稱</td><td>第二家有限公司</td><td>地址</td><td>高雄市前鎮區2號</td>
+      <td>電話</td><td>07-2222222</td><td>網址</td><td>http://second.com.tw</td></tr>
+</table>
+</body></html>
+"""
+
+
+def test_a_multi_member_table_does_not_mix_fields_between_rows(fake_fetch):
+    """The first row has no phone; it must not inherit the second row's."""
+    fake_fetch({"members": MULTI_MEMBER_LIST})
+    res = T.search_association("https://www.guild.org.tw/members.php", limit=10)
+    by_name = {b["name"]: b for b in res["businesses"]}
+
+    assert set(by_name) == {"頭一家有限公司", "第二家有限公司"}
+    first = by_name["頭一家有限公司"]
+    assert first["address"] == "台北市中山區1號"
+    assert first["phone"] == "" and first["website"] == ""
+    second = by_name["第二家有限公司"]
+    assert second["phone"] == "07-2222222"
+    assert second["website"] == "http://second.com.tw"
+
+
+def test_a_single_member_field_table_is_read_as_one_record(fake_fetch):
+    """Fields down the page belong to one member — don't split them per row."""
+    fake_fetch({"members": GENERIC_LIST, "member_detail.php": GENERIC_DETAIL,
+                "page=2": GENERIC_PAGE2})
+    res = T.search_association("https://www.guild.org.tw/members.php", limit=10)
+    jia = {b["name"]: b for b in res["businesses"]}["甲級營造股份有限公司"]
+    assert jia["phone"] == "04-22001234"
+    assert jia["website"] == "https://www.jiajia-build.com.tw"
+
+
+def test_a_member_seen_with_and_without_a_website_becomes_one_row():
+    """List page knows the site, detail page doesn't — must not yield two rows."""
+    found = {}
+    T._add_business(found, {"name": "一號實業有限公司",
+                            "website": "https://www.member-one.com.tw"})
+    T._add_business(found, {"name": "一號實業有限公司", "phone": "02-1111111"})
+    rows = T._members(found)
+    assert len(rows) == 1
+    assert rows[0]["website"] == "https://www.member-one.com.tw"
+    assert rows[0]["phone"] == "02-1111111"
+    # Both identities resolve to that one record.
+    assert found["member-one.com.tw"] is found["一號實業有限公司"]
+
+
+def test_a_row_gains_its_website_key_when_the_website_arrives_second():
+    found = {}
+    T._add_business(found, {"name": "二號工程有限公司", "phone": "07-3345678"})
+    T._add_business(found, {"name": "二號工程有限公司",
+                            "website": "http://no2-eng.com.tw"})
+    rows = T._members(found)
+    assert len(rows) == 1 and rows[0]["phone"] == "07-3345678"
+    # A later sighting of the domain alone must land on the same record.
+    T._add_business(found, {"website": "https://www.no2-eng.com.tw",
+                            "category": "土木"})
+    assert len(T._members(found)) == 1
+    assert T._members(found)[0]["category"] == "土木"
+
+
+# ── SSRF guard ───────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("url,resolved", [
+    ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),  # cloud metadata
+    ("http://localhost:8000/admin", "127.0.0.1"),
+    ("https://internal.corp/members", "10.0.0.5"),
+    ("http://[::1]/members", "::1"),
+])
+def test_non_public_directory_urls_are_refused(monkeypatch, url, resolved):
+    monkeypatch.setattr(T.socket, "getaddrinfo",
+                        lambda *_a, **_k: [(None, None, None, "", (resolved, 80))])
+    assert T._reject_reason(url)
+
+    fetched = []
+    monkeypatch.setattr(T, "_fetch", lambda *a, **k: fetched.append(a) or None)
+    res = T.search_association(url, limit=5)
+    assert res["businesses"] == []
+    assert "refusing to crawl" in res["warnings"][0]
+    assert fetched == [], "a blocked URL must never be requested"
+
+
+def test_a_public_directory_url_is_allowed(monkeypatch):
+    monkeypatch.setattr(T.socket, "getaddrinfo",
+                        lambda *_a, **_k: [(None, None, None, "", ("93.184.216.34", 443))])
+    assert T._reject_reason("https://www.guild.org.tw/members.php") == ""
+
+
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://host/x", "gopher://h/"])
+def test_non_http_schemes_are_refused(url):
+    assert T._reject_reason(url)
+
+
+def test_an_unresolvable_host_is_refused(monkeypatch):
+    def _boom(*_a, **_k):
+        raise OSError("nodename nor servname provided")
+    monkeypatch.setattr(T.socket, "getaddrinfo", _boom)
+    assert "does not resolve" in T._reject_reason("https://nope.invalid/x")
+
+
+def test_a_redirect_to_a_private_address_is_blocked(monkeypatch):
+    """A public host that 302s inward must not slip past the initial check."""
+    monkeypatch.setattr(T.socket, "getaddrinfo",
+                        lambda host, *_a, **_k: [(None, None, None, "", (
+                            "127.0.0.1" if "internal" in str(host) else "93.184.216.34",
+                            80))])
+    handler = T._PublicOnlyRedirectHandler()
+    with pytest.raises(T.urllib.error.HTTPError):
+        handler.redirect_request(None, None, 302, "Found", {},
+                                 "http://internal.example/secret")
+
+
 def test_unknown_source_is_reported_not_raised(fake_fetch):
     fake_fetch({})
     res = T.search_association("not-a-guild", "科技", limit=5)
@@ -222,5 +363,6 @@ def test_charset_sniffing(declared, raw_encoding, expected):
     assert T._canonical_charset(raw_encoding) == expected
 
 
-def test_charset_falls_back_to_big5_for_undeclared_non_utf8():
-    assert T._sniff_charset("公司".encode("cp950"), "") == "big5"
+def test_charset_falls_back_to_cp950_for_undeclared_non_utf8():
+    """Not the literal 'big5': HKSCS characters in company names must survive."""
+    assert T._sniff_charset("公司".encode("cp950"), "") == "cp950"

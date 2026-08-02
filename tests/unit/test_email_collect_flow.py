@@ -201,6 +201,19 @@ def test_registry_rows_carry_tax_id_through_to_the_lead(mocker):
     assert d["businesses"][0]["tax_id"] == "00172766"
 
 
+def test_one_failing_directory_does_not_discard_the_others(mocker):
+    lc = "src.automation.flows.email_collect_flow"
+    _patch_sources(mocker)
+    mocker.patch(f"{lc}.search_association", side_effect=[
+        {"businesses": [{**_biz("Z", "https://z.com"),
+                         "discovery": "association:tca"}], "warnings": []},
+        RuntimeError("guild site down"),
+    ])
+    d = _run(sources=["association"], associations=["tca", "https://dead.org.tw/m"])
+    assert d["lead_count"] == 1, "the first directory's members must survive"
+    assert any("dead.org.tw" in w and "guild site down" in w for w in d["warnings"])
+
+
 def test_a_failing_source_does_not_sink_the_run(mocker):
     lc = "src.automation.flows.email_collect_flow"
     _patch_sources(mocker, maps=[_biz("A", "https://a.com")])
@@ -325,13 +338,44 @@ def test_source_selection_normalizes_and_falls_back(given, expected):
 
 def test_business_merge_keys_on_registrable_domain():
     from src.automation.flows.email_collect_flow import _merge_business
+    from src.automation.tools.contact_harvest import unique_records
     merged = {}
     _merge_business(merged, {"name": "A", "website": "https://www.acme.com.tw/x"})
     _merge_business(merged, {"name": "A Co", "website": "http://shop.acme.com.tw",
                              "phone": "02-1"})
-    assert len(merged) == 1
-    assert merged["acme.com.tw"]["phone"] == "02-1"      # blank filled
-    assert merged["acme.com.tw"]["name"] == "A"          # existing kept
+    # Several keys (each name variant + the domain) alias one record.
+    rows = unique_records(merged)
+    assert len(rows) == 1
+    assert rows[0]["phone"] == "02-1"      # blank filled
+    assert rows[0]["name"] == "A"          # existing kept
+    assert merged["acme.com.tw"] is rows[0]
+
+
+def test_registry_and_maps_rows_for_one_company_merge(mocker):
+    """The registry never has a website, Maps always does — still one company."""
+    _patch_sources(
+        mocker,
+        maps=[_biz("趨勢科技股份有限公司", "https://www.trendmicro.com/zh_tw/")],
+        govbiz=[{**_biz("趨勢科技股份有限公司"), "discovery": "govbiz",
+                 "tax_id": "23310837", "address": "臺北市大安區敦化南路2段198號"}],
+    )
+    d = _run(sources=["maps", "govbiz"])
+    assert d["discovered_count"] == 1
+    assert d["lead_count"] == 1
+    lead = d["leads"][0]
+    assert lead["website"] == "https://www.trendmicro.com/zh_tw/"   # from Maps
+    assert lead["tax_id"] == "23310837"                             # from the registry
+
+
+def test_business_merge_does_not_collapse_two_tenants_of_a_shared_host():
+    """facebook.com/shopA and facebook.com/shopB are different companies."""
+    from src.automation.flows.email_collect_flow import _merge_business
+    merged = {}
+    _merge_business(merged, {"name": "甲公司",
+                             "website": "https://www.facebook.com/jiagongsi"})
+    _merge_business(merged, {"name": "乙公司",
+                             "website": "https://www.facebook.com/yigongsi"})
+    assert len({id(v) for v in merged.values()}) == 2
 
 
 def test_business_merge_falls_back_to_a_normalized_name():

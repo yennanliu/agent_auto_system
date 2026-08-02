@@ -59,11 +59,26 @@ def test_resolve_websites_dedupes_and_skips_blanks(monkeypatch):
         return f"https://{len(seen)}.example"
 
     monkeypatch.setattr(M, "_resolve_one", _fake_resolve)
-    _stub_playwright(monkeypatch)
+    browser = _stub_playwright(monkeypatch)
 
     out = M.resolve_websites([" A ", "A", "", "  ", "B"], "台北")
-    assert [n for n, _ in seen] == ["A", "B"]
+    # Assert the whole call, not just the names: a regression that drops the
+    # region would silently resolve the right name in the wrong place.
+    assert seen == [("A", "台北"), ("B", "台北")]
     assert set(out) == {"A", "B"}
+    # One browser for the batch, closed afterwards — not one per name.
+    assert browser.launches == 1
+    assert browser.closed is True
+
+
+def test_resolve_websites_paces_between_lookups(monkeypatch):
+    """Back-to-back Maps navigations invite a rate-limit wall."""
+    pauses = []
+    monkeypatch.setattr(M, "_resolve_one", lambda page, *_a: "")
+    monkeypatch.setattr(M, "_pause", lambda _page, ms: pauses.append(ms))
+    _stub_playwright(monkeypatch)
+    M.resolve_websites(["A", "B", "C"], "台北")
+    assert pauses == [M._RESOLVE_PAUSE_MS, M._RESOLVE_PAUSE_MS]  # not after the last
 
 
 def test_resolve_websites_closes_the_browser_it_opened(monkeypatch):
@@ -71,6 +86,14 @@ def test_resolve_websites_closes_the_browser_it_opened(monkeypatch):
     browser = _stub_playwright(monkeypatch)
     monkeypatch.setattr(M, "_resolve_one",
                         lambda *_a: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        M.resolve_websites(["A"], "台北")
+    assert browser.closed is True
+
+
+def test_resolve_websites_closes_the_browser_when_the_page_cannot_open(monkeypatch):
+    """Context/page creation must be inside the try, or the process leaks."""
+    browser = _stub_playwright(monkeypatch, context_error=RuntimeError("no context"))
     with pytest.raises(RuntimeError):
         M.resolve_websites(["A"], "台北")
     assert browser.closed is True
@@ -93,7 +116,7 @@ def test_resolve_websites_short_circuits_on_no_names():
     assert M.resolve_websites(["", "   "], "台北") == {}
 
 
-def _stub_playwright(monkeypatch):
+def _stub_playwright(monkeypatch, context_error=None):
     """Install a browser-free `sync_playwright()` and return the fake browser.
 
     Patches `playwright.sync_api.sync_playwright` — the module attribute — not
@@ -101,22 +124,33 @@ def _stub_playwright(monkeypatch):
     so a name bound on the tool module is never read. Getting this wrong makes
     the test launch a real Chromium, which passes on a dev box with browsers
     installed and fails in CI, which has none.
+
+    The returned browser records `launches` and `closed` so tests can pin the
+    lifecycle. `context_error` makes `new_context()` raise, to check that a
+    failure before the loop still closes the browser.
     """
     class _Page:
-        pass
+        def wait_for_timeout(self, _ms): pass
 
     class _Ctx:
         def new_page(self): return _Page()
 
     class _Browser:
-        closed = False
-        def new_context(self, **_kw): return _Ctx()
+        def __init__(self):
+            self.closed = False
+            self.launches = 0
+        def new_context(self, **_kw):
+            if context_error:
+                raise context_error
+            return _Ctx()
         def close(self): self.closed = True
 
     browser = _Browser()
 
     class _Chromium:
-        def launch(self, **_kw): return browser
+        def launch(self, **_kw):
+            browser.launches += 1
+            return browser
 
     class _PW:
         chromium = _Chromium()

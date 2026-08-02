@@ -67,6 +67,10 @@ def test_search_maps_registry_rows_onto_the_business_shape(api):
     assert biz["address"] == "新竹市力行六路8號"
     # The registry publishes no URL and no phone — the funnel must see them empty.
     assert biz["website"] == "" and biz["phone"] == ""
+    # `category` means what the business *does*; it reaches the LLM qualifier and
+    # the CSV. A filing status is not that, so it lives under its own key.
+    assert biz["category"] == ""
+    assert biz["registry_status"] == "核准設立"
     assert biz["tax_id"] == "22099131"
     assert biz["responsible"] == "魏哲家"
     assert biz["capital"] == 280_500_000_000
@@ -130,6 +134,29 @@ def test_paging_stops_on_a_short_page(api):
     assert f"%24skip={G._PAGE_SIZE}" in urls[1] or f"$skip={G._PAGE_SIZE}" in urls[1]
 
 
+def test_a_scan_that_hits_the_cap_warns(api, monkeypatch):
+    """A truncated result must not look like an exhausted one.
+
+    Reachable only when the client-side city filter discards rows — `limit` is
+    clamped to 500, well under `_MAX_SCAN`, so an unfiltered search always fills
+    up first. The warning is unconditional anyway, so it can't go silent if
+    those bounds ever move.
+    """
+    monkeypatch.setattr(G, "_MAX_SCAN", 2 * G._PAGE_SIZE)
+    api([_rows(G._PAGE_SIZE, Company_Location="高雄市三民區1號") for _ in range(3)])
+    res = G.search_companies("科技", limit=10, city="台北")
+    assert res["businesses"] == []
+    assert any("stopped after scanning" in w for w in res["warnings"])
+
+
+def test_a_transport_failure_during_lookup_is_logged_not_silent(api):
+    """Otherwise a timeout is indistinguishable from 'no such company'."""
+    api(["$filter參數有誤，請查明後繼續。"])
+    logs = []
+    assert G.lookup_company("某某公司", log=logs.append) is None
+    assert any("rejected the query" in m for m in logs)
+
+
 def test_a_plain_text_error_body_becomes_a_warning(api):
     api(["$filter參數有誤，請查明後繼續。"])
     res = G.search_companies("科技", limit=5)
@@ -160,13 +187,18 @@ def test_lookup_prefers_an_exact_name_match(api):
     assert rec["setup_date"] == "1987-02-21"
 
 
-def test_lookup_accepts_a_lone_candidate(api):
+def test_lookup_refuses_a_lone_approximate_candidate(api):
+    """A partial name that happens to match one company is not that company.
+
+    Leads carry Maps display names and directory trade names, so an approximate
+    hit would attach some other firm's 統一編號 / 負責人 / 資本額 — and it ships in
+    the CSV looking authoritative. A wrong 統編 is worse than no 統編.
+    """
     api([json.dumps([ROW], ensure_ascii=False)])
-    assert G.lookup_company("積體電路")["tax_id"] == "22099131"
+    assert G.lookup_company("積體電路") is None
 
 
 def test_lookup_refuses_to_guess_between_candidates(api):
-    """A wrong 統一編號 on a lead is worse than no 統一編號."""
     api([_rows(3)])
     assert G.lookup_company("科技公司") is None
 

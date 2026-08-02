@@ -141,19 +141,38 @@ def resolve_websites(names, region: str = "", log=None) -> dict:
             headless=True,
             args=["--disable-blink-features=AutomationControlled", "--lang=zh-TW"],
         )
-        ctx = browser.new_context(
-            user_agent=_UA, locale="zh-TW",
-            viewport={"width": 1366, "height": 900},
-        )
-        page = ctx.new_page()
+        # Context/page creation is inside the try as well, so a failure there
+        # still closes the browser instead of leaking the process.
         try:
+            ctx = browser.new_context(
+                user_agent=_UA, locale="zh-TW",
+                viewport={"width": 1366, "height": 900},
+            )
+            page = ctx.new_page()
             for i, name in enumerate(names, 1):
                 site = _resolve_one(page, name, region)
                 out[name] = site
                 _log(f"[{i}/{len(names)}] {name} → {site or 'no website found'}")
+                # Pace the batch. Back-to-back navigations against Maps invite a
+                # rate-limit wall, and _resolve_one swallows nav errors — so a
+                # block would quietly turn the rest of the batch into "no
+                # website found" rather than surfacing as a failure.
+                if i < len(names):
+                    _pause(page, _RESOLVE_PAUSE_MS)
         finally:
             browser.close()
     return out
+
+
+# Delay between consecutive name lookups.
+_RESOLVE_PAUSE_MS = 1_200
+
+
+def _pause(page, ms: int) -> None:
+    try:
+        page.wait_for_timeout(ms)
+    except Exception:  # noqa: BLE001 — pacing is best-effort, never fatal
+        pass
 
 
 def _resolve_one(page, name: str, region: str) -> str:

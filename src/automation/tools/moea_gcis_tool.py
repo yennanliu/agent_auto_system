@@ -35,6 +35,11 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation.tools.contact_harvest import (
+    normalize_company_name,
+    strip_name_alias,
+)
+
 _API_BASE = "https://data.gcis.nat.gov.tw/od/data/api/"
 # 公司登記關鍵字查詢 — approximate match on 公司名稱.
 _KEYWORD_DATASET = "6BBA2268-1367-4B42-9CCA-BC17499EBE8C"
@@ -141,9 +146,12 @@ def _fetch_all(dataset: str, filt: str, limit: int, city: str,
             break
         if city and len(out) < limit:
             log(f"Scanned {scanned} registry rows, {len(out)} in '{city}'...")
-    if city and len(out) < limit and scanned >= _MAX_SCAN:
-        warnings.append(f"stopped after scanning {scanned} registry rows for "
-                        f"'{city}' — narrow the keyword for more matches")
+    if len(out) < limit and scanned >= _MAX_SCAN:
+        # Warn on every capped scan, not just city-filtered ones: without this
+        # a truncated result set is indistinguishable from an exhausted one.
+        where = f" for '{city}'" if city else ""
+        warnings.append(f"stopped after scanning {scanned} registry rows{where}"
+                        " — narrow the keyword for more matches")
     return out
 
 
@@ -164,24 +172,35 @@ def _matches_city(row: dict, city: str) -> bool:
 # ── enrichment ───────────────────────────────────────────────────────────────
 
 def lookup_company(name: str, log=None) -> dict | None:
-    """Return registry facts for `name`, or None if no confident match.
+    """Return registry facts for `name`, or None if the name doesn't match exactly.
 
-    The keyword endpoint is an approximate match, so several companies can share
-    a name fragment. We accept only an exact name hit (or, failing that, a single
-    candidate) — a wrong 統一編號 on a lead is worse than no 統一編號.
+    The keyword endpoint is an **approximate** match, so a query returns every
+    company sharing a name fragment. Only an exact name hit is accepted — never
+    a lone approximate candidate. Callers enrich leads whose `company` is often
+    a Maps display name or a directory trade name, and an approximate match
+    would staple some unrelated firm's 統一編號, 負責人 and 資本額 onto the lead,
+    which then ships in the CSV looking authoritative. This is the same
+    corroboration rule `maps_search_tool.resolve_websites()` applies before it
+    associates a website with a business: identity data needs the name to agree.
     """
     _log = log or (lambda _m: None)
     keyword = _api_keyword(name)
     if not keyword:
         return None
+    warnings: list[str] = []
     rows = _get(_KEYWORD_DATASET,
                 f"Company_Name like {keyword} and Company_Status eq {ACTIVE_STATUS}",
-                skip=0, top=50, warnings=[])
+                skip=0, top=50, warnings=warnings)
+    for warning in warnings:
+        # Otherwise a timeout is indistinguishable from "no such company".
+        _log(f"經濟部 registry lookup for '{name}': {warning}")
     if not rows:
         return None
     target = _normalize_name(name)
-    exact = [r for r in rows if _normalize_name(r.get("Company_Name", "")) == target]
-    match = exact[0] if exact else (rows[0] if len(rows) == 1 else None)
+    match = next(
+        (r for r in rows if _normalize_name(r.get("Company_Name", "")) == target),
+        None,
+    )
     if match is None:
         _log(f"經濟部 registry: '{name}' matched {len(rows)} companies, none exactly")
         return None
@@ -211,7 +230,12 @@ def _to_business(row: dict) -> dict:
         "website": "",
         "phone": "",
         "address": row.get("Company_Location", ""),
-        "category": row.get("Company_Status_Desc", ""),
+        # `category` means *what the business does* everywhere else in the
+        # funnel — it reaches the CSV and the LLM qualifier as ICP input. The
+        # registry only publishes a filing status ("核准設立"), which is the same
+        # string for every active company, so it goes under its own key.
+        "category": "",
+        "registry_status": row.get("Company_Status_Desc", ""),
         "maps_url": "",
         "discovery": "govbiz",
         "tax_id": row.get("Business_Accounting_NO", ""),
@@ -222,24 +246,22 @@ def _to_business(row: dict) -> dict:
     }
 
 
-# 公會 directories and company sites routinely append a Latin alias the registry
-# has never heard of — "慧與科技股份有限公司（Hewlett Packard Enterprise Taiwan）".
-# Querying with it attached matches nothing, so it comes off first.
-_ALIAS_RE = re.compile(r"[（(\[【][^）)\]】]*[）)\]】]")
-
-
 def _api_keyword(value: str) -> str:
     """The `$filter` grammar is ``Company_Name like [^\\s]+`` — no whitespace.
 
     TW company names contain none, so collapsing spaces is lossless here and
-    stops a stray space from turning into a 400 from the API.
+    stops a stray space from turning into a 400 from the API. The bracketed
+    Latin alias 公會 directories append — "慧與科技股份有限公司（Hewlett Packard
+    Enterprise Taiwan）" — comes off too; the registry has never heard of it and
+    querying with it attached matches nothing. Deliberately does *not* fold
+    台→臺: that's for comparison, and the API must see the spelling as filed.
     """
-    return re.sub(r"\s+", "", _ALIAS_RE.sub("", value or ""))
+    return re.sub(r"\s+", "", strip_name_alias(value))
 
 
 def _normalize_name(name: str) -> str:
-    """Compare names ignoring the Latin alias, spacing, and the 台/臺 split."""
-    return re.sub(r"\s+", "", _ALIAS_RE.sub("", name or "")).replace("台", "臺")
+    """Compare names ignoring the Latin alias, spacing, case, and the 台/臺 split."""
+    return normalize_company_name(name)
 
 
 def _as_int(value) -> int:
