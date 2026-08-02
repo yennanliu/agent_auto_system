@@ -59,25 +59,30 @@ def test_resolve_websites_dedupes_and_skips_blanks(monkeypatch):
         return f"https://{len(seen)}.example"
 
     monkeypatch.setattr(M, "_resolve_one", _fake_resolve)
-    monkeypatch.setattr(M, "sync_playwright", _stub_playwright(), raising=False)
+    _stub_playwright(monkeypatch)
 
     out = M.resolve_websites([" A ", "A", "", "  ", "B"], "台北")
     assert [n for n, _ in seen] == ["A", "B"]
     assert set(out) == {"A", "B"}
 
 
+def test_resolve_websites_closes_the_browser_it_opened(monkeypatch):
+    """One browser for the whole batch, and it must be closed even on failure."""
+    browser = _stub_playwright(monkeypatch)
+    monkeypatch.setattr(M, "_resolve_one",
+                        lambda *_a: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        M.resolve_websites(["A"], "台北")
+    assert browser.closed is True
+
+
 def test_resolve_websites_returns_empty_without_playwright(monkeypatch):
-    """Importing playwright is done lazily; a missing browser must not raise."""
-    import builtins
+    """The playwright import is lazy; no browser package must not raise."""
+    import sys
 
-    real_import = builtins.__import__
-
-    def _no_playwright(name, *args, **kwargs):
-        if name.startswith("playwright"):
-            raise ImportError("playwright not installed")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _no_playwright)
+    # A None entry in sys.modules makes `import x` raise ImportError — which is
+    # what a machine without the browser package would do.
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     logs = []
     assert M.resolve_websites(["A"], "台北", log=logs.append) == {}
     assert any("playwright unavailable" in m for m in logs)
@@ -88,8 +93,15 @@ def test_resolve_websites_short_circuits_on_no_names():
     assert M.resolve_websites(["", "   "], "台北") == {}
 
 
-def _stub_playwright():
-    """Minimal sync_playwright() stand-in: a context manager yielding a browser."""
+def _stub_playwright(monkeypatch):
+    """Install a browser-free `sync_playwright()` and return the fake browser.
+
+    Patches `playwright.sync_api.sync_playwright` — the module attribute — not
+    the tool's namespace: `resolve_websites` imports it *inside* the function,
+    so a name bound on the tool module is never read. Getting this wrong makes
+    the test launch a real Chromium, which passes on a dev box with browsers
+    installed and fails in CI, which has none.
+    """
     class _Page:
         pass
 
@@ -97,15 +109,19 @@ def _stub_playwright():
         def new_page(self): return _Page()
 
     class _Browser:
+        closed = False
         def new_context(self, **_kw): return _Ctx()
-        def close(self): pass
+        def close(self): self.closed = True
+
+    browser = _Browser()
 
     class _Chromium:
-        def launch(self, **_kw): return _Browser()
+        def launch(self, **_kw): return browser
 
     class _PW:
         chromium = _Chromium()
         def __enter__(self): return self
         def __exit__(self, *_a): return False
 
-    return lambda: _PW()
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: _PW())
+    return browser
