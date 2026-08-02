@@ -87,8 +87,10 @@ matching the project's stated philosophy of not buying from paid databases.
 > `tw_association_tool.py`, with a first-class 台北市電腦商業同業公會 adapter and
 > a generic crawler for any member-list URL) and `govbiz` (經濟部 商工登記, via
 > the 商工行政資料開放平臺 open-data API — `moea_gcis_tool.py`). Results are
-> merged and deduped across sources on registrable domain, so the same company
-> found twice becomes one lead carrying every source's fields. The registry
+> merged and deduped across sources on registrable domain — falling back to the
+> normalized company name when a source knows no website, which the registry
+> never does — so the same company found twice becomes one lead carrying every
+> source's fields. The registry
 > publishes no URL, so `resolve_missing_websites` looks companies up on Maps by
 > their exact registered name — accepting a hit only when the place's own name
 > corroborates it, because Maps answers an unlisted company with whatever was

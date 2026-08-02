@@ -366,7 +366,7 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
                 # the directory page the row was read from (a member with no
                 # website of its own still has a traceable origin).
                 **{k: biz[k] for k in
-                   ("tax_id", "responsible", "capital", "source_url")
+                   ("tax_id", "responsible", "capital", "setup_date", "source_url")
                    if biz.get(k)},
             })
 

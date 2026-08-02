@@ -273,7 +273,7 @@ def _scrape_generic(url: str, keyword: str, limit: int,
     for page_no in range(1, _MAX_LIST_PAGES + 1):
         if not page_url:
             break
-        html = _fetch(page_url)
+        html = _fetch_public(page_url, warnings)
         if html is None:
             warnings.append(f"directory page unreachable: {page_url}")
             break
@@ -296,7 +296,7 @@ def _scrape_generic(url: str, keyword: str, limit: int,
         for i, durl in enumerate(detail_urls[:_MAX_DETAIL_PAGES], 1):
             if len(_members(found)) >= limit and not _needs_detail(found):
                 break
-            html = _fetch(durl)
+            html = _fetch_public(durl, warnings)
             if html is None:
                 continue
             fields = _labelled_fields(html)
@@ -643,6 +643,23 @@ class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _SAFE_OPENER = urllib.request.build_opener(_PublicOnlyRedirectHandler)
+
+
+def _fetch_public(url: str, warnings: list[str]):
+    """`_fetch`, but only for a host that passes the guard. None if it doesn't.
+
+    Checking the seed URL alone is not enough: the crawler follows 下一頁 and
+    member-record links, and `_same_site` accepts sub-domains — so a payload URL
+    at a public `evil.com` can hand us `internal.evil.com`, resolve that to
+    127.0.0.1, and get the page's text and emails harvested into leads. Every
+    hop the crawler chooses for itself goes through the same check as the one
+    the user supplied.
+    """
+    reason = _reject_reason(url)
+    if reason:
+        warnings.append(f"skipped {url}: {reason}")
+        return None
+    return _fetch(url)
 
 
 def _fetch(url: str, encoding: str | None = None, data: bytes | None = None):

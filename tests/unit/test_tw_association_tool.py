@@ -324,6 +324,31 @@ def test_a_redirect_to_a_private_address_is_blocked(monkeypatch):
                                  "http://internal.example/secret")
 
 
+def test_a_same_site_link_to_a_private_host_is_not_crawled(monkeypatch):
+    """`_same_site` accepts sub-domains, so the seed check alone is not enough.
+
+    A public `guild.org.tw` linking to `internal.guild.org.tw` (→ 127.0.0.1)
+    would otherwise get that page's text and emails harvested into leads.
+    """
+    monkeypatch.setattr(T.socket, "getaddrinfo",
+                        lambda host, *_a, **_k: [(None, None, None, "", (
+                            "127.0.0.1" if "internal" in str(host) else "93.184.216.34",
+                            80))])
+    seed = "https://guild.org.tw/members.php"
+    listing = ('<html><body><a href="https://internal.guild.org.tw/member12345">'
+               '會員資料</a></body></html>')
+    fetched = []
+
+    def _fetch(url, encoding=None, data=None):
+        fetched.append(url)
+        return listing if url == seed else "<html>secret@internal</html>"
+    monkeypatch.setattr(T, "_fetch", _fetch)
+
+    res = T.search_association(seed, limit=5)
+    assert fetched == [seed], "the private sub-domain must never be requested"
+    assert any("internal.guild.org.tw" in w for w in res["warnings"])
+
+
 def test_unknown_source_is_reported_not_raised(fake_fetch):
     fake_fetch({})
     res = T.search_association("not-a-guild", "科技", limit=5)

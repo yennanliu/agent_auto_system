@@ -192,12 +192,15 @@ def test_registry_rows_carry_tax_id_through_to_the_lead(mocker):
     _patch_sources(mocker, govbiz=[
         {**_biz("未來人工智慧股份有限公司", "https://future-ai.com.tw"),
          "discovery": "govbiz", "tax_id": "00172766", "responsible": "塗陳心瑀",
-         "capital": 100000000}])
+         "capital": 100000000, "setup_date": "2011-05-30"}])
     d = _run(sources=["govbiz"])
     lead = d["leads"][0]
     assert lead["discovery"] == "govbiz"
     assert lead["tax_id"] == "00172766"
     assert lead["capital"] == 100000000
+    # The CSV export has a setup_date column, so a govbiz row must fill it even
+    # without gcis_enrich — the registry already published it at discovery.
+    assert lead["setup_date"] == "2011-05-30"
     assert d["businesses"][0]["tax_id"] == "00172766"
 
 
