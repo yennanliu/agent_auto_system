@@ -367,3 +367,5 @@ agent_auto_system/
 ```
 
 See **[CLAUDE.md](CLAUDE.md)** for architecture invariants and **[doc/dev-notes.md](doc/dev-notes.md)** for PostgreSQL deployment, scalability roadmap, and deeper harness internals.
+
+**Roadmap & gap analysis:** [doc/product-gap-analysis.md](doc/product-gap-analysis.md) ([中文版](doc/product-gap-analysis.zh-TW.md)) compares the platform with business-agent products (Grok Bot, Meta Muse) and lists what to add, improve and fix from a PM and tech-lead view.
