@@ -1,6 +1,6 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'linkedin_apply', 'email_collect', 'pipeline'];
+let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'linkedin_apply', 'greenhouse_apply', 'email_collect', 'pipeline'];
 
 const TYPE_META = {
   google_form_fill:   { chip: 'FORM',  cls: 'chip-form'     },
@@ -14,6 +14,7 @@ const TYPE_META = {
   tasker_apply:        { chip: 'TASKER', cls: 'chip-tasker' },
   tw104_apply:         { chip: '104',    cls: 'chip-104'    },
   linkedin_apply:      { chip: 'LINKEDIN', cls: 'chip-linkedin' },
+  greenhouse_apply:    { chip: 'GREENHOUSE', cls: 'chip-greenhouse' },
   email_collect:        { chip: 'EMAILS', cls: 'chip-leads' },
   pipeline:            { chip: 'PIPE',  cls: 'chip-pipeline' },
 };
@@ -147,6 +148,24 @@ const AUTO_CATALOG = {
     ],
     crew: 'LinkedInRelevanceCrew', flow: 'LinkedInApplyFlow',
     agent: 'LinkedIn Relevance Judge', tools: ['LinkedIn Easy Apply'],
+  },
+  greenhouse_apply: {
+    icon: '🌱', name: 'Greenhouse Apply',
+    desc: 'Auto-apply to jobs on companies\' Greenhouse job boards — no login needed. Lists each board\'s open jobs via the public Job Board API, filters them by title keywords and location, reads every application form\'s questions from the same API and answers them from your profile (plus your "keyword: answer" extra answers). A job with a required question that can\'t be answered truthfully is skipped and listed, never sent with a guess. Then a browser fills the form, uploads your resume and submits — counted as applied only when Greenhouse shows its confirmation page. The LLM is optional: a relevance gate (task_filter) and a screening answerer grounded in your candidate_background. Dry-run by default.',
+    inputs: [
+      { name: 'boards',               type: 'str',  desc: 'Greenhouse board tokens or URLs, comma-separated (e.g. figma, airbnb)' },
+      { name: 'keywords',             type: 'str',  desc: 'Title filter phrases, comma-separated (blank = all jobs)' },
+      { name: 'location',             type: 'str',  desc: 'Job-location filter substrings, e.g. Remote, Taipei (blank = any)' },
+      { name: 'first_name / last_name / email / phone', type: 'str', desc: 'Applicant contact fields' },
+      { name: 'resume_path',          type: 'str',  desc: 'Resume file on the server (default GREENHOUSE_RESUME_PATH)' },
+      { name: 'extra_answers',        type: 'str',  desc: '"keyword: answer" lines for recurring custom questions' },
+      { name: 'candidate_background', type: 'str',  desc: 'Your own summary; enables LLM answers to required screening questions' },
+      { name: 'task_filter',          type: 'str',  desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match' },
+      { name: 'max_applications',     type: 'int (1–200)', desc: 'Number of jobs to actually apply to' },
+      { name: 'dry_run',              type: 'bool', desc: 'If checked, fill the form but do NOT click Submit' },
+    ],
+    crew: 'GreenhouseRelevanceCrew + GreenhouseAnswerCrew', flow: 'GreenhouseApplyFlow',
+    agent: 'Greenhouse Relevance Judge / Screening Answerer', tools: ['Greenhouse Apply'],
   },
   email_collect: {
     icon: '📧', name: 'Email Collector',

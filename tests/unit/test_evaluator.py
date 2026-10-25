@@ -156,3 +156,12 @@ def test_evaluate_falls_back_when_judge_output_unparseable(mocker):
     mocker.patch("src.automation.harness.provider.resolve", return_value=(fake, "openai", "gpt-4o-mini"))
     ev = evaluate("web_scraper", {"title": "T", "summary": "S"})
     assert ev.method == "heuristic"
+
+
+def test_result_for_judge_labels_harness_truncation():
+    from src.automation.harness.evaluator import _MAX_RESULT_CHARS, _result_for_judge
+
+    assert _result_for_judge({"a": 1}) == '{"a": 1}'
+    long = _result_for_judge({"x": "y" * (_MAX_RESULT_CHARS * 2)})
+    assert "truncated by the evaluation harness" in long
+    assert len(long) < _MAX_RESULT_CHARS + 300
