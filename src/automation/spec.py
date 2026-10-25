@@ -454,6 +454,9 @@ register(AutomationSpec(
         Field("salary_expectation", "text", "Salary Expectation", placeholder="e.g. 120000 USD"),
         Field("work_authorized", "checkbox", "Authorized to work where the job is", default=True),
         Field("needs_sponsorship", "checkbox", "Needs visa sponsorship", default=False),
+        Field("authorized_countries", "text", "Authorized To Work In", placeholder="Taiwan",
+              help="Countries you may work in. A question naming another country "
+                   "(e.g. 'authorized to work in the US?') is answered No / needs sponsorship."),
         Field("extra_answers", "textarea", "Extra Answers",
               placeholder="notice period: 2 weeks\nstart date: Immediately",
               help="One 'keyword: answer' per line; matched against question labels before any other rule."),

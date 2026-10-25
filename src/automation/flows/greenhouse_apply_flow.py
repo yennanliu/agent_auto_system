@@ -82,6 +82,7 @@ class GreenhouseApplyState(BaseModel):
     salary_expectation: str = ""
     work_authorized: bool = True
     needs_sponsorship: bool = False
+    authorized_countries: str = ""  # e.g. "Taiwan" — country-named questions answer from this
     extra_answers: str = ""         # "keyword: answer" lines for recurring custom questions
     candidate_background: str = ""  # enables LLM answers to required screening questions
     task_filter: str = ""           # optional 2nd gate: LLM relevance filter (nat-lang)
@@ -188,6 +189,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
                     "years of experience": self.state.years_experience,
                     "authorized to work": self.state.work_authorized,
                     "needs visa sponsorship": self.state.needs_sponsorship,
+                    "authorized to work only in": self.state.authorized_countries,
                     "salary expectation": self.state.salary_expectation,
                 }.items() if v not in ("", None))
 
@@ -230,6 +232,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
             salary_expectation=self.state.salary_expectation,
             work_authorized=self.state.work_authorized,
             needs_sponsorship=self.state.needs_sponsorship,
+            authorized_countries=self.state.authorized_countries,
             extra_answers=self.state.extra_answers,
             max_applications=self.state.max_applications,
             dry_run=self.state.dry_run,

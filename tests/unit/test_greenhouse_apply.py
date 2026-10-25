@@ -420,7 +420,11 @@ def test_plan_long_option_labels_and_source_question():
            values=["Company Website", "Social media (Facebook, LinkedIn, Twitter)"]),
     ])
     assert _by_field(answers) == {"q1": "No - I do not require visa sponsorship.",
-                                  "q2": "Social media (Facebook, LinkedIn, Twitter)"}
+                                  "q2": "Company Website"}
+    answers, _ = _plan([_q("How did you hear about us?", "q1", "multi_value_single_select",
+                           values=["Referral", "Social media (LinkedIn)", "Other"]),
+                        _q("How did you hear about this job?", "q2")])
+    assert _by_field(answers) == {"q1": "Other", "q2": "Company careers page"}
 
 
 def test_plan_required_demographic_questions_decline_by_flag():
@@ -455,3 +459,26 @@ def test_answer_guard_blocks_company_questions_background_doesnt_cover():
     assert _names_unmentioned_employer("Why do you want to join Figma?", job, "I admire Discord.")
     assert not _names_unmentioned_employer("Why do you want to join Figma?", job, "I use Figma daily.")
     assert not _names_unmentioned_employer("Describe a project you led.", job, "I admire Discord.")
+
+
+def test_plan_authorized_countries_answer_named_country_questions():
+    tw = {**PROFILE, "authorized_countries": {"taiwan"}}
+    yn = ["Yes", "No"]
+    answers, unanswered = _plan([
+        _q("Are you legally authorized to work in the United States?", "q1", "multi_value_single_select", values=yn),
+        _q("Will you require visa sponsorship to work in the US?", "q2", "multi_value_single_select", values=yn),
+        _q("Are you authorized to work in Taiwan?", "q3", "multi_value_single_select", values=yn),
+        _q("Are you authorized to work in the country for which you applied?", "q4",
+           "multi_value_single_select", values=yn),
+        _q("Will you now or in the future require sponsorship?", "q5", "multi_value_single_select", values=yn),
+    ], tw)
+    assert unanswered == []
+    assert _by_field(answers) == {"q1": "No", "q2": "Yes", "q3": "Yes", "q4": "Yes", "q5": "No"}
+
+
+def test_countries_in_matches_aliases_not_substrings():
+    assert gh.countries_in("authorized to work in the U.S.?") == {"united states"}
+    assert gh.countries_in("Taiwan or UK") == {"taiwan", "united kingdom"}
+    assert gh.countries_in("Are you eligible to work for us?") == set()
+    assert gh.countries_in("Are you authorized to work in the US?") == {"united states"}
+    assert gh.countries_in("Why do you want to join?") == set()

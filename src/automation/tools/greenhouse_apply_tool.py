@@ -210,7 +210,9 @@ def fetch_questions(client, token: str, job_id: str) -> dict:
 
 _DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|not to (say|answer|disclose)", re.I)
 _AGREE_RE = re.compile(r"^(yes|i agree|i acknowledge|i consent|i understand|i confirm|i accept|agree|acknowledge|confirm|accept)", re.I)
-_SOURCE_RE = re.compile(r"linkedin|job board|online|website|careers|internet|other", re.I)
+# Most-truthful first: the job was found on the employer's Greenhouse board.
+_SOURCE_PREFS = (r"company (web)?site|careers? (page|site|website)|company careers|website",
+                 r"job board|online|internet|search engine|third.party", r"\bother\b")
 
 
 def match_option(options: list[str], want: str) -> str | None:
@@ -246,6 +248,37 @@ def _yes_no(flag: bool) -> str:
     return "Yes" if flag else "No"
 
 
+# Countries a work-authorization question may name. Keys are canonical names;
+# values match the label (lower-cased) or an authorized_countries entry.
+_COUNTRIES = {
+    # Bare "us" only after "the"/"in": "eligible to work for us?" is not the US.
+    "united states": r"united states|\bu\.s\.(a\.)?|\busa\b|\b(the|in) us\b|america",
+    "united kingdom": r"united kingdom|\buk\b|britain|england",
+    "canada": r"canada", "ireland": r"ireland", "germany": r"germany",
+    "netherlands": r"netherlands", "france": r"france", "spain": r"spain",
+    "poland": r"poland", "israel": r"israel", "india": r"india",
+    "japan": r"japan", "singapore": r"singapore", "australia": r"australia",
+    "taiwan": r"taiwan", "hong kong": r"hong kong", "brazil": r"brazil",
+    "mexico": r"mexico", "south korea": r"korea",
+}
+
+
+def countries_in(text: str) -> set[str]:
+    t = (text or "").lower()
+    return {name for name, pat in _COUNTRIES.items() if re.search(pat, t)}
+
+
+def _authorized_for(lbl: str, profile: dict) -> bool | None:
+    """Authorization for the country a question names, from authorized_countries.
+    None when the question names no country or no list was given — the caller
+    falls back to the blanket work_authorized flag."""
+    allowed = profile.get("authorized_countries") or set()
+    named = countries_in(lbl)
+    if not allowed or not named:
+        return None
+    return named <= allowed
+
+
 def _rule_answer(label: str, profile: dict) -> str | None:
     """Heuristic answer for a custom question label, or None when unsure. The
     caller maps the answer onto a select's options when the field is a select."""
@@ -259,8 +292,11 @@ def _rule_answer(label: str, profile: dict) -> str | None:
         return profile.get("github_url") or None
     if re.search(r"website|portfolio|personal site|blog", lbl):
         return profile.get("website_url") or profile.get("github_url") or None
-    needs = bool(profile.get("needs_sponsorship"))
-    authorized = bool(profile.get("work_authorized", True))
+    named_ok = _authorized_for(lbl, profile)
+    # A named country the candidate isn't authorized in means "not authorized
+    # there" and "would need sponsorship there" — never the blanket flags.
+    needs = bool(profile.get("needs_sponsorship")) if named_ok is not False else True
+    authorized = bool(profile.get("work_authorized", True)) if named_ok is None else named_ok
     sponsor = re.search(r"sponsor|visa", lbl)
     # "Will you require sponsorship…" asks about sponsorship; "Are you authorized
     # to work … without sponsorship?" asks about authorization — opposite answers.
@@ -276,7 +312,7 @@ def _rule_answer(label: str, profile: dict) -> str | None:
     if re.search(r"were you referred|referred by|referral", lbl):
         return "No"
     if re.search(r"how did you (hear|find|learn)|where did you (hear|find|learn)", lbl):
-        return "LinkedIn"
+        return "__source__"  # we found it on the employer's own job board
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
         return str(profile.get("years", 3))
     if re.search(r"salary|compensation|pay expectation|expected pay", lbl):
@@ -302,8 +338,12 @@ def _to_option(answer: str, options: list[str]) -> str | None:
         return hit
     if answer.isdigit():
         return _years_option(options, int(answer))
-    if answer == "LinkedIn":
-        return next((o for o in options if _SOURCE_RE.search(o)), None)
+    if answer == "__source__":
+        for pat in _SOURCE_PREFS:
+            hit = next((o for o in options if re.search(pat, o, re.I)), None)
+            if hit:
+                return hit
+        return None
     return None
 
 
@@ -376,7 +416,9 @@ def plan_answers(job_data: dict, profile: dict,
                     add(name, kind, [pick] if kind == "multiselect" else pick, label)
                     done = True
             elif kind == "text":
-                if ans == "__agree__":
+                if ans == "__source__":
+                    ans = "Company careers page"
+                elif ans == "__agree__":
                     ans = None
                 if not ans and required and answer_fn is not None:
                     ans = _call_answer_fn(answer_fn, label, "text", [])
@@ -725,6 +767,7 @@ def run_greenhouse_apply(
     salary_expectation: str = "",
     work_authorized: bool = True,
     needs_sponsorship: bool = False,
+    authorized_countries: str = "",
     extra_answers: str = "",
     max_applications: int = 5,
     dry_run: bool = True,
@@ -788,6 +831,7 @@ def run_greenhouse_apply(
             "salary": (salary_expectation or "").strip(),
             "work_authorized": bool(work_authorized),
             "needs_sponsorship": bool(needs_sponsorship),
+            "authorized_countries": set().union(*(countries_in(c) for c in _split_list(authorized_countries))),
             "resume_path": resume_path, "cover_letter_path": cover_tmp,
             "extra_answers": _parse_extra_answers(extra_answers),
         }
