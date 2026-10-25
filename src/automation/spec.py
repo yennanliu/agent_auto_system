@@ -418,6 +418,64 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
+    job_type="greenhouse_apply", desc='Auto-apply to jobs on Greenhouse boards', name="Greenhouse Apply", icon="🌱",
+    flow_module="src.automation.flows.greenhouse_apply_flow", flow_class="GreenhouseApplyFlow",
+    start_log="Discovering Greenhouse jobs...", temperature=0.2, browser=True,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Discover", "Discovering Greenhouse jobs"), ("Apply", "run complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("applied"), list) and r.get("jobs_found") is not None,
+        "no jobs processed",
+    ),
+    rubric=("Matching jobs were found and an accurate applied[] list reflects real "
+            "applications (a submission counts only when Greenhouse showed its "
+            "confirmation page); jobs skipped as already-applied, 'filtered out', or "
+            "for an unanswerable required question are correct behavior, not failures."),
+    name_template="Greenhouse: {boards}",
+    fields=(
+        Field("boards", "text", "Job Boards", required=True,
+              placeholder="figma, airbnb, https://job-boards.greenhouse.io/discord",
+              help="Greenhouse board tokens or URLs, comma-separated. A job URL applies to that one job."),
+        Field("keywords", "text", "Title Keywords", placeholder="backend engineer, platform",
+              help="Comma-separated; a job matches if its title contains every word of any phrase. Blank = all."),
+        Field("location", "text", "Job Location Filter", placeholder="Remote, Taipei",
+              help="Comma-separated substrings of the job's location. Blank = any."),
+        Field("first_name", "text", "First Name", required=True),
+        Field("last_name", "text", "Last Name", required=True),
+        Field("email", "text", "Email", required=True),
+        Field("phone", "text", "Phone", placeholder="+886 912 345 678"),
+        Field("resume_path", "text", "Resume Path (on server)", placeholder="/path/to/resume.pdf",
+              help="Blank = GREENHOUSE_RESUME_PATH from .env."),
+        Field("current_location", "text", "Where You Are Based", placeholder="Taipei, Taiwan"),
+        Field("linkedin_url", "url", "LinkedIn URL"),
+        Field("github_url", "url", "GitHub URL"),
+        Field("website_url", "url", "Website / Portfolio"),
+        Field("years_experience", "number", "Years of Experience", default=3, min=0, max=50),
+        Field("salary_expectation", "text", "Salary Expectation", placeholder="e.g. 120000 USD"),
+        Field("work_authorized", "checkbox", "Authorized to work where the job is", default=True),
+        Field("needs_sponsorship", "checkbox", "Needs visa sponsorship", default=False),
+        Field("extra_answers", "textarea", "Extra Answers",
+              placeholder="notice period: 2 weeks\nstart date: Immediately",
+              help="One 'keyword: answer' per line; matched against question labels before any other rule."),
+        Field("cover_letter", "textarea", "Cover Letter",
+              help="Uploaded as a .txt where the form has a cover-letter field."),
+        Field("candidate_background", "textarea", "Candidate Background (for LLM answers)",
+              help="Your own summary. When set, the LLM answers required screening questions "
+                   "from it — and abstains (job skipped) when it can't answer truthfully."),
+        Field("task_filter", "textarea", "Relevance Filter (LLM)",
+              placeholder="Only backend / platform roles; no management"),
+        Field("max_applications", "number", "Max Applications (1–200)", default=5, min=1, max=200),
+        Field("dry_run", "checkbox", "Dry run — fill forms but don't Submit", default=True),
+    ),
+    help_note=(
+        "No login needed — jobs come from Greenhouse's public Job Board API. Opens a "
+        "visible Chrome window to fill forms (reCAPTCHA rejects headless). Jobs with a "
+        "required question we can't answer are skipped and listed so you can add them "
+        "to <b>Extra Answers</b>."
+    ),
+))
+
+register(AutomationSpec(
     job_type="email_collect", desc='Find businesses & collect their emails', custom_ui=True, name="Email Collector", icon="📧",
     flow_module="src.automation.flows.email_collect_flow", flow_class="EmailCollectFlow",
     start_log="Starting lead-collection funnel...", temperature=0.4, browser=True,

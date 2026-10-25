@@ -36,6 +36,8 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'tw104_relevance_judge', "name": '104 Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'TW104RelevanceCrew', "task": 'judge_relevance_task', "job_type": 'tw104_apply', "source_file": 'src/automation/crews/tw104_relevance_crew/config/agents.yaml'},
     {"id": 'tw104_area_resolver', "name": '104 Area Resolver', "yaml_key": 'area_resolver', "tools": [], "crew": 'TW104AreaCrew', "task": 'resolve_area_task', "job_type": 'tw104_apply', "source_file": 'src/automation/crews/tw104_area_crew/config/agents.yaml'},
     {"id": 'linkedin_relevance_judge', "name": 'LinkedIn Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'LinkedInRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'linkedin_apply', "source_file": 'src/automation/crews/linkedin_relevance_crew/config/agents.yaml'},
+    {"id": 'greenhouse_relevance_judge', "name": 'Greenhouse Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
+    {"id": 'greenhouse_screening_answerer', "name": 'Greenhouse Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
 ]
 
@@ -264,6 +266,33 @@ _CATALOG: dict = {
             ],
             "used_by": ["LinkedInApplyFlow"],
             "source_file": "src/automation/tools/linkedin_apply_tool.py",
+        },
+        {
+            "id": "greenhouse_apply",
+            "name": "Greenhouse Apply",
+            "class": "GreenhouseApplyTool",
+            "description": (
+                "Auto-apply to jobs on Greenhouse job boards — no login. Lists each "
+                "board's open jobs via the public Job Board API, filters by title "
+                "keywords / location, reads each application form's questions from the "
+                "same API and answers them from the candidate profile (skipping a job "
+                "when a required question can't be answered), then fills the embedded "
+                "form in a browser, uploads the resume and clicks Submit only when "
+                "dry_run is false — counting success only on Greenhouse's confirmation "
+                "page. Called directly by the flow (with optional LLM relevance_fn / "
+                "answer_fn)."
+            ),
+            "inputs": [
+                {"name": "boards",           "type": "str",  "description": "Board tokens or boards.greenhouse.io URLs, comma-separated"},
+                {"name": "keywords",         "type": "str",  "description": "Title filter phrases, comma-separated (blank = all)"},
+                {"name": "location",         "type": "str",  "description": "Job-location substrings, comma-separated (blank = any)"},
+                {"name": "first_name / last_name / email / phone", "type": "str", "description": "Applicant contact fields"},
+                {"name": "resume_path",      "type": "str",  "description": "Resume file on the server (default GREENHOUSE_RESUME_PATH)"},
+                {"name": "max_applications", "type": "int (1–200)", "description": "Number of jobs to actually apply to (default 5)"},
+                {"name": "dry_run",          "type": "bool", "description": "If true (default), fill the form but do NOT click Submit"},
+            ],
+            "used_by": ["GreenhouseApplyFlow"],
+            "source_file": "src/automation/tools/greenhouse_apply_tool.py",
         },
         {
             "id": "maps_search",

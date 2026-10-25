@@ -1,0 +1,32 @@
+answer_question_task:
+  description: >
+    A job application asks a REQUIRED question the form-filler could not answer
+    from rules. Answer it for the candidate.
+
+    Job: {job_title} at {company}
+
+    Question: {question}
+    Answer type: {field_kind}
+    Allowed options (for a select, the answer must be exactly one of these):
+    {options}
+
+    Candidate profile:
+    {candidate_profile}
+
+    Candidate background (the ONLY source of facts you may use):
+    ---
+    {candidate_background}
+    ---
+
+    Requirements:
+    - Use only facts stated above. Never invent employers, dates, numbers,
+      degrees, or skills.
+    - For a select, answer with one option copied exactly from the allowed list.
+    - For free text, write at most 120 words in the first person.
+    - If the background does not support a truthful answer, set confident=false
+      and answer "".
+    - Output exactly one JSON object: {{"answer": "<answer>", "confident": true or false}}.
+      Do not output any other text, heading, or Markdown.
+  expected_output: >
+    A strict JSON object, e.g. {{"answer": "Yes", "confident": true}}.
+  agent: screening_answerer
