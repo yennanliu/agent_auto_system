@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.automation.crews.tw104_area_crew.crew import TW104AreaCrew
 from src.automation.crews.tw104_relevance_crew.crew import TW104RelevanceCrew
 from src.automation.flows.base import FlowMixin
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import extract_usage, kickoff_crew
 from src.automation.progress import append_log
 from src.automation.tools.tw104_apply_tool import run_tw104_apply
 from src.automation.tools.tw104_area import CANONICAL_NAMES, resolve_area
@@ -125,7 +125,7 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
             llm = _get_llm()
             if llm is None:
                 return ""
-            result = TW104AreaCrew(llm=llm).crew().kickoff(inputs={
+            result = kickoff_crew(TW104AreaCrew(llm=llm).crew(), {
                 "raw_input": unresolved,
                 "valid_areas": ", ".join(CANONICAL_NAMES),
             })
@@ -154,7 +154,7 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
 
                 def relevance_fn(title: str, meta: str) -> tuple[bool, str]:  # noqa: F811
                     try:
-                        result = TW104RelevanceCrew(llm=llm).crew().kickoff(inputs={
+                        result = kickoff_crew(TW104RelevanceCrew(llm=llm).crew(), {
                             "task_filter": task_filter,
                             "job_title": title,
                             "job_meta": meta,

@@ -1,3 +1,26 @@
+import asyncio
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
+
+
+def kickoff_crew(crew, inputs: dict):
+    """``crew.kickoff(inputs=...)`` that also works inside a running event loop.
+
+    crewai >= 1.14.5's ``AgentExecutor.invoke`` returns a coroutine whenever an
+    asyncio loop is running in the calling thread, and the sync kickoff then
+    raises. Playwright's sync API keeps such a loop alive, so crews called from
+    browser callbacks (the apply flows' relevance gates) must run on a fresh,
+    loop-free worker thread. Context vars are carried over.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return crew.kickoff(inputs=inputs)
+    ctx = contextvars.copy_context()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(ctx.run, crew.kickoff, inputs=inputs).result()
+
+
 def extract_usage(result) -> dict:
     """Prompt/completion token counts from a crew or agent kickoff result.
 

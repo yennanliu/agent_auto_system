@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from src.automation.crews.linkedin_relevance_crew.crew import LinkedInRelevanceCrew
 from src.automation.flows.base import FlowMixin
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import extract_usage, kickoff_crew
 from src.automation.progress import append_log
 from src.automation.tools.linkedin_apply_tool import run_linkedin_apply
 
@@ -111,7 +111,7 @@ class LinkedInApplyFlow(FlowMixin, Flow[LinkedInApplyState]):
 
                 def relevance_fn(title: str, meta: str) -> tuple[bool, str]:  # noqa: F811
                     try:
-                        result = LinkedInRelevanceCrew(llm=llm).crew().kickoff(inputs={
+                        result = kickoff_crew(LinkedInRelevanceCrew(llm=llm).crew(), {
                             "task_filter": task_filter,
                             "job_title": title,
                             "job_meta": meta,
