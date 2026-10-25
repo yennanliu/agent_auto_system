@@ -1,4 +1,4 @@
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import extract_usage, tool_failure_messages
 from src.automation.progress import append_log
 
 
@@ -49,6 +49,8 @@ class FlowMixin:
             "previous_error": getattr(self.state, "previous_error", ""),
         })
         self.state.usage = extract_usage(result)
+        for msg in tool_failure_messages(result):
+            self._log(f"⚠ {msg}")
         if done_log:
             self._log(done_log)
         return result.raw if hasattr(result, "raw") else str(result)

@@ -1,6 +1,7 @@
 import os
 
 os.environ.setdefault("OTEL_ENABLED", "false")
+os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"  # forced: real crew kickoffs must never phone home
 
 import json
 

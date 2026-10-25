@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.automation.crews.tasker_apply_crew.crew import TaskerProposalCrew
 from src.automation.crews.tasker_relevance_crew.crew import TaskerRelevanceCrew
 from src.automation.flows.base import FlowMixin
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import extract_usage, kickoff_crew
 from src.automation.progress import append_log
 from src.automation.tools.tasker_apply_tool import (
     _DEFAULT_TEMPLATE,
@@ -100,7 +100,7 @@ class TaskerApplyFlow(FlowMixin, Flow[TaskerApplyState]):
                 except Exception:  # noqa: BLE001
                     return template
             try:
-                result = TaskerProposalCrew(llm=llm).crew().kickoff(inputs={
+                result = kickoff_crew(TaskerProposalCrew(llm=llm).crew(), {
                     "case_title": title,
                     "case_description": description,
                     "min_charge": self.state.min_charge,
@@ -138,7 +138,7 @@ class TaskerApplyFlow(FlowMixin, Flow[TaskerApplyState]):
 
             def relevance_fn(title: str, description: str) -> tuple[bool, str]:  # noqa: F811
                 try:
-                    result = TaskerRelevanceCrew(llm=llm).crew().kickoff(inputs={
+                    result = kickoff_crew(TaskerRelevanceCrew(llm=llm).crew(), {
                         "task_filter": task_filter,
                         "case_title": title,
                         "case_description": description,
