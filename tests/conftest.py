@@ -1,6 +1,7 @@
 import os
 
 os.environ.setdefault("OTEL_ENABLED", "false")
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")  # no telemetry calls from real crew kickoffs
 
 import json
 
