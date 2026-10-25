@@ -131,13 +131,48 @@ def _split_list(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"[,\n;]", text or "") if s.strip()]
 
 
+# Role shorthand people type vs. what job titles actually say. A keyword equal
+# to a key is replaced by its phrases (any of which may match).
+ROLE_ALIASES = {
+    "swe": ("software engineer", "software developer", "software development engineer"),
+    "sde": ("software development engineer", "software engineer", "software developer"),
+    "be": ("backend", "back end", "back-end"),
+    "fe": ("frontend", "front end", "front-end"),
+    "fullstack": ("full stack", "fullstack", "full-stack"),
+    "sre": ("site reliability", "reliability engineer"),
+    "devops": ("devops", "dev ops", "platform engineer", "infrastructure engineer"),
+    "ml": ("machine learning", "ml engineer", "ai engineer"),
+    "mle": ("machine learning engineer", "ml engineer"),
+    "de": ("data engineer",),
+    "ds": ("data scientist",),
+    "em": ("engineering manager",),
+    "pm": ("product manager",),
+}
+
+
+def expand_keywords(keywords: list[str]) -> list[str]:
+    out: list[str] = []
+    for kw in keywords:
+        for phrase in ROLE_ALIASES.get(kw.strip().lower(), (kw,)):
+            if phrase not in out:
+                out.append(phrase)
+    return out
+
+
+def _phrase_in(phrase: str, title: str) -> bool:
+    # Every word must START a word in the title: "engineer" hits "engineering",
+    # but "ai" no longer hits "maintain".
+    return all(re.search(r"\b" + re.escape(w), title) for w in phrase.lower().split())
+
+
 def match_job(job: dict, keywords: list[str], locations: list[str]) -> bool:
-    """Title matches ANY keyword phrase (every word of that phrase present,
-    case-insensitive) and location matches ANY location substring. Empty lists
-    match everything."""
+    """Title matches ANY keyword phrase (every word of that phrase starts a word
+    in the title, case-insensitive; role shorthand like "SWE" is expanded via
+    ROLE_ALIASES) and location matches ANY location substring. Empty lists match
+    everything."""
     title = (job.get("title") or "").lower()
     loc = ((job.get("location") or {}).get("name") or "").lower()
-    if keywords and not any(all(w in title for w in kw.lower().split()) for kw in keywords):
+    if keywords and not any(_phrase_in(kw, title) for kw in expand_keywords(keywords)):
         return False
     if locations and not any(lc.lower() in loc for lc in locations):
         return False

@@ -482,3 +482,13 @@ def test_countries_in_matches_aliases_not_substrings():
     assert gh.countries_in("Are you eligible to work for us?") == set()
     assert gh.countries_in("Are you authorized to work in the US?") == {"united states"}
     assert gh.countries_in("Why do you want to join?") == set()
+
+
+def test_match_job_expands_role_shorthand_and_matches_word_starts():
+    assert gh.match_job(_job("Senior Software Engineer, Backend"), ["SWE"], [])
+    assert gh.match_job(_job("Site Reliability Engineer"), ["sre"], [])
+    assert gh.match_job(_job("Senior Backend Engineer"), ["BE"], [])
+    assert not gh.match_job(_job("Account Executive"), ["swe"], [])
+    assert gh.match_job(_job("Engineering Manager"), ["engineer"], [])     # word start
+    assert not gh.match_job(_job("Maintenance Lead"), ["ai"], [])          # not mid-word
+    assert gh.expand_keywords(["swe", "sde"])[:2] == ["software engineer", "software developer"]

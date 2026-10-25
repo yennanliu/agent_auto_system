@@ -434,10 +434,11 @@ register(AutomationSpec(
     name_template="Greenhouse: {boards}",
     fields=(
         Field("boards", "text", "Job Boards", required=True,
-              placeholder="figma, airbnb, https://job-boards.greenhouse.io/discord",
+              placeholder="appier, figma, discord",
               help="Greenhouse board tokens or URLs, comma-separated. A job URL applies to that one job."),
-        Field("keywords", "text", "Title Keywords", placeholder="backend engineer, platform",
-              help="Comma-separated; a job matches if its title contains every word of any phrase. Blank = all."),
+        Field("keywords", "text", "Role / Title Keywords", placeholder="SWE, backend, SRE",
+              help="Comma-separated; a job matches if its title contains every word of any phrase. "
+                   "Shorthand like SWE / SDE / BE / SRE / ML is expanded. Blank = all."),
         Field("location", "text", "Job Location Filter", placeholder="Remote, Taipei",
               help="Comma-separated substrings of the job's location. Blank = any."),
         Field("first_name", "text", "First Name", required=True),
