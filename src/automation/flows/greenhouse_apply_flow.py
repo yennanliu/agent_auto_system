@@ -83,10 +83,18 @@ class GreenhouseApplyState(BaseModel):
     work_authorized: bool = True
     needs_sponsorship: bool = False
     authorized_countries: str = ""  # e.g. "Taiwan" — country-named questions answer from this
+    school: str = ""                # Education block (boards that require it)
+    degree: str = ""                # e.g. "Master's Degree"
+    discipline: str = ""
+    current_company: str = ""       # Employment block (boards that require it)
+    current_title: str = ""
+    current_start: str = ""         # e.g. "2025-06"
     extra_answers: str = ""         # "keyword: answer" lines for recurring custom questions
     candidate_background: str = ""  # enables LLM answers to required screening questions
     task_filter: str = ""           # optional 2nd gate: LLM relevance filter (nat-lang)
     max_applications: int = 5
+    max_per_board: int = 0          # cap per company (0 = no cap)
+    max_scans_per_board: int = 0    # jobs examined per company (0 = no cap)
     dry_run: bool = True            # safety: don't click Submit unless explicitly false
     run_id: int = 0
     usage: dict = {}
@@ -200,6 +208,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
                         result = GreenhouseAnswerCrew(llm=llm).crew().kickoff(inputs={
                             "job_title": job.get("title", ""),
                             "company": job.get("company", ""),
+                            "job_location": job.get("location", "") or "unspecified",
                             "question": label,
                             "field_kind": "select" if kind == "select" else "free text",
                             "options": "\n".join(f"- {o}" for o in options) or "(free text)",
@@ -233,8 +242,13 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
             work_authorized=self.state.work_authorized,
             needs_sponsorship=self.state.needs_sponsorship,
             authorized_countries=self.state.authorized_countries,
+            school=self.state.school, degree=self.state.degree, discipline=self.state.discipline,
+            current_company=self.state.current_company, current_title=self.state.current_title,
+            current_start=self.state.current_start,
             extra_answers=self.state.extra_answers,
             max_applications=self.state.max_applications,
+            max_per_board=self.state.max_per_board,
+            max_scans_per_board=self.state.max_scans_per_board,
             dry_run=self.state.dry_run,
             relevance_fn=relevance_fn,
             answer_fn=answer_fn,

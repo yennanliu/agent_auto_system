@@ -492,3 +492,130 @@ def test_match_job_expands_role_shorthand_and_matches_word_starts():
     assert gh.match_job(_job("Engineering Manager"), ["engineer"], [])     # word start
     assert not gh.match_job(_job("Maintenance Lead"), ["ai"], [])          # not mid-word
     assert gh.expand_keywords(["swe", "sde"])[:2] == ["software engineer", "software developer"]
+
+
+@pytest.mark.parametrize("loc, expected", [
+    ("San Francisco, CA", {"united states"}),
+    ("Remote - USA", {"united states"}),
+    ("Bangkok, Thailand", {"thailand"}),
+    ("Toronto", {"canada"}),
+    ("Office Based - Taipei, Taiwan", {"taiwan"}),
+    ("Home Based - APAC", {"*"}),
+    ("Home based - Worldwide", {"*"}),
+    ("Starbase", set()),
+])
+def test_job_countries(loc, expected):
+    assert gh.job_countries(loc) == expected
+
+
+def _generic_auth_plan(loc):
+    yn = ["Yes", "No"]
+    tw = {**PROFILE, "authorized_countries": {"taiwan"}}
+    return gh.plan_answers({"location": {"name": loc}, "questions": [
+        _q("Are you authorized to work in the country for which you applied?", "q1",
+           "multi_value_single_select", values=yn),
+        _q("Will you now or in the future require sponsorship?", "q2", "multi_value_single_select", values=yn),
+    ]}, tw, lambda *_a: "Yes")
+
+
+def test_generic_authorization_follows_job_location():
+    answers, unanswered = _generic_auth_plan("Bangkok, Thailand")
+    assert unanswered == [] and _by_field(answers) == {"q1": "No", "q2": "Yes"}
+    answers, _ = _generic_auth_plan("Taipei, Taiwan")
+    assert _by_field(answers) == {"q1": "Yes", "q2": "No"}
+    answers, _ = _generic_auth_plan("Home Based - APAC")
+    assert _by_field(answers) == {"q1": "Yes", "q2": "No"}
+
+
+def test_generic_authorization_unknown_job_country_is_never_guessed():
+    answers, unanswered = _generic_auth_plan("Starbase")        # answer_fn would say "Yes"
+    assert answers == []
+    assert len(unanswered) == 2
+
+
+def test_run_caps_applications_per_board(tmp_path, mocker):
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    jobs = {"jobs": [_job("Backend A", jid=1), _job("Backend B", jid=2), _job("Backend C", jid=3)]}
+    routes = {"/a/jobs": jobs, "/b/jobs": {"jobs": [_job("Backend Z", jid=9)]}}
+    for jid in (1, 2, 3, 9):
+        routes[f"/jobs/{jid}"] = {"questions": []}
+    mocker.patch.object(gh, "_launch_browser")
+    mocker.patch.object(gh, "_apply_to_job", side_effect=lambda _p, job, *_a: {**job, "status": "prepared"})
+    out = gh.run_greenhouse_apply(boards="a, b", resume_path=str(resume), client=FakeClient(routes),
+                                  ledger_path=str(tmp_path / "l.json"), max_applications=10,
+                                  max_per_board=1, **_ARGS)
+    assert sorted((e["token"], e["job_id"]) for e in out["applied"]) == [("a", "1"), ("b", "9")]
+
+
+def test_no_answer_maps_onto_sentence_style_options():
+    answers, _ = _plan([_q("Have you ever worked for Robinhood as an employee, intern or contractor?", "q1",
+                           "multi_value_single_select",
+                           values=["I currently work at Robinhood as a full-time employee",
+                                   "I have previously worked at Robinhood", "I have never worked at Robinhood"])])
+    assert _by_field(answers) == {"q1": "I have never worked at Robinhood"}
+
+
+def test_match_option_short_answers_never_substring_match():
+    assert gh.match_option(["I know the team", "Not now"], "no") is None
+    assert gh.match_option(["Yes, I am", "No, I am not"], "no") == "No, I am not"
+
+
+def test_run_caps_jobs_examined_per_board(tmp_path, mocker):
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    client = FakeClient({"/a/jobs": {"jobs": [_job("Backend A", jid=i) for i in range(1, 6)]},
+                         **{f"/a/jobs/{i}": {"questions": [_q("Why us?", "q", "textarea")]} for i in range(1, 6)}})
+    mocker.patch.object(gh, "_launch_browser")
+    out = gh.run_greenhouse_apply(boards="a", resume_path=str(resume), client=client,
+                                  ledger_path=str(tmp_path / "l.json"), max_scans_per_board=2, **_ARGS)
+    assert out["jobs_found"] == 2
+
+
+def test_require_work_permit_is_a_sponsorship_question():
+    tw = {**PROFILE, "authorized_countries": {"taiwan"}}
+    answers, _ = gh.plan_answers({"location": {"name": "Ljubljana, Slovenia"}, "questions": [
+        _q("Will you now (or in the future) require a work permit in order to work in this country?", "q1",
+           "multi_value_single_select", values=["Yes", "No"]),
+        _q("Do you have a valid work permit for this country?", "q2", "multi_value_single_select",
+           values=["Yes", "No"]),
+    ]}, tw)
+    assert _by_field(answers) == {"q1": "Yes", "q2": "No"}
+
+
+def test_plan_education_and_employment_blocks():
+    prof = {**PROFILE,
+            "education": {"school": "National Taiwan University", "degree": "Master's Degree", "discipline": "Physics"},
+            "employment": {"company": "Self-employed", "title": "Sr. Backend Engineer",
+                           "start_month": "June", "start_year": "2025"}}
+    answers, unanswered = gh.plan_answers(
+        {"education": "education_required", "employment": "employment_required", "questions": []}, prof)
+    assert unanswered == []
+    got = {a["field"]: (a["kind"], a["value"]) for a in answers}
+    assert got["school--0"] == ("combo", "National Taiwan University")
+    assert got["degree--0"] == ("select", "Master's Degree")
+    assert got["start-date-month-0"] == ("select", "June")
+    assert got["current-role-0_1"] == ("check", True)
+    assert next(a for a in answers if a["field"] == "discipline--0")["optional"] is True
+
+
+def test_plan_required_blocks_without_data_are_unanswered():
+    _, unanswered = gh.plan_answers(
+        {"education": "education_required", "employment": "employment_optional", "questions": []}, PROFILE)
+    assert unanswered == ["Education (school / degree)"]
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("2025-06", {"start_month": "June", "start_year": "2025"}),
+    ("06/2025", {"start_month": "June", "start_year": "2025"}),
+    ("Jan 2023", {"start_month": "January", "start_year": "2023"}),
+    ("", {}),
+])
+def test_parse_start(text, expected):
+    assert gh._parse_start(text) == expected
+
+
+def test_match_option_prefers_shortest_prefix_hit():
+    opts = ["National Taiwan Normal University", "National Taiwan University of Science And Technology",
+            "National Taiwan University (NTU)"]
+    assert gh.match_option(opts, "National Taiwan University") == "National Taiwan University (NTU)"

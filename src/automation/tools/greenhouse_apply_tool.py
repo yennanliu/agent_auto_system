@@ -256,10 +256,17 @@ def match_option(options: list[str], want: str) -> str | None:
     w = (want or "").strip().lower()
     if not w:
         return None
-    for test in (lambda o: o == w, lambda o: o.startswith(w), lambda o: w in o):
-        for opt in options:
-            if test(opt.strip().lower()):
-                return opt
+    # Prefix must end on a word boundary: "no" is a prefix of "No, I am not",
+    # not of "Not now".
+    tests = [lambda o: o == w, lambda o: re.match(re.escape(w) + r"(?!\w)", o) is not None]
+    if len(w) > 3:  # "no" must not match inside "now" / "know"
+        tests.append(lambda o: w in o)
+    for test in tests:
+        hits = [opt for opt in options if test(opt.strip().lower())]
+        if hits:
+            # Shortest wins: "National Taiwan University" → "… (NTU)", not
+            # "… of Science And Technology".
+            return min(hits, key=len)
     return None
 
 
@@ -294,8 +301,23 @@ _COUNTRIES = {
     "poland": r"poland", "israel": r"israel", "india": r"india",
     "japan": r"japan", "singapore": r"singapore", "australia": r"australia",
     "taiwan": r"taiwan", "hong kong": r"hong kong", "brazil": r"brazil",
-    "mexico": r"mexico", "south korea": r"korea",
+    "mexico": r"mexico", "south korea": r"korea", "thailand": r"thailand",
+    "slovenia": r"slovenia", "switzerland": r"switzerland", "sweden": r"sweden",
 }
+# Job locations often give only a city ("Toronto", "San Francisco, CA").
+_CITIES = {
+    "canada": r"toronto|vancouver|montreal", "ireland": r"dublin",
+    "united kingdom": r"london|manchester|edinburgh", "thailand": r"bangkok",
+    "india": r"gurugram|gurgaon|bengaluru|bangalore|hyderabad|pune|mumbai",
+    "slovenia": r"ljubljana", "japan": r"tokyo|osaka", "australia": r"sydney|melbourne",
+    "germany": r"berlin|munich", "netherlands": r"amsterdam", "france": r"paris",
+    "israel": r"tel aviv", "brazil": r"s[aã]o paulo", "taiwan": r"taipei|hsinchu|taichung",
+    "south korea": r"seoul", "spain": r"madrid|barcelona", "poland": r"warsaw|krak[oó]w",
+}
+_US_STATE = re.compile(r",\s*(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|"
+                       r"O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])\b")
+# Regions where a remote role can be done from anywhere inside them.
+_ANYWHERE = re.compile(r"worldwide|anywhere|global|apac|asia", re.I)
 
 
 def countries_in(text: str) -> set[str]:
@@ -303,15 +325,42 @@ def countries_in(text: str) -> set[str]:
     return {name for name, pat in _COUNTRIES.items() if re.search(pat, t)}
 
 
-def _authorized_for(lbl: str, profile: dict) -> bool | None:
-    """Authorization for the country a question names, from authorized_countries.
-    None when the question names no country or no list was given — the caller
-    falls back to the blanket work_authorized flag."""
+def job_countries(location: str) -> set[str] | None:
+    """Countries a job's location names (cities and US state codes included).
+    ``{"*"}`` for worldwide / APAC remote; ``set()`` when unknown."""
+    if _ANYWHERE.search(location or ""):
+        return {"*"}
+    found = countries_in(location)
+    t = (location or "").lower()
+    found |= {name for name, pat in _CITIES.items() if re.search(pat, t)}
+    if _US_STATE.search(location or ""):
+        found.add("united states")
+    return found
+
+
+_UNKNOWN = object()
+
+
+def _authorized_for(lbl: str, profile: dict):
+    """Authorization the question is about, from authorized_countries.
+
+    A question naming a country is judged against that country; a generic one
+    ("…in the country for which you applied?") against the JOB's location.
+    Returns True/False, None when no list was given (blanket work_authorized
+    flag applies), or _UNKNOWN when the job's country can't be determined —
+    then the question must stay unanswered rather than be guessed."""
     allowed = profile.get("authorized_countries") or set()
-    named = countries_in(lbl)
-    if not allowed or not named:
+    if not allowed:
         return None
-    return named <= allowed
+    named = countries_in(lbl)
+    if named:
+        return named <= allowed
+    jc = profile.get("job_countries")
+    if jc is None:  # no job context (e.g. planning without a location)
+        return None
+    if "*" in jc:
+        return True
+    return (jc <= allowed) if jc else _UNKNOWN
 
 
 def _rule_answer(label: str, profile: dict) -> str | None:
@@ -327,19 +376,25 @@ def _rule_answer(label: str, profile: dict) -> str | None:
         return profile.get("github_url") or None
     if re.search(r"website|portfolio|personal site|blog", lbl):
         return profile.get("website_url") or profile.get("github_url") or None
-    named_ok = _authorized_for(lbl, profile)
-    # A named country the candidate isn't authorized in means "not authorized
-    # there" and "would need sponsorship there" — never the blanket flags.
-    needs = bool(profile.get("needs_sponsorship")) if named_ok is not False else True
-    authorized = bool(profile.get("work_authorized", True)) if named_ok is None else named_ok
-    sponsor = re.search(r"sponsor|visa", lbl)
-    # "Will you require sponsorship…" asks about sponsorship; "Are you authorized
-    # to work … without sponsorship?" asks about authorization — opposite answers.
-    if sponsor and "without" not in lbl and re.search(r"\b(require|need|will you|do you)\b", lbl):
-        return _yes_no(needs)
-    if re.search(r"authori[sz]ed|eligible to work|legally (able|permitted|allowed)|right to work|work permit", lbl):
-        return _yes_no(authorized and not (sponsor and needs))
-    if sponsor:
+    # "Will you require a work permit…" is a sponsorship question, not "do you
+    # have the right to work" — opposite answers.
+    sponsor = re.search(r"sponsor|visa|(require|need)\b.*\bwork permit", lbl)
+    auth_q = re.search(r"authori[sz]ed|eligible to work|legally (able|permitted|allowed)|"
+                       r"right to work|work permit", lbl)
+    if sponsor or auth_q:
+        ok = _authorized_for(lbl, profile)
+        if ok is _UNKNOWN:
+            return "__skip__"
+        # Not authorized in the country at hand means "not authorized there" and
+        # "would need sponsorship there" — never the blanket flags.
+        needs = bool(profile.get("needs_sponsorship")) if ok is not False else True
+        authorized = bool(profile.get("work_authorized", True)) if ok is None else ok
+        # "Will you require sponsorship…" asks about sponsorship; "Are you
+        # authorized to work … without sponsorship?" about authorization.
+        if sponsor and "without" not in lbl and re.search(r"\b(require|need|will you|do you)\b", lbl):
+            return _yes_no(needs)
+        if auth_q:
+            return _yes_no(authorized and not (sponsor and needs))
         return _yes_no(needs)
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
@@ -373,6 +428,9 @@ def _to_option(answer: str, options: list[str]) -> str | None:
         return hit
     if answer.isdigit():
         return _years_option(options, int(answer))
+    if answer == "No":
+        # Sentence-style options: "I have never worked at Robinhood", "I do not…"
+        return next((o for o in options if re.search(r"\b(never|not|don.?t|no)\b", o, re.I)), None)
     if answer == "__source__":
         for pat in _SOURCE_PREFS:
             hit = next((o for o in options if re.search(pat, o, re.I)), None)
@@ -404,6 +462,9 @@ def plan_answers(job_data: dict, profile: dict,
     """
     answers: list[dict] = []
     unanswered: list[str] = []
+    loc = (job_data.get("location") or {}).get("name")
+    if loc is not None:
+        profile = {**profile, "job_countries": job_countries(loc)}
 
     def add(field: str, kind: str, value, label: str) -> None:
         answers.append({"field": field, "kind": kind, "value": value, "label": label})
@@ -436,6 +497,8 @@ def plan_answers(job_data: dict, profile: dict,
             if name in ("resume_text", "cover_letter_text") and names & {"resume", "cover_letter"}:
                 continue  # the paste-instead alternative of a file field
             ans = _rule_answer(label, profile)
+            if ans == "__skip__":
+                break  # must not be guessed — neither by rules nor the LLM
             if kind in ("select", "multiselect"):
                 pick = _to_option(ans, options) if ans else None
                 if pick is None and required and len(options) == 1:
@@ -463,6 +526,31 @@ def plan_answers(job_data: dict, profile: dict,
             break
         if required and not done and fields:
             unanswered.append(label or "(unlabelled question)")
+
+    # Structured Education / Employment blocks (not in `questions`; the API
+    # flags them as "education_required" / "employment_required"). Field ids
+    # are fixed: school--0, degree--0, discipline--0, company-name-0, title-0…
+    edu_mode, emp_mode = str(job_data.get("education") or ""), str(job_data.get("employment") or "")
+    edu = profile.get("education") or {}
+    if edu_mode.endswith(("_required", "_optional")):
+        if edu.get("school") and edu.get("degree"):
+            add("school--0", "combo", edu["school"], "School")
+            add("degree--0", "select", edu["degree"], "Degree")
+            if edu.get("discipline"):
+                answers.append({"field": "discipline--0", "kind": "combo", "value": edu["discipline"],
+                                "label": "Discipline", "optional": True})
+        elif edu_mode.endswith("_required"):
+            unanswered.append("Education (school / degree)")
+    emp = profile.get("employment") or {}
+    if emp_mode.endswith(("_required", "_optional")):
+        if emp.get("company") and emp.get("title") and emp.get("start_month") and emp.get("start_year"):
+            add("company-name-0", "text", emp["company"], "Company name")
+            add("title-0", "text", emp["title"], "Title")
+            add("start-date-month-0", "select", emp["start_month"], "Start date month")
+            add("start-date-year-0", "text", emp["start_year"], "Start date year")
+            add("current-role-0_1", "check", True, "Current role")
+        elif emp_mode.endswith("_required"):
+            unanswered.append("Employment (company / title / start date)")
 
     for q in job_data.get("location_questions") or []:
         for f in q.get("fields") or []:
@@ -555,7 +643,8 @@ def _by_id(page, field: str):
     return page.locator(f"[id='{field}']").first
 
 
-def _choose_option(page, field: str, labels: list[str], type_text: str = "") -> bool:
+def _choose_option(page, field: str, labels: list[str], type_text: str = "",
+                   require_match: bool = False) -> bool:
     """Pick option(s) in a Greenhouse react-select. Options are scoped by their
     ``react-select-<field>-option-N`` ids — the phone widget's hidden country
     list also uses role=option, so a bare [role=option] query picks strangers."""
@@ -577,7 +666,7 @@ def _choose_option(page, field: str, labels: list[str], type_text: str = "") -> 
             page.keyboard.press("Escape")
             continue
         pick = match_option(texts, want) if want else texts[0]
-        idx = texts.index(pick) if pick in texts else (0 if type_text else -1)
+        idx = texts.index(pick) if pick in texts else (0 if type_text and not require_match else -1)
         if idx < 0:
             page.keyboard.press("Escape")
             continue
@@ -629,12 +718,25 @@ def _fill_form(page, answers: list[dict], log: Callable) -> list[str]:
     for a in answers:
         field, kind, value, label = a["field"], a["kind"], a["value"], a["label"]
         try:
+            if a.get("optional") and _by_id(page, field).count() == 0:
+                continue  # e.g. "Discipline" exists on some boards' education block only
             if kind == "text":
                 el = _by_id(page, field)
                 if el.count() == 0:
                     failed.append(label)
                     continue
                 el.fill(str(value), timeout=5000)
+            elif kind == "check":
+                el = _by_id(page, field)
+                if el.count() == 0:
+                    failed.append(label)
+                    continue
+                el.check(timeout=5000)
+            elif kind == "combo":
+                # Async autocomplete (school, discipline): type, then take the
+                # matching suggestion — never an arbitrary first one.
+                if not _choose_option(page, field, [str(value)], type_text=str(value), require_match=True):
+                    failed.append(label)
             elif kind == "file":
                 el = page.locator(f"input[type='file'][id='{field}']").first
                 if el.count() == 0:
@@ -772,6 +874,25 @@ def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
 
 # ── orchestration ────────────────────────────────────────────────────────────
 
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+
+
+def _parse_start(text: str) -> dict:
+    """"2025-06" / "06/2025" / "June 2025" → {start_month: "June", start_year: "2025"}."""
+    t = (text or "").strip()
+    year = re.search(r"\b(19|20)\d{2}\b", t)
+    month = None
+    m = re.search(r"\b(1[0-2]|0?[1-9])\b", re.sub(r"\b(19|20)\d{2}\b", "", t))
+    if m:
+        month = _MONTHS[int(m.group(1)) - 1]
+    else:
+        month = next((mo for mo in _MONTHS if mo[:3].lower() in t.lower()), None)
+    if not (year and month):
+        return {}
+    return {"start_month": month, "start_year": year.group(0)}
+
+
 def _parse_extra_answers(text: str) -> list[tuple[str, str]]:
     """``keyword: answer`` lines → [(keyword, answer)]."""
     out = []
@@ -803,8 +924,16 @@ def run_greenhouse_apply(
     work_authorized: bool = True,
     needs_sponsorship: bool = False,
     authorized_countries: str = "",
+    school: str = "",
+    degree: str = "",
+    discipline: str = "",
+    current_company: str = "",
+    current_title: str = "",
+    current_start: str = "",
     extra_answers: str = "",
     max_applications: int = 5,
+    max_per_board: int = 0,
+    max_scans_per_board: int = 0,
     dry_run: bool = True,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     answer_fn: Callable[[str, str, list[str]], str] | None = None,
@@ -869,12 +998,20 @@ def run_greenhouse_apply(
             "authorized_countries": set().union(*(countries_in(c) for c in _split_list(authorized_countries))),
             "resume_path": resume_path, "cover_letter_path": cover_tmp,
             "extra_answers": _parse_extra_answers(extra_answers),
+            "education": {"school": school.strip(), "degree": degree.strip(),
+                          "discipline": discipline.strip()},
+            "employment": {"company": current_company.strip(), "title": current_title.strip(),
+                           **_parse_start(current_start)},
         }
         ledger = load_ledger(ledger_path)
 
         applied: list[dict] = []
         skipped: list[dict] = []
         scanned = filtered = 0
+        per_board: dict[str, int] = {}
+        scans: dict[str, int] = {}
+        max_per_board = max(0, int(max_per_board or 0))
+        max_scans_per_board = max(0, int(max_scans_per_board or 0))
         headless = os.getenv("GREENHOUSE_HEADLESS", "0") == "1"
 
         from playwright.sync_api import sync_playwright
@@ -885,6 +1022,11 @@ def run_greenhouse_apply(
                 for job in candidates:
                     if len(applied) >= max_applications:
                         break
+                    if max_per_board and per_board.get(job["token"], 0) >= max_per_board:
+                        continue  # this company's quota is used; keep the others going
+                    if max_scans_per_board and scans.get(job["token"], 0) >= max_scans_per_board:
+                        continue  # looked at enough of this company's jobs
+                    scans[job["token"]] = scans.get(job["token"], 0) + 1
                     scanned += 1
                     jid = f"{job['token']}/{job['job_id']}"
                     log(f"[{len(applied)}/{max_applications} applied | scan #{scanned}] "
@@ -940,6 +1082,7 @@ def run_greenhouse_apply(
                         entry = _apply_to_job(page, job, answers, dry_run, log)
                         if entry.get("status") in ("prepared", "submitted"):
                             applied.append(entry)
+                            per_board[job["token"]] = per_board.get(job["token"], 0) + 1
                             if entry.get("submitted"):
                                 record_applied(ledger_path, job)
                                 ledger[_ledger_key(job)] = True

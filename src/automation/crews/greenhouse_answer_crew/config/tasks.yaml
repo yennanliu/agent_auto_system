@@ -3,7 +3,7 @@ answer_question_task:
     A job application asks a REQUIRED question the form-filler could not answer
     from rules. Answer it for the candidate.
 
-    Job: {job_title} at {company}
+    Job: {job_title} at {company} (location: {job_location})
 
     Question: {question}
     Answer type: {field_kind}
