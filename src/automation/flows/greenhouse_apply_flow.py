@@ -54,6 +54,16 @@ def _parse_answer(text: str) -> str:
     return str(obj.get("answer") or "").strip()
 
 
+def _names_unmentioned_employer(question: str, job: dict, background: str) -> bool:
+    """True when a question is about this employer ("Why do you want to join
+    Figma?") but the candidate's background never mentions it. The answerer
+    would otherwise borrow motivation written about a different company, so such
+    questions stay unanswered (the job is skipped) without asking the LLM."""
+    q, bg = question.lower(), background.lower()
+    names = {n.strip().lower() for n in (job.get("company", ""), job.get("token", "")) if len(n.strip()) >= 3}
+    return any(n in q for n in names) and not any(n in bg for n in names)
+
+
 class GreenhouseApplyState(BaseModel):
     boards: str = ""                # board tokens / URLs, comma-separated (required)
     keywords: str = ""              # title filter, comma-separated phrases (blank = all)
@@ -182,6 +192,8 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
                 }.items() if v not in ("", None))
 
                 def answer_fn(label: str, kind: str, options: list[str], job: dict) -> str:  # noqa: F811
+                    if _names_unmentioned_employer(label, job, background):
+                        return ""
                     try:
                         result = GreenhouseAnswerCrew(llm=llm).crew().kickoff(inputs={
                             "job_title": job.get("title", ""),

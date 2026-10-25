@@ -21,6 +21,10 @@ answer_question_task:
     Requirements:
     - Use only facts stated above. Never invent employers, dates, numbers,
       degrees, or skills.
+    - A question about THIS employer (why join, why interested, what excites you
+      about {company}) may only draw on what the background says about {company}
+      itself. Never re-use motivation the background states for a different
+      company; if {company} isn't covered, set confident=false.
     - For a select, answer with one option copied exactly from the allowed list.
     - For free text, write at most 120 words in the first person.
     - If the background does not support a truthful answer, set confident=false

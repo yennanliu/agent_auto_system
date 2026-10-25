@@ -166,6 +166,18 @@ def _heuristic(job_type: str, result) -> EvalResult:
     )
 
 
+def _result_for_judge(result) -> str:
+    """The serialized result, capped at _MAX_RESULT_CHARS. A cut is labelled as
+    ours — otherwise the judge reads the mid-string cut as a broken output and
+    scores long-but-healthy results (e.g. apply runs with many skipped jobs) low."""
+    text = json.dumps(result, ensure_ascii=False)
+    if len(text) <= _MAX_RESULT_CHARS:
+        return text
+    return (text[:_MAX_RESULT_CHARS]
+            + f"\n[… truncated by the evaluation harness for length; {len(text) - _MAX_RESULT_CHARS} "
+              "more characters omitted. The full result is valid — do not penalize the cut.]")
+
+
 def evaluate(job_type: str, result, provider: str | None = None, model: str | None = None) -> EvalResult:
     """Score the quality of a job result. Never raises — falls back to a heuristic."""
     # An errored result is a known failure; don't spend an LLM call to judge it.
@@ -175,9 +187,8 @@ def evaluate(job_type: str, result, provider: str | None = None, model: str | No
     from src.automation.harness.provider import PROVIDER_MODELS, has_api_key, normalize, resolve
 
     run_provider, run_model = normalize(provider, model)
-    result_json = json.dumps(result, ensure_ascii=False)[:_MAX_RESULT_CHARS]
     prompt = _JUDGE_PROMPT.format(
-        job_type=job_type, result=result_json,
+        job_type=job_type, result=_result_for_judge(result),
         rubric=_RUBRICS.get(job_type, _GENERIC_RUBRIC),
     )
 

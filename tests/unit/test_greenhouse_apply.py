@@ -421,3 +421,37 @@ def test_plan_long_option_labels_and_source_question():
     ])
     assert _by_field(answers) == {"q1": "No - I do not require visa sponsorship.",
                                   "q2": "Social media (Facebook, LinkedIn, Twitter)"}
+
+
+def test_plan_required_demographic_questions_decline_by_flag():
+    demo = {"questions": [
+        {"id": 4033064002, "label": "Gender", "required": True, "type": "multi_value_single_select",
+         "answer_options": [{"label": "Male"}, {"label": "I don't wish to answer", "decline_to_answer": True}]},
+        {"id": 4033070002, "label": "Optional survey", "required": False, "type": "multi_value_single_select",
+         "answer_options": [{"label": "A"}]},
+        {"id": 4033099002, "label": "Race", "required": True, "type": "multi_value_single_select",
+         "answer_options": [{"label": "White"}, {"label": "Asian"}]},
+    ]}
+    answers, unanswered = _plan([], demographic_questions=demo)
+    assert _by_field(answers) == {"4033064002": "I don't wish to answer"}
+    assert unanswered == ["Race (demographic)"]          # no decline option → never guess
+
+
+def test_run_result_leads_with_summary_and_strips_skipped_answers(tmp_path):
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    client = FakeClient({"/a/jobs": {"jobs": [_job("Backend A", jid=1)]},
+                         "/a/jobs/1": {"questions": [_q("Why us?", "q1", "textarea")]}})
+    out = gh.run_greenhouse_apply(boards="a", resume_path=str(resume), client=client,
+                                  ledger_path=str(tmp_path / "l.json"), **_ARGS)
+    assert next(iter(out)) == "summary"
+    assert all("answers" not in s for s in out["skipped"])
+
+
+def test_answer_guard_blocks_company_questions_background_doesnt_cover():
+    from src.automation.flows.greenhouse_apply_flow import _names_unmentioned_employer
+
+    job = {"company": "Figma", "token": "figma"}
+    assert _names_unmentioned_employer("Why do you want to join Figma?", job, "I admire Discord.")
+    assert not _names_unmentioned_employer("Why do you want to join Figma?", job, "I use Figma daily.")
+    assert not _names_unmentioned_employer("Describe a project you led.", job, "I admire Discord.")

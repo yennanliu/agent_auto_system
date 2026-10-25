@@ -411,10 +411,21 @@ def plan_answers(job_data: dict, profile: dict,
                     unanswered.append(label)
                 break
 
+    # Newer boards' self-identification survey: input id = the question id, and
+    # the API flags the decline option explicitly. Same policy as EEOC above.
     demo = job_data.get("demographic_questions") or {}
     for q in (demo.get("questions") or []) if isinstance(demo, dict) else []:
-        if q.get("required"):
-            unanswered.append(f"{q.get('label') or 'demographic question'} (demographic)")
+        if not q.get("required"):
+            continue
+        label = q.get("label") or "demographic question"
+        opts = q.get("answer_options") or []
+        pick = next((o.get("label") for o in opts if o.get("decline_to_answer")), None) \
+            or next((o.get("label") for o in opts if _DECLINE_RE.search(o.get("label") or "")), None)
+        if pick and q.get("id"):
+            kind = "multiselect" if q.get("type") == "multi_value_multi_select" else "select"
+            add(str(q["id"]), kind, [pick] if kind == "multiselect" else pick, label)
+        else:
+            unanswered.append(f"{label} (demographic)")
 
     return answers, unanswered
 
@@ -869,18 +880,20 @@ def run_greenhouse_apply(
         summary = (f"{scanned} matching job(s) scanned on {len(board_list)} board(s), "
                    f"{len(applied)} {verb}, {len(skipped)} skipped")
         summary += f" ({filtered} filtered by task_filter)." if filtered else "."
+        # Summary and counts lead: the LLM judge only reads the first few KB of
+        # the serialized result, and a long skipped[] used to push them past it.
         return {
-            **base,
+            "summary": summary,
             "jobs_found": scanned,
             "total_listed": total_listed,
-            "applied": applied,
-            "skipped": skipped,
             "applied_count": len(applied),
             "submitted_count": submitted_n,
             "skipped_count": len(skipped),
             "filtered_count": filtered,
+            **base,
+            "applied": applied,
+            "skipped": [{k: v for k, v in e.items() if k != "answers"} for e in skipped],
             "warnings": warnings[:50],
-            "summary": summary,
         }
     finally:
         if owns_client:
