@@ -44,6 +44,7 @@ with an LLM-backed relevance_fn). `TW104ApplyTool` is a thin BaseTool wrapper fo
 catalog/agent parity.
 """
 import os
+import re
 from collections.abc import Callable
 
 from crewai.tools import BaseTool
@@ -67,20 +68,30 @@ _UA = (
 # (:text-is) — a substring :has-text('應徵') also hits the disabled 已應徵 button
 # and the header's 應徵紀錄 link, so a closed or already-applied job would "click
 # 應徵", land somewhere else, and report a phantom application.
+# 104's apply "button" is a <div class="apply-button__button">, and a job page
+# also carries 應徵 buttons for its *recommended* jobs (inside
+# .action-container__apply) — scope the class selector to the job's own button,
+# or we could apply to a different job than the one we vetted.
+_MAIN_APPLY = ".apply-button:not(.action-container__apply) .apply-button__button"
 _APPLY_BTN_SELECTORS = [
-    "button.apply-button__button",
-    ".apply-button__button",
+    f"{_MAIN_APPLY}:not(.disabled)",
     "button:text-is('應徵')",
     "button:text-is('我要應徵')",
     "a:text-is('應徵')",
     "a:text-is('我要應徵')",
 ]
-# The job page's apply button flips to 已應徵 once you've applied; the listing
-# card doesn't always carry that flag, so we re-check on the job page.
+# The job page's apply button flips to (今日)已應徵 once you've applied; the
+# listing card doesn't always carry that flag, so we re-check on the job page.
 _ALREADY_APPLIED_SELECTORS = [
+    f"{_MAIN_APPLY}:has-text('已應徵')",
     "button:has-text('已應徵')",
-    "a:has-text('已應徵')",
 ]
+# Employer screening questions (公司提問) on the apply form. They're required and
+# ask for personal facts (nationality, past interviews, reasons for leaving), so
+# we never let the LLM guess — the job is skipped with the questions listed for
+# the user to answer by hand. Submitting without them leaves the form unsent.
+_APPLY_FORM_BODY = ".apply-popup__body"
+_SCREENING_MARKER = "公司提問"
 _CONFIRM_SEND_SELECTORS = [
     "button:has-text('確認送出')",
     "button:has-text('送出應徵')",
@@ -95,6 +106,7 @@ _COVER_LETTER_SELECTORS = [
 ]
 _COVER_LETTER_MAX = 2000  # site's own limit (the counter reads "n/2000")
 _DONE_URL_FRAGMENT = "/job/apply/done"
+_DONE_WAIT_MS = 15000
 
 
 def _noop(_msg: str) -> None:
@@ -259,8 +271,12 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
                     }
                     const cardText = (card && card.innerText) || a.innerText || '';
                     let company = '';
-                    const c = card.querySelector("a[href*='/company/'], [class*='company']");
-                    if (c) company = (c.getAttribute('title') || c.innerText || '').trim();
+                    // .info-company__text is the bare name; the wider info-company
+                    // block also holds the industry tag, and the link's title is
+                    // "公司名：… 公司住址：…" — so read the name's own text.
+                    const c = card.querySelector(".info-company__text")
+                        || card.querySelector("a[href*='/company/']");
+                    if (c) company = (c.innerText || '').trim();
                     const row = {
                         job_id: id,
                         href,
@@ -337,6 +353,20 @@ def _fill_cover_letter(popup, cover_letter: str, log: Callable,
         log(f"  · could not fill 自我推薦信 ({exc}) — using site default")
 
 
+def _screening_questions(popup) -> list[str] | None:
+    """The 公司提問 question lines on the open apply form, or None when the form
+    has none. Each question is a numbered line ("1. ... *") after the marker."""
+    try:
+        body = popup.locator(_APPLY_FORM_BODY).first
+        text = body.inner_text(timeout=3000) if body.count() > 0 else ""
+    except Exception:  # noqa: BLE001 — unreadable form → assume no questions
+        return None
+    if _SCREENING_MARKER not in text:
+        return None
+    tail = text.split(_SCREENING_MARKER, 1)[1]
+    return [ln.strip() for ln in tail.splitlines() if re.match(r"\s*\d+\.\s", ln)]
+
+
 def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
                   log: Callable, warnings: list) -> dict:
     """Drive the apply funnel for a single job. Returns a result entry. The final
@@ -397,6 +427,15 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
                          reason="no 確認送出 button found on application page")
             return entry
 
+        questions = _screening_questions(popup)
+        if questions is not None:
+            entry.update(status="needs_answers", submitted=False,
+                         reason=f"form has {len(questions) or 'some'} required 公司提問 "
+                                "screening question(s) — apply by hand",
+                         questions=questions)
+            log(f"↷ {job['job_id']}: has 公司提問 screening questions — skipping")
+            return entry
+
         _fill_cover_letter(popup, cover_letter, log, warnings, job["job_id"])
 
         if dry_run:
@@ -407,7 +446,7 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
         send.click(timeout=8000)
         # Confirm the site navigated to the done page — the only trusted signal.
         applied = False
-        for _ in range(12):
+        for _ in range(_DONE_WAIT_MS // 500):
             try:
                 if _DONE_URL_FRAGMENT in popup.url:
                     applied = True
@@ -419,6 +458,12 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
             entry.update(status="submitted", submitted=True,
                          confirmation="landed on /job/apply/done/")
             log(f"✓ {job['job_id']}: 應徵 submitted AND confirmed by site")
+        elif _job_page_shows_applied(page, job["url"]):
+            # Slow redirect: the done page never showed, but the job's own apply
+            # button now reads 已應徵 — the site's record, so it counts.
+            entry.update(status="submitted", submitted=True,
+                         confirmation="job page now shows 已應徵")
+            log(f"✓ {job['job_id']}: 應徵 submitted — confirmed via job page (已應徵)")
         else:
             entry.update(status="unconfirmed", submitted=False,
                          reason="clicked 確認送出 but never reached /job/apply/done/")
@@ -431,6 +476,19 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
                 popup.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _job_page_shows_applied(page, url: str) -> bool:
+    """Re-open the job page and check its own apply button reads 已應徵."""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    except Exception:  # noqa: BLE001 — unreadable → unconfirmed
+        return False
+    try:
+        page.wait_for_selector(", ".join(_ALREADY_APPLIED_SELECTORS), timeout=10000)
+    except Exception:  # noqa: BLE001 — absence is decided just below
+        pass
+    return _first_visible(page, _ALREADY_APPLIED_SELECTORS) is not None
 
 
 # ── orchestration ────────────────────────────────────────────────────────────
@@ -586,13 +644,17 @@ def run_tw104_apply(
                         "summary": f"No open jobs found for keyword '{keyword}'."}
 
             submitted_n = sum(1 for e in applied if e.get("submitted"))
+            needs_answers = [e for e in skipped if e.get("status") == "needs_answers"]
             verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
             summary = (
                 f"Keyword '{keyword}': {scanned} job(s) scanned across "
                 f"{pages_scanned} page(s), {len(applied)} {verb}, "
                 f"{len(skipped)} skipped"
             )
-            summary += f" ({filtered} filtered by task_filter)." if filtered else "."
+            notes = [f"{filtered} filtered by task_filter"] if filtered else []
+            if needs_answers:
+                notes.append(f"{len(needs_answers)} need 公司提問 answers — apply by hand")
+            summary += f" ({'; '.join(notes)})." if notes else "."
             return {
                 **base,
                 "jobs_found": scanned,
@@ -603,6 +665,7 @@ def run_tw104_apply(
                 "submitted_count": submitted_n,
                 "skipped_count": len(skipped),
                 "filtered_count": filtered,
+                "needs_answers_count": len(needs_answers),
                 "warnings": warnings_out,
                 "summary": summary,
             }
