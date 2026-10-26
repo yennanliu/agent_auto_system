@@ -125,23 +125,25 @@ def _on_login_page(page) -> bool:
     return any(m in url for m in _LOGIN_URL_MARKERS)
 
 
+_AUTHED_SELECTORS = (':text("登出")', ':text("我的104")', 'img[alt*="頭像"]',
+                     'a[href*="/mylife"]', 'a[href*="logout"]')
+
+
 def _looks_logged_out(page) -> bool:
-    """Positive login signals beat the ever-present login link in 104's header.
-    We only declare "logged out" when a login prompt is actually visible."""
+    """Logged in only when a *positive* account marker exists (登出 / 我的104 /
+    avatar / mylife — present in the DOM even while the header menu is
+    collapsed). Absence of a visible login link proves nothing: 104 hides it in
+    the collapsed menu for anonymous visitors too, so an expired session used to
+    pass this check and then "prepare" every job against a login form."""
     if _on_login_page(page):
         return True
-    try:
-        for sel in (':text("登出")', ':text("我的104")', 'img[alt*="頭像"]',
-                    'a[href*="/mylife"]', 'a[href*="logout"]'):
+    for sel in _AUTHED_SELECTORS:
+        try:
             if page.locator(sel).count() > 0:
                 return False
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        loc = page.locator('a:has-text("會員登入"), a:has-text("登入")')
-        return loc.count() > 0 and loc.first.is_visible()
-    except Exception:  # noqa: BLE001
-        return False
+        except Exception:  # noqa: BLE001
+            continue
+    return True
 
 
 # ── search / listing ─────────────────────────────────────────────────────────
@@ -493,7 +495,11 @@ def run_tw104_apply(
             first_url = _search_url(keyword, area, order, 1, remote, part_time)
             log(f"Opening {first_url}")
             page.goto(first_url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(1500)
+            try:  # the header (and its account markers) renders client-side
+                page.wait_for_selector(", ".join(_AUTHED_SELECTORS),
+                                       state="attached", timeout=10000)
+            except Exception:  # noqa: BLE001 — no marker → judged logged out below
+                pass
             if _looks_logged_out(page):
                 return {**base, "error": _SESSION_EXPIRED_MSG}
             log("✓ Authenticated with 104.com.tw")

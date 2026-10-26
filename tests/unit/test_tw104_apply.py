@@ -252,6 +252,16 @@ def test_looks_logged_out_when_only_login_link_visible():
     assert _looks_logged_out(page) is True
 
 
+def test_looks_logged_out_when_login_link_hidden_and_no_account_marker():
+    from src.automation.tools.tw104_apply_tool import _looks_logged_out
+
+    # Anonymous visitors get a collapsed header: login link present but hidden.
+    # Without a positive marker this must still read as logged out.
+    page = _FakePage("https://www.104.com.tw/jobs/search/",
+                     {'a:has-text("會員登入"), a:has-text("登入")': _FakeLoc(1, visible=False)})
+    assert _looks_logged_out(page) is True
+
+
 def test_looks_logged_out_on_dedicated_login_host():
     from src.automation.tools.tw104_apply_tool import _looks_logged_out
 
