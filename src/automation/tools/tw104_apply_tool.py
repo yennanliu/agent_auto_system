@@ -245,17 +245,26 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
                 };
                 const jobIdsIn = (el) => new Set(
                     Array.from(el.querySelectorAll("a[href*='/job/']")).map(idOf).filter(Boolean));
+                // Apply-button labels (應徵 / 我要應徵 / (今日)已應徵) are never a title.
+                const isLabel = (t) => /^(今日)?(已|我要)?應徵$/.test(t);
                 const anchors = Array.from(document.querySelectorAll("a[href*='/job/']"));
                 for (const a of anchors) {
                     const href = a.getAttribute('href') || '';
                     const id = idOf(a);
                     if (!id) continue;
-                    const text = (a.getAttribute('title') || a.innerText || '').trim();
+                    const raw = (a.getAttribute('title') || a.innerText || '').trim();
+                    const text = isLabel(raw) ? '' : raw;
+                    // The card's own title link is authoritative when present.
+                    const isTitleLink = a.classList.contains('info-job__text');
                     const prev = byId.get(id);
                     if (prev) {
                         // A card links its job several times (logo, title, an
-                        // 應徵 shortcut); keep the most descriptive text as title.
-                        if (text.length > prev.title.length && text !== '應徵') prev.title = text.slice(0, 200);
+                        // 應徵 shortcut); otherwise keep the most descriptive text.
+                        if (!prev.fromTitleLink && text
+                                && (isTitleLink || text.length > prev.title.length)) {
+                            prev.title = text.slice(0, 200);
+                            prev.fromTitleLink = isTitleLink;
+                        }
                         continue;
                     }
                     // Walk up to the card container, but never past an ancestor
@@ -280,7 +289,8 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
                     const row = {
                         job_id: id,
                         href,
-                        title: (text === '應徵' ? '' : text).slice(0, 200),
+                        title: text.slice(0, 200),
+                        fromTitleLink: isTitleLink,
                         company: company.slice(0, 120),
                         snippet: cardText.replace(/\\s+/g, ' ').trim().slice(0, 400),
                         applied: cardText.indexOf('已應徵') !== -1,
