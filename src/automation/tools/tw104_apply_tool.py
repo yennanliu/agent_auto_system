@@ -22,12 +22,15 @@ Flow per run:
   3. For each job card: read title + company; skip if already applied (已應徵).
   4. Optional second gate: an LLM `relevance_fn(title, meta)` decides whether the
      job is worth applying to (natural-language task_filter). Fails open.
-  5. Apply: click 應徵, switch to the application tab, select the cover letter
-     (a saved 推薦信 by name, or the site default), click 確認送出, and confirm
-     the URL lands on /job/apply/done/. Only a confirmed done-URL counts as
-     applied — a plain click is never trusted as success.
+  5. Apply: click 應徵, switch to the application tab, type the custom
+     自我推薦信 (or keep the site default), click 確認送出, and confirm the URL
+     lands on /job/apply/done/. Only a confirmed done-URL counts as applied — a
+     plain click is never trusted as success.
   6. `dry_run` (default) does everything EXCEPT the final 確認送出, so you can
      preview which jobs would be applied to without sending real applications.
+     A job only counts as "prepared" once the application form (its 確認送出
+     button) is actually on screen, so the preview can't overstate what a real
+     run would send.
 
 The LLM here is only the relevance judge (which is why the automation runs with
 whichever provider/model the run selected — gemini, openai, anthropic, ...). The
@@ -60,13 +63,23 @@ _UA = (
 
 # DOM selectors, mirroring the reference script. Kept as fallbacks-in-order lists
 # because 104's markup uses hashed/utility class names that shift over time; the
-# first selector that matches wins. Text-based locators (:has-text) are the most
-# durable, so they lead where possible.
+# first selector that matches wins. The text fallbacks match the label EXACTLY
+# (:text-is) — a substring :has-text('應徵') also hits the disabled 已應徵 button
+# and the header's 應徵紀錄 link, so a closed or already-applied job would "click
+# 應徵", land somewhere else, and report a phantom application.
 _APPLY_BTN_SELECTORS = [
     "button.apply-button__button",
     ".apply-button__button",
-    "button:has-text('應徵')",
-    "a:has-text('應徵')",
+    "button:text-is('應徵')",
+    "button:text-is('我要應徵')",
+    "a:text-is('應徵')",
+    "a:text-is('我要應徵')",
+]
+# The job page's apply button flips to 已應徵 once you've applied; the listing
+# card doesn't always carry that flag, so we re-check on the job page.
+_ALREADY_APPLIED_SELECTORS = [
+    "button:has-text('已應徵')",
+    "a:has-text('已應徵')",
 ]
 _CONFIRM_SEND_SELECTORS = [
     "button:has-text('確認送出')",
@@ -90,17 +103,36 @@ def _noop(_msg: str) -> None:
 
 # ── session / auth ───────────────────────────────────────────────────────────
 
+# 104's login lives on dedicated hosts (no "/login" in the path), so an expired
+# session that bounces there must be recognised by host. Kept in step with
+# browser_session._TW104_LOGIN_HOSTS.
+_LOGIN_URL_MARKERS = ("/login", "login.104.com.tw", "signin.104.com.tw", "/oidc/")
+_SESSION_EXPIRED_MSG = (
+    "Not logged in to 104.com.tw. The saved session may have expired — refresh "
+    "it in Admin → Sessions, or re-run `uv run python scripts/104_login.py`."
+)
+
+
+class _SessionExpired(Exception):
+    """The apply funnel was bounced to a login page mid-run."""
+
+
+def _on_login_page(page) -> bool:
+    try:
+        url = page.url or ""
+    except Exception:  # noqa: BLE001 — page may be mid-navigation
+        return False
+    return any(m in url for m in _LOGIN_URL_MARKERS)
+
+
 def _looks_logged_out(page) -> bool:
     """Positive login signals beat the ever-present login link in 104's header.
     We only declare "logged out" when a login prompt is actually visible."""
-    try:
-        if "/login" in page.url or "/vip/login" in page.url:
-            return True
-    except Exception:  # noqa: BLE001
-        pass
+    if _on_login_page(page):
+        return True
     try:
         for sel in (':text("登出")', ':text("我的104")', 'img[alt*="頭像"]',
-                    'a[href*="/mylife"]'):
+                    'a[href*="/mylife"]', 'a[href*="logout"]'):
             if page.locator(sel).count() > 0:
                 return False
     except Exception:  # noqa: BLE001
@@ -192,36 +224,51 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
         rows = page.evaluate(
             """() => {
                 const out = [];
-                const seen = new Set();
+                const byId = new Map();
+                const idOf = (el) => {
+                    const m = (el.getAttribute('href') || '').match(/\\/job\\/([0-9a-z]+)/i);
+                    return m ? m[1].toLowerCase() : '';
+                };
+                const jobIdsIn = (el) => new Set(
+                    Array.from(el.querySelectorAll("a[href*='/job/']")).map(idOf).filter(Boolean));
                 const anchors = Array.from(document.querySelectorAll("a[href*='/job/']"));
                 for (const a of anchors) {
                     const href = a.getAttribute('href') || '';
-                    const m = href.match(/\\/job\\/([0-9a-z]+)/i);
-                    if (!m) continue;
-                    const id = m[1].toLowerCase();
-                    if (seen.has(id)) continue;
-                    // walk up to the card container
+                    const id = idOf(a);
+                    if (!id) continue;
+                    const text = (a.getAttribute('title') || a.innerText || '').trim();
+                    const prev = byId.get(id);
+                    if (prev) {
+                        // A card links its job several times (logo, title, an
+                        // 應徵 shortcut); keep the most descriptive text as title.
+                        if (text.length > prev.title.length && text !== '應徵') prev.title = text.slice(0, 200);
+                        continue;
+                    }
+                    // Walk up to the card container, but never past an ancestor
+                    // that also holds a DIFFERENT job — otherwise a neighbour's
+                    // 已應徵 badge bleeds in and a fresh job is skipped.
                     let card = a;
-                    for (let i = 0; i < 6 && card && card.parentElement; i++) {
+                    for (let i = 0; i < 6 && card.parentElement; i++) {
                         const cls = (card.className || '') + '';
                         if (/job-list-container|job-summary|b-block--top/i.test(cls)) break;
+                        const ids = jobIdsIn(card.parentElement);
+                        if (ids.size > 1) break;
                         card = card.parentElement;
                     }
                     const cardText = (card && card.innerText) || a.innerText || '';
-                    const title = (a.getAttribute('title') || a.innerText || '').trim();
                     let company = '';
-                    if (card) {
-                        const c = card.querySelector("a[href*='/company/'], [class*='company']");
-                        if (c) company = (c.getAttribute('title') || c.innerText || '').trim();
-                    }
-                    seen.add(id);
-                    out.push({
+                    const c = card.querySelector("a[href*='/company/'], [class*='company']");
+                    if (c) company = (c.getAttribute('title') || c.innerText || '').trim();
+                    const row = {
                         job_id: id,
                         href,
-                        title: title.slice(0, 200),
+                        title: (text === '應徵' ? '' : text).slice(0, 200),
                         company: company.slice(0, 120),
+                        snippet: cardText.replace(/\\s+/g, ' ').trim().slice(0, 400),
                         applied: cardText.indexOf('已應徵') !== -1,
-                    });
+                    };
+                    byId.set(id, row);
+                    out.push(row);
                 }
                 return out;
             }"""
@@ -240,6 +287,7 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
             "url": full.split("?")[0],
             "title": r.get("title", "") or r.get("job_id", ""),
             "company": r.get("company", ""),
+            "snippet": r.get("snippet", ""),
             "applied": bool(r.get("applied")),
         })
     log(f"Page {page_num}: found {len(jobs)} job(s)")
@@ -300,10 +348,17 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
     # to appear rather than racing it with a fixed sleep — otherwise a slow render
     # spuriously reports "no 應徵 button" on a perfectly applicable job.
     page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
+    if _on_login_page(page):
+        raise _SessionExpired()
     try:
-        page.wait_for_selector(", ".join(_APPLY_BTN_SELECTORS), timeout=12000)
+        page.wait_for_selector(
+            ", ".join(_APPLY_BTN_SELECTORS + _ALREADY_APPLIED_SELECTORS), timeout=12000)
     except Exception:  # noqa: BLE001 — genuinely-closed jobs never render one;
         pass          # after a 12s wait an extra sleep would not change the outcome
+    if _first_visible(page, _ALREADY_APPLIED_SELECTORS) is not None:
+        entry.update(status="skipped", submitted=False,
+                     reason="already applied (已應徵)")
+        return entry
     apply_btn = _first_visible(page, _APPLY_BTN_SELECTORS)
     if apply_btn is None:
         entry.update(status="skipped", submitted=False,
@@ -323,7 +378,23 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
         page.wait_for_timeout(1500)
 
     try:
-        popup.wait_for_timeout(1000)
+        # An expired session lets the listing render but bounces 應徵 to login;
+        # without this check a dry-run would "prepare" every job against a login
+        # form. Raise so the run aborts instead of burning through the listing.
+        if _on_login_page(popup):
+            raise _SessionExpired()
+        try:
+            popup.wait_for_selector(", ".join(_CONFIRM_SEND_SELECTORS), timeout=8000)
+        except Exception:  # noqa: BLE001 — absence is handled just below
+            pass
+        send = _first_visible(popup, _CONFIRM_SEND_SELECTORS)
+        if send is None:
+            # Checked before dry-run too: "prepared" must mean the form really
+            # opened (no 確認送出 → e.g. an external-apply job or a layout change).
+            entry.update(status="failed", submitted=False,
+                         reason="no 確認送出 button found on application page")
+            return entry
+
         _fill_cover_letter(popup, cover_letter, log, warnings, job["job_id"])
 
         if dry_run:
@@ -331,11 +402,6 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
             log(f"✓ {job['job_id']}: application prepared (dry-run, NOT sent)")
             return entry
 
-        send = _first_visible(popup, _CONFIRM_SEND_SELECTORS)
-        if send is None:
-            entry.update(status="failed", submitted=False,
-                         reason="no 確認送出 button found on application page")
-            return entry
         send.click(timeout=8000)
         # Confirm the site navigated to the done page — the only trusted signal.
         applied = False
@@ -429,10 +495,7 @@ def run_tw104_apply(
             page.goto(first_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(1500)
             if _looks_logged_out(page):
-                return {**base, "error": (
-                    "Not logged in to 104.com.tw. The saved session may have "
-                    "expired — re-run `uv run python scripts/104_login.py`."
-                )}
+                return {**base, "error": _SESSION_EXPIRED_MSG}
             log("✓ Authenticated with 104.com.tw")
 
             applied: list[dict] = []
@@ -475,7 +538,10 @@ def run_tw104_apply(
 
                         # Second gate: LLM relevance. Fail open — a raising judge
                         # must never silently drop a good job.
-                        meta = f"公司：{job['company']}" if job["company"] else ""
+                        meta = "\n".join(filter(None, [
+                            f"公司：{job['company']}" if job["company"] else "",
+                            f"摘要：{job['snippet']}" if job.get("snippet") else "",
+                        ]))
                         try:
                             keep, why = relevance_fn(job["title"], meta)
                         except Exception as exc:  # noqa: BLE001
@@ -495,6 +561,11 @@ def run_tw104_apply(
                             applied.append(entry)
                         else:
                             skipped.append(entry)
+                    except _SessionExpired:
+                        log(f"✗ {jid}: redirected to 104 login — session expired, stopping")
+                        return {**base, "applied": applied, "skipped": skipped,
+                                "jobs_found": scanned, "warnings": warnings[:50],
+                                "error": _SESSION_EXPIRED_MSG}
                     except Exception as exc:  # noqa: BLE001 — one bad job never stops the run
                         job.update(status="failed",
                                    reason=f"{type(exc).__name__}: {exc}")

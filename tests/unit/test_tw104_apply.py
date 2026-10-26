@@ -252,6 +252,83 @@ def test_looks_logged_out_when_only_login_link_visible():
     assert _looks_logged_out(page) is True
 
 
+def test_looks_logged_out_on_dedicated_login_host():
+    from src.automation.tools.tw104_apply_tool import _looks_logged_out
+
+    # 104's login lives on its own host with no "/login" in the path.
+    assert _looks_logged_out(_FakePage("https://login.104.com.tw/?url=x")) is True
+
+
+# ── tool: _apply_to_job (fake page; no browser) ───────────────────────────────
+
+class _FakeJobPage(_FakePage):
+    def __init__(self, url, locators=None, land_on=None):
+        super().__init__(url, locators)
+        self._land_on = land_on
+
+    def goto(self, url, **_kw):
+        self.url = self._land_on or url
+
+    def wait_for_selector(self, *_a, **_kw):
+        raise TimeoutError("not rendered")
+
+    def wait_for_timeout(self, _ms):
+        pass
+
+
+class _NoPopupContext:
+    def expect_page(self, **_kw):
+        raise TimeoutError("form opened in-page")
+
+
+_JOB = {"job_id": "abc12", "url": "https://www.104.com.tw/job/abc12",
+        "title": "後端工程師", "company": "ACME"}
+
+
+def _apply(page, dry_run=True):
+    from src.automation.tools.tw104_apply_tool import _apply_to_job
+
+    return _apply_to_job(_NoPopupContext(), page, dict(_JOB), "", dry_run,
+                         log=lambda m: None, warnings=[])
+
+
+def test_apply_selectors_never_match_already_applied_or_history_link():
+    from src.automation.tools.tw104_apply_tool import _APPLY_BTN_SELECTORS
+
+    # A substring match on 應徵 also hits 已應徵 / 應徵紀錄 → phantom applications.
+    assert not any("has-text('應徵')" in s for s in _APPLY_BTN_SELECTORS)
+
+
+def test_apply_skips_job_page_showing_already_applied():
+    page = _FakeJobPage("about:blank", {"button:has-text('已應徵')": _FakeLoc(1, visible=True)})
+    entry = _apply(page)
+    assert entry["status"] == "skipped" and "已應徵" in entry["reason"]
+
+
+def test_apply_raises_session_expired_on_login_redirect():
+    from src.automation.tools.tw104_apply_tool import _SessionExpired
+
+    page = _FakeJobPage("about:blank", land_on="https://login.104.com.tw/?url=job")
+    with pytest.raises(_SessionExpired):
+        _apply(page)
+
+
+def test_dry_run_not_prepared_when_form_never_opens():
+    page = _FakeJobPage("about:blank", {".apply-button__button": _FakeLoc(1, visible=True)})
+    entry = _apply(page)
+    assert entry["status"] == "failed" and entry["submitted"] is False
+    assert "確認送出" in entry["reason"]
+
+
+def test_dry_run_prepared_once_confirm_button_present():
+    page = _FakeJobPage("about:blank", {
+        ".apply-button__button": _FakeLoc(1, visible=True),
+        "button:has-text('確認送出')": _FakeLoc(1, visible=True),
+    })
+    entry = _apply(page)
+    assert entry["status"] == "prepared" and entry["submitted"] is False
+
+
 # ── tool: _fill_cover_letter (fake popup) ─────────────────────────────────────
 
 class _FakePopup:
