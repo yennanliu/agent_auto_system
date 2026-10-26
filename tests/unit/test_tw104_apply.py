@@ -252,6 +252,160 @@ def test_looks_logged_out_when_only_login_link_visible():
     assert _looks_logged_out(page) is True
 
 
+def test_looks_logged_out_when_login_link_hidden_and_no_account_marker():
+    from src.automation.tools.tw104_apply_tool import _looks_logged_out
+
+    # Anonymous visitors get a collapsed header: login link present but hidden.
+    # Without a positive marker this must still read as logged out.
+    page = _FakePage("https://www.104.com.tw/jobs/search/",
+                     {'a:has-text("會員登入"), a:has-text("登入")': _FakeLoc(1, visible=False)})
+    assert _looks_logged_out(page) is True
+
+
+def test_looks_logged_out_on_dedicated_login_host():
+    from src.automation.tools.tw104_apply_tool import _looks_logged_out
+
+    # 104's login lives on its own host with no "/login" in the path.
+    assert _looks_logged_out(_FakePage("https://login.104.com.tw/?url=x")) is True
+
+
+# ── tool: _apply_to_job (fake page; no browser) ───────────────────────────────
+
+class _FakeJobPage(_FakePage):
+    def __init__(self, url, locators=None, land_on=None):
+        super().__init__(url, locators)
+        self._land_on = land_on
+
+    def goto(self, url, **_kw):
+        self.url = self._land_on or url
+
+    def wait_for_selector(self, *_a, **_kw):
+        raise TimeoutError("not rendered")
+
+    def wait_for_timeout(self, _ms):
+        pass
+
+
+class _NoPopupContext:
+    def expect_page(self, **_kw):
+        raise TimeoutError("form opened in-page")
+
+
+_MAIN = ".apply-button:not(.action-container__apply) .apply-button__button:not(.disabled)"
+_JOB = {"job_id": "abc12", "url": "https://www.104.com.tw/job/abc12",
+        "title": "後端工程師", "company": "ACME"}
+
+
+def _apply(page, dry_run=True):
+    from src.automation.tools.tw104_apply_tool import _apply_to_job
+
+    return _apply_to_job(_NoPopupContext(), page, dict(_JOB), "", dry_run,
+                         log=lambda m: None, warnings=[])
+
+
+def test_apply_selectors_never_match_already_applied_or_history_link():
+    from src.automation.tools.tw104_apply_tool import _APPLY_BTN_SELECTORS
+
+    # A substring match on 應徵 also hits 已應徵 / 應徵紀錄 → phantom applications.
+    assert not any("has-text('應徵')" in s for s in _APPLY_BTN_SELECTORS)
+
+
+def test_apply_skips_job_page_showing_already_applied():
+    page = _FakeJobPage("about:blank", {"button:has-text('已應徵')": _FakeLoc(1, visible=True)})
+    entry = _apply(page)
+    assert entry["status"] == "skipped" and "已應徵" in entry["reason"]
+
+
+def test_apply_raises_session_expired_on_login_redirect():
+    from src.automation.tools.tw104_apply_tool import _SessionExpired
+
+    page = _FakeJobPage("about:blank", land_on="https://login.104.com.tw/?url=job")
+    with pytest.raises(_SessionExpired):
+        _apply(page)
+
+
+def test_dry_run_not_prepared_when_form_never_opens():
+    page = _FakeJobPage("about:blank", {_MAIN: _FakeLoc(1, visible=True)})
+    entry = _apply(page)
+    assert entry["status"] == "failed" and entry["submitted"] is False
+    assert "確認送出" in entry["reason"]
+
+
+def test_dry_run_prepared_once_confirm_button_present():
+    page = _FakeJobPage("about:blank", {
+        _MAIN: _FakeLoc(1, visible=True),
+        "button:has-text('確認送出')": _FakeLoc(1, visible=True),
+    })
+    entry = _apply(page)
+    assert entry["status"] == "prepared" and entry["submitted"] is False
+
+
+def test_apply_button_scoped_away_from_recommended_jobs():
+    from src.automation.tools.tw104_apply_tool import _APPLY_BTN_SELECTORS
+
+    # A job page also lists 應徵 buttons for *recommended* jobs; an unscoped
+    # .apply-button__button could apply to one of those instead.
+    assert ".action-container__apply" in _APPLY_BTN_SELECTORS[0]
+    assert ".apply-button__button" not in _APPLY_BTN_SELECTORS
+
+
+class _FakeText(_FakeLoc):
+    def __init__(self, text):
+        super().__init__(1, visible=True)
+        self._text = text
+
+    def inner_text(self, **_kw):
+        return self._text
+
+
+def test_screening_questions_skip_with_questions_listed():
+    page = _FakeJobPage("about:blank", {
+        _MAIN: _FakeLoc(1, visible=True),
+        "button:has-text('確認送出')": _FakeLoc(1, visible=True),
+        ".apply-popup__body": _FakeText(
+            "選擇履歷\n自我推薦信\n系統預設\n公司提問\n"
+            "1. 請問您是從何種管道得知此職缺？ *\n104 招募平台\n"
+            "2. 請問您的工作經驗為以下何個區間？ *\n工作經驗2年以下"),
+    })
+    entry = _apply(page, dry_run=False)   # never reaches the send click
+    assert entry["status"] == "needs_answers" and entry["submitted"] is False
+    assert entry["questions"] == ["1. 請問您是從何種管道得知此職缺？ *",
+                                  "2. 請問您的工作經驗為以下何個區間？ *"]
+
+
+class _SendThenApplied(_FakeLoc):
+    """確認送出 that never redirects, after which the job page reads 已應徵."""
+    def __init__(self, page):
+        super().__init__(1, visible=True)
+        self._page = page
+
+    def click(self, **_kw):
+        self._page._locators["button:has-text('已應徵')"] = _FakeLoc(1, visible=True)
+
+
+def test_unconfirmed_redirect_falls_back_to_job_page_applied_flag(mocker):
+    import src.automation.tools.tw104_apply_tool as T
+
+    mocker.patch.object(T, "_DONE_WAIT_MS", 500)
+    page = _FakeJobPage("about:blank", {_MAIN: _FakeLoc(1, visible=True)})
+    page._locators["button:has-text('確認送出')"] = _SendThenApplied(page)
+    entry = _apply(page, dry_run=False)
+    assert entry["status"] == "submitted" and entry["submitted"] is True
+    assert "已應徵" in entry["confirmation"]
+
+
+def test_unconfirmed_when_neither_done_page_nor_applied_flag(mocker):
+    import src.automation.tools.tw104_apply_tool as T
+
+    mocker.patch.object(T, "_DONE_WAIT_MS", 500)
+    send = _FakeLoc(1, visible=True)
+    send.click = lambda **_kw: None
+    page = _FakeJobPage("about:blank", {_MAIN: _FakeLoc(1, visible=True),
+                                        "button:has-text('確認送出')": send})
+    entry = _apply(page, dry_run=False)
+    assert entry["status"] == "unconfirmed" and entry["submitted"] is False
+
+
 # ── tool: _fill_cover_letter (fake popup) ─────────────────────────────────────
 
 class _FakePopup:
