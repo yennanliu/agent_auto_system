@@ -36,6 +36,7 @@ BaseTool wrapper for catalog/agent parity.
 """
 import asyncio
 import contextvars
+import glob
 import json
 import os
 import re
@@ -893,6 +894,33 @@ def _parse_start(text: str) -> dict:
     return {"start_month": month, "start_year": year.group(0)}
 
 
+_RESUME_EXTS = (".pdf", ".docx", ".doc", ".txt", ".rtf")
+
+
+def resolve_resume_path(path: str) -> tuple[str, str]:
+    """``(absolute_path, "")`` for a usable resume file, else ``("", error)``.
+
+    Expands ``~`` and resolves relative paths against the server's working
+    directory. A folder is the common mistake (a directory of tailored CVs), so
+    its error names the resumes inside it instead of a bare "not found"."""
+    raw = (path or "").strip()
+    if not raw:
+        return "", ("Resume file not found ('unset'). Set resume_path to a PDF/DOCX "
+                    "on this server, or GREENHOUSE_RESUME_PATH in .env.")
+    full = os.path.abspath(os.path.expanduser(raw))
+    if os.path.isdir(full):
+        found = sorted(  # the folder and one level down
+            p for pattern in ("*", "*/*") for p in glob.glob(os.path.join(full, pattern))
+            if p.lower().endswith(_RESUME_EXTS) and os.path.isfile(p))
+        hint = (" e.g. " + ", ".join(found[:5]) + (f" (+{len(found) - 5} more)" if len(found) > 5 else "")
+                if found else " It contains no PDF/DOCX files.")
+        return "", f"resume_path '{raw}' is a folder ({full}), not a file. Pick one resume:{hint}"
+    if not os.path.isfile(full):
+        return "", (f"Resume file not found ('{raw}' → {full}). Set resume_path to a "
+                    "PDF/DOCX on this server, or GREENHOUSE_RESUME_PATH in .env.")
+    return full, ""
+
+
 def _parse_extra_answers(text: str) -> list[tuple[str, str]]:
     """``keyword: answer`` lines → [(keyword, answer)]."""
     out = []
@@ -962,10 +990,9 @@ def run_greenhouse_apply(
             "dry_run": dry_run, "applied": [], "skipped": [], "warnings": []}
     if not board_list:
         return {**base, "error": "No Greenhouse boards given."}
-    if not resume_path or not os.path.isfile(resume_path):
-        return {**base, "error": (
-            f"Resume file not found ('{resume_path or 'unset'}'). Set resume_path to a "
-            "PDF/DOCX on this server, or GREENHOUSE_RESUME_PATH in .env.")}
+    resume_path, resume_error = resolve_resume_path(resume_path)
+    if resume_error:
+        return {**base, "error": resume_error}
 
     warnings: list[str] = []
     owns_client = client is None

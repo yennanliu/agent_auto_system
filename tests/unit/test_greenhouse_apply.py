@@ -619,3 +619,32 @@ def test_match_option_prefers_shortest_prefix_hit():
     opts = ["National Taiwan Normal University", "National Taiwan University of Science And Technology",
             "National Taiwan University (NTU)"]
     assert gh.match_option(opts, "National Taiwan University") == "National Taiwan University (NTU)"
+
+
+def test_resolve_resume_path_file_relative_and_home(tmp_path, monkeypatch):
+    cv = tmp_path / "cv.pdf"
+    cv.write_bytes(b"%PDF")
+    monkeypatch.chdir(tmp_path)
+    assert gh.resolve_resume_path("cv.pdf") == (str(cv), "")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert gh.resolve_resume_path("~/cv.pdf") == (str(cv), "")
+
+
+def test_resolve_resume_path_folder_lists_resumes(tmp_path):
+    (tmp_path / "ai").mkdir()
+    (tmp_path / "ai" / "Resume_AI_eng.pdf").write_bytes(b"%PDF")
+    (tmp_path / "notes.pages").write_bytes(b"x")
+    path, err = gh.resolve_resume_path(str(tmp_path))
+    assert path == ""
+    assert "is a folder" in err and "Resume_AI_eng.pdf" in err and "notes.pages" not in err
+
+
+def test_resolve_resume_path_missing_and_unset(tmp_path):
+    assert "not found" in gh.resolve_resume_path(str(tmp_path / "nope.pdf"))[1]
+    assert "('unset')" in gh.resolve_resume_path("  ")[1]
+
+
+def test_apply_returns_folder_error_before_any_network(tmp_path):
+    out = gh.run_greenhouse_apply(boards="figma", first_name="A", last_name="B",
+                                  email="a@b.c", resume_path=str(tmp_path))
+    assert "is a folder" in out["error"]

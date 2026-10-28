@@ -32,6 +32,9 @@ class JobUpdate(BaseModel):
     # Sentinel-free: `schedule=None` clears the schedule; omit the field to leave
     # it unchanged. Pydantic's model_fields_set distinguishes the two.
     schedule: str | None = None
+    # Replaces the whole payload (e.g. to fix a bad parameter before a rerun);
+    # omit to leave it unchanged.
+    payload: dict | None = None
 
 
 def _validated_schedule(schedule: str | None) -> str | None:
@@ -93,6 +96,8 @@ def update_job(
         job.name = data.name
     if "schedule" in fields:
         job.schedule = _validated_schedule(data.schedule)
+    if "payload" in fields and data.payload is not None:
+        job.payload = json.dumps(data.payload)
     session.add(job)
     session.commit()
     session.refresh(job)

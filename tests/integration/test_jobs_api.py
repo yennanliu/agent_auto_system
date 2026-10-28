@@ -1,3 +1,4 @@
+import json
 
 PAYLOAD = {
     "name": "My Form Job",
@@ -52,3 +53,18 @@ async def test_delete_job(client):
 async def test_delete_job_not_found(client):
     resp = await client.delete("/api/jobs/9999")
     assert resp.status_code == 404
+
+
+async def test_patch_job_replaces_payload(client):
+    created = (await client.post("/api/jobs", json=PAYLOAD)).json()
+    new_payload = {**PAYLOAD["payload"], "company_name": "Globex"}
+    resp = await client.patch(f"/api/jobs/{created['id']}", json={"payload": new_payload})
+    assert resp.status_code == 200
+    assert json.loads(resp.json()["payload"]) == new_payload
+    assert resp.json()["name"] == "My Form Job"  # untouched
+
+
+async def test_patch_job_without_payload_keeps_it(client):
+    created = (await client.post("/api/jobs", json=PAYLOAD)).json()
+    resp = await client.patch(f"/api/jobs/{created['id']}", json={"name": "Renamed"})
+    assert json.loads(resp.json()["payload"]) == PAYLOAD["payload"]
