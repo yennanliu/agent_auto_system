@@ -68,3 +68,34 @@ def test_resolve_geo_uses_typeahead_first_hit(monkeypatch):
         def read(self): return b'[{"id":"999","displayName":"Taichung, Taiwan"}]'
     monkeypatch.setattr(t.urllib.request, "urlopen", lambda *a, **k: Resp())
     assert t._resolve_geo_id("Taichung") == ("999", "Taichung, Taiwan")
+
+
+class _FakeLoc:
+    def __init__(self, vis): self._vis = vis
+    def count(self): return len(self._vis)
+    def nth(self, i): return type("E", (), {"is_visible": lambda _s: self._vis[i]})()
+
+
+class _FakePage:
+    """texts: [(text, visible)]"""
+    def __init__(self, texts): self._texts = texts
+
+    def get_by_text(self, text, exact=False):
+        return _FakeLoc([v for t_, v in self._texts if text in t_])
+
+
+def test_hit_daily_limit_detects_visible_dialog():
+    limit = "You reached today’s Easy Apply limit"
+    assert t._hit_daily_limit(_FakePage([(limit, True)]))
+    # Visible copy after a hidden template copy still counts.
+    assert t._hit_daily_limit(_FakePage([(limit, False), (limit, True)]))
+    assert not t._hit_daily_limit(_FakePage([("Contact info", True)]))
+
+
+def test_hit_daily_limit_ignores_hidden_text():
+    assert not t._hit_daily_limit(_FakePage([("Easy Apply limit", False)]))
+
+
+def test_easy_apply_selectors_cover_link_variant():
+    # New job-view UI renders Easy Apply as <a aria-label="Easy Apply to this job">.
+    assert any(s.startswith("a[aria-label*='Easy Apply']") for s in t._EASY_APPLY_SELECTORS)
