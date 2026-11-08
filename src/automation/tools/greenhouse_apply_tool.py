@@ -727,8 +727,11 @@ def plan_answers(job_data: dict, profile: dict,
     edu = profile.get("education") or {}
     if edu_mode.endswith(("_required", "_optional")):
         if edu.get("school") and edu.get("degree"):
-            add("school--0", "combo", edu["school"], "School")
-            add("degree--0", "select", edu["degree"], "Degree")
+            edu_opt = edu_mode.endswith("_optional")
+            answers.append({"field": "school--0", "kind": "combo", "value": edu["school"],
+                            "label": "School", "optional": edu_opt})
+            answers.append({"field": "degree--0", "kind": "select", "value": edu["degree"],
+                            "label": "Degree", "optional": edu_opt})
             if edu.get("discipline"):
                 answers.append({"field": "discipline--0", "kind": "combo", "value": edu["discipline"],
                                 "label": "Discipline", "optional": True})
@@ -737,11 +740,13 @@ def plan_answers(job_data: dict, profile: dict,
     emp = profile.get("employment") or {}
     if emp_mode.endswith(("_required", "_optional")):
         if emp.get("company") and emp.get("title") and emp.get("start_month") and emp.get("start_year"):
-            add("company-name-0", "text", emp["company"], "Company name")
-            add("title-0", "text", emp["title"], "Title")
-            add("start-date-month-0", "select", emp["start_month"], "Start date month")
-            add("start-date-year-0", "text", emp["start_year"], "Start date year")
-            add("current-role-0_1", "check", True, "Current role")
+            emp_opt = emp_mode.endswith("_optional")
+            for fld, knd, val, lab in (("company-name-0", "text", emp["company"], "Company name"),
+                                       ("title-0", "text", emp["title"], "Title"),
+                                       ("start-date-month-0", "select", emp["start_month"], "Start date month"),
+                                       ("start-date-year-0", "text", emp["start_year"], "Start date year"),
+                                       ("current-role-0_1", "check", True, "Current role")):
+                answers.append({"field": fld, "kind": knd, "value": val, "label": lab, "optional": emp_opt})
         elif emp_mode.endswith("_required"):
             unanswered.append("Employment (company / title / start date)")
 
@@ -842,7 +847,9 @@ def _choose_option(page, field: str, labels: list[str], type_text: str = "",
     ``react-select-<field>-option-N`` ids — the phone widget's hidden country
     list also uses role=option, so a bare [role=option] query picks strangers."""
     inp = _by_id(page, field)
-    if inp.count() == 0:
+    # Multi-selects render as a <fieldset id="question_N[]"> of checkboxes, so
+    # an element with the field's id exists but is not a react-select input.
+    if inp.count() == 0 or page.locator(f"input[type='checkbox'][name='{field}']").count() > 0:
         return _check_boxes(page, field, labels)
     chosen = 0
     for want in labels:
@@ -878,10 +885,12 @@ def _check_boxes(page, field: str, labels: list[str]) -> bool:
             let n = 0;
             for (const want of labels) {
               const w = want.toLowerCase();
-              const box = boxes.find(b => {
-                const l = b.id && document.querySelector('label[for="' + b.id + '"]');
-                return ((l && l.innerText) || b.value || '').trim().toLowerCase() === w;
-              });
+              const text = b => {
+                const l = b.id && document.querySelector('label[for="' + CSS.escape(b.id) + '"]');
+                return ((l && l.innerText) || (b.closest('label') || {}).innerText || b.value || '')
+                  .replace(/\\s+/g, ' ').replace(/\\*$/, '').trim().toLowerCase();
+              };
+              const box = boxes.find(b => text(b) === w) || boxes.find(b => text(b).startsWith(w));
               if (box) { if (!box.checked) box.click(); n++; }
             }
             return n === labels.length;
@@ -910,6 +919,7 @@ def _fill_form(page, answers: list[dict], log: Callable) -> list[str]:
     failed: list[str] = []
     for a in answers:
         field, kind, value, label = a["field"], a["kind"], a["value"], a["label"]
+        before = len(failed)
         try:
             if a.get("optional") and _by_id(page, field).count() == 0:
                 continue  # e.g. "Discipline" exists on some boards' education block only
@@ -954,6 +964,17 @@ def _fill_form(page, answers: list[dict], log: Callable) -> list[str]:
         except Exception as exc:  # noqa: BLE001
             log(f"⚠ could not fill '{label[:60]}' ({type(exc).__name__})")
             failed.append(label)
+        if a.get("optional") and len(failed) > before:
+            # An optional block (education_optional, …) the board's own lists
+            # can't take — e.g. a school missing from its list — stays blank
+            # rather than failing the whole application.
+            del failed[before:]
+            log(f"↷ left optional '{label[:60]}' blank (no matching option)")
+            if kind in ("combo", "select"):
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:  # noqa: BLE001
+                    pass
     try:
         page.evaluate(_CONSENT_JS)
     except Exception:  # noqa: BLE001

@@ -778,3 +778,54 @@ def test_named_language_gets_yes_no_only_for_a_yes_no_question():
 def test_current_salary_expectation_is_the_expectation():
     answers, _ = _plan([_q("What is your current salary expectation?", "q1")], DEFAULTS)
     assert _by_field(answers) == {"q1": "70000 SGD / year"}
+
+
+# ── browser fill: checkbox multi-selects and optional blocks ──────────────────
+
+def test_optional_education_block_answers_are_marked_optional():
+    profile = {**DEFAULTS, "education": {"school": "NTU", "degree": "Master's Degree"}}
+    answers, _ = _plan([], profile, education="education_optional")
+    assert {a["field"]: a.get("optional") for a in answers} == {"school--0": True, "degree--0": True}
+    answers, _ = _plan([], profile, education="education_required")
+    assert {a["field"]: a.get("optional") for a in answers} == {"school--0": False, "degree--0": False}
+
+
+class _FakeLocator:
+    def __init__(self, n):
+        self._n = n
+        self.first = self
+
+    def count(self):
+        return self._n
+
+
+class _FakePage:
+    """Just enough page for _fill_form / _choose_option routing."""
+    def __init__(self, checkbox_fields=()):
+        self.checkbox_fields = set(checkbox_fields)
+        self.keyboard = type("K", (), {"press": lambda *_: None})()
+
+    def locator(self, sel):
+        if sel.startswith("input[type='checkbox'][name="):
+            name = sel.split("[name='", 1)[1][:-2]  # drop the closing "']" only
+            return _FakeLocator(1 if name in self.checkbox_fields else 0)
+        return _FakeLocator(1)  # every id "exists" (a <fieldset> has the field's id)
+
+    def evaluate(self, *_):
+        return None
+
+
+def test_fieldset_multiselect_goes_to_the_checkbox_handler(mocker):
+    boxes = mocker.patch.object(gh, "_check_boxes", return_value=True)
+    page = _FakePage(checkbox_fields={"question_1[]"})
+    assert gh._choose_option(page, "question_1[]", ["Acknowledged"]) is True
+    boxes.assert_called_once_with(page, "question_1[]", ["Acknowledged"])
+
+
+def test_optional_answer_that_cannot_be_filled_does_not_fail_the_form(mocker):
+    mocker.patch.object(gh, "_choose_option", return_value=False)
+    failed = gh._fill_form(_FakePage(), [
+        {"field": "school--0", "kind": "combo", "value": "NTU", "label": "School", "optional": True},
+        {"field": "question_2", "kind": "select", "value": "Yes", "label": "Required Q"},
+    ], log=lambda _m: None)
+    assert failed == ["Required Q"]
