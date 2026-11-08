@@ -49,6 +49,7 @@ DEFAULT_MAX_LISTED = 1000        # postings fetched per company (BoschGroup list
 
 _COMPANY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SR_HOST = "smartrecruiters.com"
+_NON_COMPANY_HOSTS = ("api.", "www.")   # their first path segment is not a company
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
@@ -70,7 +71,8 @@ def parse_company_ref(ref: str) -> tuple[str, str] | None:
     if "://" not in ref:
         ref = "https://" + ref
     u = urlparse(ref)
-    if not (u.netloc == _SR_HOST or u.netloc.endswith("." + _SR_HOST)):
+    host = u.netloc.lower()
+    if not (host == _SR_HOST or host.endswith("." + _SR_HOST)) or host.startswith(_NON_COMPANY_HOSTS):
         return None
     parts = [p for p in u.path.split("/") if p]
     if parts[:2] == ["oneclick-ui", "company"] and len(parts) >= 3:
@@ -163,6 +165,7 @@ def discover_jobs(client, companies: list[str], keywords: list[str], locations: 
     were actually listed are appended to ``searched`` when given."""
     groups: list[list[dict]] = []
     total = 0
+    done: set[tuple[str, str]] = set()
     for ref in companies:
         parsed = parse_company_ref(ref)
         if parsed is None:
@@ -170,6 +173,9 @@ def discover_jobs(client, companies: list[str], keywords: list[str], locations: 
             log(f"⚠ '{ref}': not a SmartRecruiters company or URL — skipped")
             continue
         token, only = parsed
+        if (token.lower(), only) in done:
+            continue  # company ids are case-insensitive: "ServiceNow, servicenow" is one company
+        done.add((token.lower(), only))
         try:
             postings, found = list_postings(client, token, max_listed)
         except Exception as exc:  # noqa: BLE001
@@ -229,8 +235,10 @@ def record_seen(path: str, jobs: list[dict]) -> None:
         ledger.setdefault(_ledger_key(job), {"title": job.get("title", ""),
                                              "company": job.get("company", ""), "seen_at": now})
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(ledger, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)  # atomic: a crash mid-write never corrupts the ledger
 
 
 # ── orchestration ─────────────────────────────────────────────────────────────
@@ -294,7 +302,11 @@ def run_smartrecruiters_discover(
                     skipped.append({**job, "reason": f"filtered out: {why}" if why else "filtered out"})
                     continue
             jobs.append(job)
-        record_seen(ledger_path, jobs)
+        try:
+            record_seen(ledger_path, jobs)
+        except OSError as exc:  # results still go back; next run may repeat them
+            warnings.append(f"could not update the seen-ledger {ledger_path} ({exc})")
+            log(f"⚠ could not update the seen-ledger ({exc}); results are still returned")
 
         summary = (f"{len(jobs)} {'new ' if only_new else ''}matching posting(s) from "
                    f"{len(searched)} compan{'y' if len(searched) == 1 else 'ies'} "

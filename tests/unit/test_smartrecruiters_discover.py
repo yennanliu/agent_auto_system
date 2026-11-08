@@ -16,6 +16,7 @@ UUID = "75e56412-2f00-4a03-8766-691a73eeee75"
     ("https://jobs.smartrecruiters.com/ServiceNow", ("ServiceNow", "")),
     ("jobs.smartrecruiters.com/ServiceNow/", ("ServiceNow", "")),
     ("https://careers.smartrecruiters.com/ServiceNow", ("ServiceNow", "")),
+    ("https://Jobs.SmartRecruiters.com/ServiceNow", ("ServiceNow", "")),
     ("https://jobs.smartrecruiters.com/ServiceNow/744000160326680-forward-deployed-engineer?oga=true",
      ("ServiceNow", "744000160326680")),
     (f"https://jobs.smartrecruiters.com/oneclick-ui/company/ServiceNow/publication/{UUID}?dcr_ci=ServiceNow",
@@ -26,7 +27,9 @@ def test_parse_company_ref_accepts_ids_and_urls(ref, expected):
 
 
 @pytest.mark.parametrize("ref", ["", "  ", "https://www.smartjobs.io/", "not a company!",
-                                 "https://evil.com/ServiceNow", "https://smartrecruiters.com.evil.com/x"])
+                                 "https://evil.com/ServiceNow", "https://smartrecruiters.com.evil.com/x",
+                                 "https://api.smartrecruiters.com/v1/companies/ServiceNow/postings",
+                                 "https://www.smartrecruiters.com/pricing"])
 def test_parse_company_ref_rejects_other_sites(ref):
     assert sr.parse_company_ref(ref) is None
 
@@ -258,3 +261,16 @@ def test_flow_wires_relevance_gate_when_filter_set(mocker):
 
     SmartRecruitersDiscoverFlow().kickoff(inputs={"companies": "ServiceNow", "task_filter": "backend only"})
     assert callable(captured["relevance_fn"])
+
+
+def test_discover_dedupes_companies_case_insensitively():
+    api = FakeAPI({"ServiceNow": [_p(1, "Engineer")], "servicenow": [_p(1, "Engineer")]})
+    jobs, total = sr.discover_jobs(api, ["ServiceNow", "servicenow", "jobs.smartrecruiters.com/SERVICENOW"],
+                                   [], [], sr._noop, [])
+    assert [j["job_id"] for j in jobs] == ["1"] and total == 1 and len(api.calls) == 1
+
+
+def test_run_ledger_write_failure_is_a_warning(tmp_path, mocker):
+    mocker.patch.object(sr, "record_seen", side_effect=PermissionError("read-only"))
+    r = _run(tmp_path, companies="a", keywords="backend")
+    assert r["jobs_found"] == 2 and any("could not update the seen-ledger" in w for w in r["warnings"])
