@@ -753,3 +753,28 @@ def test_extra_answer_that_fits_no_option_falls_back_to_the_rules():
     ], profile, location={"name": "Hong Kong; Singapore"})
     assert unanswered == []
     assert _by_field(answers) == {"q1": "No", "q2": "Taiwan"}
+
+
+# ── PR #80 review fixes ───────────────────────────────────────────────────────
+
+def test_state_and_country_for_a_us_city_state_location():
+    profile = {**DEFAULTS, "location": "San Francisco, CA"}
+    answers, _ = _plan([_q("City", "q1"), _q("State", "q2"), _q("Country", "q3")], profile)
+    assert _by_field(answers) == {"q1": "San Francisco", "q2": "CA", "q3": "United States"}
+
+
+def test_what_languages_do_you_code_in_is_a_programming_question():
+    answers, _ = _plan([_q("What languages do you code in?", "q1")], DEFAULTS)
+    assert _by_field(answers) == {"q1": "Python, Java, JavaScript"}
+
+
+def test_named_language_gets_yes_no_only_for_a_yes_no_question():
+    answers, unanswered = _plan([_q("Describe your English language skills.", "q1"),
+                                 _q("Are you fluent in English?", "q2")], DEFAULTS)
+    assert unanswered == ["Describe your English language skills."]
+    assert _by_field(answers) == {"q2": "Yes"}
+
+
+def test_current_salary_expectation_is_the_expectation():
+    answers, _ = _plan([_q("What is your current salary expectation?", "q1")], DEFAULTS)
+    assert _by_field(answers) == {"q1": "70000 SGD / year"}

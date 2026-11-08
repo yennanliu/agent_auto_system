@@ -381,7 +381,7 @@ _SPOKEN = {
 }
 _LEVEL_RE = re.compile(r"\b(beginner|basic|elementary|intermediate|advanced|expert|proficient|fluent|native)\b", re.I)
 _PROGRAMMING_Q = re.compile(r"programming language|coding language|languages? (are you|you are|you're) "
-                            r"(familiar|proficient|comfortable)|which languages do you (code|program)", re.I)
+                            r"(familiar|proficient|comfortable)|(which|what) languages do you (code|program|write)", re.I)
 
 
 def _spoken_key(word: str) -> str | None:
@@ -451,11 +451,15 @@ def _profile_answer(label: str, profile: dict):
     # Bare "City" / "State" / "Country" text questions about where you are.
     if loc_parts and plain in ("city", "current city", "city of residence"):
         return loc_parts[0]
+    # "San Francisco, CA": the second part is a US state code, not a country.
+    us_state = len(loc_parts) == 2 and _US_STATE.search(", " + loc_parts[1]) is not None
     if loc_parts and plain in ("state", "state/province", "province", "region", "state / province"):
+        if len(loc_parts) >= 3 or us_state:
+            return loc_parts[1]
         # "Taipei, Taiwan" has no state: the city is the first-level division.
-        return loc_parts[1] if len(loc_parts) >= 3 else loc_parts[0]
+        return loc_parts[0]
     if loc_parts and plain in ("country", "current country", "country of residence"):
-        return loc_parts[-1]
+        return "United States" if us_state else loc_parts[-1]
 
     # Spoken languages — a question naming one asks Yes/No; otherwise it wants the list.
     langs = _split_list(profile.get("languages", ""))
@@ -463,8 +467,12 @@ def _profile_answer(label: str, profile: dict):
             and re.search(r"language|speak|fluen", lbl):
         named = {k for k in _SPOKEN if any(re.search(rf"\b{re.escape(a)}\b", lbl) for a in _SPOKEN[k])}
         if named and langs:
-            have = {_spoken_key(x) for x in langs}
-            return _yes_no(named <= have)
+            # Only a yes/no phrasing gets Yes/No: "Describe your English
+            # language skills" is not answered "Yes".
+            if re.match(r"\s*(can|do|are|is|will|would|could)\b", lbl):
+                have = {_spoken_key(x) for x in langs}
+                return _yes_no(named <= have)
+            return None
         if not named and langs and re.search(r"language", lbl):
             return langs
 
@@ -552,7 +560,7 @@ def _rule_answer(label: str, profile: dict):
         return str(profile.get("years", 3))
     # "Last drawn / current salary" is a fact about the past, not the expectation.
     if re.search(r"(current|last|previous|present|most recent)( drawn)?( base)? (salary|compensation|pay)|"
-                 r"last drawn", lbl):
+                 r"last drawn", lbl) and not re.search(r"expect", lbl):
         return profile.get("current_salary") or None
     if re.search(r"salary|compensation|pay expectation|expected pay", lbl):
         return profile.get("salary") or None
