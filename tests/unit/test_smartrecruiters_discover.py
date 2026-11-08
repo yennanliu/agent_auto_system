@@ -196,6 +196,7 @@ def test_run_no_companies_is_an_error_not_a_raise(tmp_path):
 def test_run_api_failure_is_a_warning(tmp_path):
     r = _run(tmp_path, companies="a, down", client=FakeAPI({"a": [_p(1, "Engineer")]}, fail={"down"}))
     assert r["jobs_found"] == 1 and any("down: could not list" in w for w in r["warnings"])
+    assert "from 1 company " in r["summary"]                  # only companies actually searched
 
 
 def test_ledger_roundtrip_and_corrupt_file(tmp_path):

@@ -157,9 +157,10 @@ def list_postings(client, token: str, max_listed: int) -> tuple[list[dict], int]
 
 def discover_jobs(client, companies: list[str], keywords: list[str], locations: list[str],
                   log: Callable, warnings: list, max_listed: int = DEFAULT_MAX_LISTED,
-                  ) -> tuple[list[dict], int]:
+                  searched: list | None = None) -> tuple[list[dict], int]:
     """Matching postings across companies (newest first within a company,
-    interleaved across companies), plus the total number listed."""
+    interleaved across companies), plus the total number listed. Companies that
+    were actually listed are appended to ``searched`` when given."""
     groups: list[list[dict]] = []
     total = 0
     for ref in companies:
@@ -182,6 +183,8 @@ def discover_jobs(client, companies: list[str], keywords: list[str], locations: 
         if found > len(postings) and not only:
             warnings.append(f"{token}: scanned the first {len(postings)} of {found} postings")
         total += found
+        if searched is not None:
+            searched.append(token)
         picked = []
         for p in postings:
             job = _to_job(token, p)
@@ -264,8 +267,10 @@ def run_smartrecruiters_discover(
                                     headers={"User-Agent": "agent-auto-system/smartrecruiters-discover"})
     try:
         log("Discovering SmartRecruiters jobs via the public Posting API...")
+        searched: list[str] = []
         candidates, total_listed = discover_jobs(client, company_list, _split_list(keywords),
-                                                 _split_list(location), log, warnings, max_listed)
+                                                 _split_list(location), log, warnings, max_listed,
+                                                 searched)
         ledger = load_ledger(ledger_path) if only_new else {}
         jobs: list[dict] = []
         skipped: list[dict] = []
@@ -292,7 +297,7 @@ def run_smartrecruiters_discover(
         record_seen(ledger_path, jobs)
 
         summary = (f"{len(jobs)} {'new ' if only_new else ''}matching posting(s) from "
-                   f"{len(company_list)} compan{'y' if len(company_list) == 1 else 'ies'} "
+                   f"{len(searched)} compan{'y' if len(searched) == 1 else 'ies'} "
                    f"({total_listed} listed, {len(candidates)} matched")
         summary += f", {seen} already seen" if seen else ""
         summary += f", {filtered} filtered by task_filter" if filtered else ""
