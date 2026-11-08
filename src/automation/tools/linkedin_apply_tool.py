@@ -180,11 +180,18 @@ _GEO_ALIASES = {
 _GEO_FALLBACK = {
     "taiwan": "104187078", "taipei": "106907071", "singapore": "102454443", "japan": "101355337",
     "united kingdom": "101165590", "united states": "103644278",
-    "hong kong": "103291313", "worldwide": "92000000",
+    "hong kong": "103291313", "united arab emirates": "104305776",
+    "worldwide": "92000000",
 }
 _GEO_TYPEAHEAD = (_BASE + "/jobs-guest/api/typeaheadHits?typeaheadType=GEO"
                   "&geoTypes=POPULATED_PLACE,ADMIN_DIVISION_2,MARKET_AREA,COUNTRY_REGION"
                   "&query=")
+
+
+def _wants_geo(location: str) -> bool:
+    """True when the location names a place (not blank / 'remote' / 'anywhere')."""
+    loc = (location or "").strip().lower()
+    return bool(loc) and loc not in ("remote", "anywhere", "any")
 
 
 def _resolve_geo_id(location: str, log: Callable = None,
@@ -194,11 +201,16 @@ def _resolve_geo_id(location: str, log: Callable = None,
     caller then searches without a location filter and warns."""
     log = log or _noop
     loc = (location or "").strip()
-    if not loc or loc.lower() in ("remote", "anywhere", "any"):
+    if not _wants_geo(loc):
         return None, ""
     if loc.isdigit():
         return loc, loc
     query = _GEO_ALIASES.get(loc.lower(), loc)
+    # Built-in markets skip the network: the guest typeahead rate-limits (429)
+    # and can stall up to the timeout on every run for the default "Taiwan".
+    gid = _GEO_FALLBACK.get(query.lower())
+    if gid:
+        return gid, query
     try:
         req = urllib.request.Request(
             _GEO_TYPEAHEAD + urllib.parse.quote(query),
@@ -208,10 +220,7 @@ def _resolve_geo_id(location: str, log: Callable = None,
         if hits and hits[0].get("id"):
             return str(hits[0]["id"]), str(hits[0].get("displayName") or query)
     except Exception as exc:  # noqa: BLE001 — fall back to the static table
-        log(f"⚠ geo lookup for '{loc}' failed ({exc}); using built-in table")
-    gid = _GEO_FALLBACK.get(query.lower())
-    if gid:
-        return gid, query
+        log(f"⚠ geo lookup for '{loc}' failed ({exc})")
     msg = (f"could not resolve location '{loc}' to a LinkedIn geoId; searching "
            "without a location filter (LinkedIn may reuse your last location)")
     if warnings is not None:
@@ -256,7 +265,7 @@ _READ_CARDS_JS = """() => {
                     : (card.getAttribute('data-job-id') || '')).trim();
         if (!id || id === '0' || seen.has(id)) continue;
         let title = '', company = '';
-        if (ck) {
+        if (ck.startsWith(PREFIX)) {
             // New UI: <p><span>Title (Verified job)</span><span aria-hidden>…</span></p>
             // then <p>Company</p> then <p>Location</p>.
             const ps = Array.from(card.querySelectorAll('p'));
@@ -868,6 +877,14 @@ def run_linkedin_apply(
             geo_id, geo_name = _resolve_geo_id(location, log, warnings)
             if geo_id:
                 log(f"Location '{location}' → LinkedIn geoId {geo_id} ({geo_name})")
+            elif not dry_run and _wants_geo(location):
+                # Without a geoId LinkedIn reuses the account's last location, so
+                # a live run would submit applications in the wrong market.
+                return {**base, "warnings": warnings[:50], "error": (
+                    f"Could not resolve location '{location}' to a LinkedIn geoId; "
+                    "refusing to submit applications in an unknown market. Use a "
+                    "country/city name LinkedIn recognises, or pass a numeric geoId."
+                )}
             first_url = _search_url(keywords, location, 1, remote, geo_id)
             log(f"Opening {first_url}")
             page.goto(first_url, wait_until="domcontentloaded", timeout=30000)
@@ -995,7 +1012,9 @@ class LinkedInApplyTool(BaseTool):
         "Log in to LinkedIn (via a saved session) and auto-apply to 'Easy Apply' "
         "jobs matching a keyword. Args: keywords, location, remote (only remote "
         "jobs), phone, years_experience, max_applications, max_pages, dry_run. "
-        "Pages through /jobs/search-results/?f_AL=true, opens each job, walks the Easy "
+        "Pages through /jobs/search-results/?f_AL=true&geoId=… (location is "
+        "resolved to a LinkedIn geoId; an unresolvable location warns, and a "
+        "live run aborts rather than apply in the wrong market), opens each job, walks the Easy "
         "Apply modal (fill → Next/Review → Submit), skips already-applied jobs, "
         "and submits only when dry_run is false (a confirmed 'application was "
         "sent' banner is required)."

@@ -247,8 +247,11 @@ _CATALOG: dict = {
             "class": "LinkedInApplyTool",
             "description": (
                 "Log in to LinkedIn (persisted session) and auto-apply to 'Easy Apply' "
-                "jobs matching a keyword. Pages through /jobs/search/?f_AL=true, opens "
-                "each job, clicks Easy Apply, walks the multi-step modal (fill fields → "
+                "jobs matching a keyword. Pages through /jobs/search-results/?f_AL=true, "
+                "resolving the location to a LinkedIn geoId (LinkedIn ignores free-text "
+                "location). An unresolvable location adds a warning and searches without "
+                "a geoId in dry-run; a live run aborts instead of applying in the wrong "
+                "market. Opens each job, clicks Easy Apply, walks the multi-step modal (fill fields → "
                 "Next/Review → Submit), skips already-applied jobs, and clicks Submit only "
                 "when dry_run is false — counting success only when LinkedIn shows the "
                 "'application was sent' banner. Called directly by the flow (with an "
@@ -256,7 +259,7 @@ _CATALOG: dict = {
             ),
             "inputs": [
                 {"name": "keywords",         "type": "str",  "description": "Job search keywords, e.g. 'Software Engineer' / 'python'"},
-                {"name": "location",         "type": "str",  "description": "Location text, e.g. 'Taipei' / 'United Kingdom' (blank = anywhere)"},
+                {"name": "location",         "type": "str",  "description": "Location text, e.g. 'Taipei' / 'United Kingdom', or a numeric LinkedIn geoId (blank = anywhere)"},
                 {"name": "remote",           "type": "bool", "description": "Only search remote jobs (LinkedIn f_WT=2)"},
                 {"name": "phone",            "type": "str",  "description": "Phone number for the Easy Apply contact question (optional)"},
                 {"name": "years_experience", "type": "int",  "description": "Default answer to 'years of experience' screening questions (default 3)"},

@@ -34,17 +34,23 @@ def test_resolve_geo_numeric_and_remote_need_no_network(monkeypatch):
     assert t._resolve_geo_id("") == (None, "")
 
 
-def test_resolve_geo_alias_and_fallback_when_offline(monkeypatch):
-    seen = []
-
-    def offline(req, timeout=0):
-        seen.append(req.full_url)
-        raise OSError("offline")
-    monkeypatch.setattr(t.urllib.request, "urlopen", offline)
-    # "UK" must be aliased (the typeahead maps it to Ukraine) and then fall back.
+def test_resolve_geo_builtin_markets_skip_network(monkeypatch):
+    def boom(*_a, **_k):
+        raise AssertionError("built-in markets must not hit the typeahead")
+    monkeypatch.setattr(t.urllib.request, "urlopen", boom)
+    # "UK" must be aliased (the typeahead maps it to Ukraine) to the built-in id.
     assert t._resolve_geo_id("UK") == ("101165590", "United Kingdom")
-    assert "United%20Kingdom" in seen[0]
     assert t._resolve_geo_id("taiwan")[0] == "104187078"
+    # Every alias target resolves offline.
+    for alias in t._GEO_ALIASES.values():
+        assert t._GEO_FALLBACK.get(alias.lower()), alias
+
+
+def test_wants_geo():
+    assert t._wants_geo("Taiwan")
+    assert not t._wants_geo("")
+    assert not t._wants_geo(" Remote ")
+    assert not t._wants_geo("anywhere")
 
 
 def test_resolve_geo_unknown_offline_warns(monkeypatch):
@@ -59,6 +65,6 @@ def test_resolve_geo_uses_typeahead_first_hit(monkeypatch):
     class Resp:
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def read(self): return b'[{"id":"106907071","displayName":"Taipei, Taiwan"}]'
+        def read(self): return b'[{"id":"999","displayName":"Taichung, Taiwan"}]'
     monkeypatch.setattr(t.urllib.request, "urlopen", lambda *a, **k: Resp())
-    assert t._resolve_geo_id("Taipei") == ("106907071", "Taipei, Taiwan")
+    assert t._resolve_geo_id("Taichung") == ("999", "Taichung, Taiwan")
