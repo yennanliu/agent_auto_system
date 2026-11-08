@@ -740,3 +740,16 @@ def test_sponsorship_where_you_reside_is_judged_on_your_location_not_the_job():
     answers, _ = _plan([_q("Will you require visa sponsorship for this role?", "q2", SELECT,
                            values=["Yes", "No"])], DEFAULTS, location={"name": "Singapore"})
     assert _by_field(answers) == {"q2": "Yes"}
+
+
+def test_extra_answer_that_fits_no_option_falls_back_to_the_rules():
+    """'currently reside: Taiwan' (meant for 'where do you reside?') must not
+    block a Yes/No sponsorship question that happens to contain the keyword."""
+    profile = {**DEFAULTS, "extra_answers": [("currently reside", "Taiwan")]}
+    answers, unanswered = _plan([
+        _q("Will you require employer sponsorship for a work visa or work permit in the country "
+           "where you currently reside or are currently based?", "q1", SELECT, values=["Yes", "No"]),
+        _q("In which country do you currently reside?", "q2", SELECT, values=["Singapore", "Taiwan"]),
+    ], profile, location={"name": "Hong Kong; Singapore"})
+    assert unanswered == []
+    assert _by_field(answers) == {"q1": "No", "q2": "Taiwan"}

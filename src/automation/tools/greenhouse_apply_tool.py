@@ -676,6 +676,14 @@ def plan_answers(job_data: dict, profile: dict,
                 break
             if kind in ("select", "multiselect"):
                 pick = _to_option(ans, options, label) if ans else None
+                if pick is None and ans and profile.get("extra_answers"):
+                    # An extra answer is a keyword match, so one written for
+                    # another question ("currently reside: Taiwan") can catch
+                    # this one ("…sponsorship in the country where you currently
+                    # reside?"). If it fits none of the options, use the rules.
+                    fallback = _rule_answer(label, {**profile, "extra_answers": []})
+                    if fallback and fallback != "__skip__":
+                        pick = _to_option(fallback, options, label)
                 if pick is None and required and len(options) == 1:
                     # A required single-option select ("I agree", "Aceito os
                     # termos…") is an acknowledgement — the only way to apply.
