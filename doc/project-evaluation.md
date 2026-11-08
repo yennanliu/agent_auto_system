@@ -59,8 +59,14 @@ they close that gap per unit of effort.
 - **Why now:** the cron scheduler exists, but a schedule nobody watches is only half a feature.
   LINE matters for a TW audience.
 - **Success metric:** % of scheduled runs whose failure is acknowledged within 24 h.
-- **Effort:** S–M. Hook point: the end of `executor.execute_run` (after `_update_run`), a
-  `notify` section in the Job row, and the same "never raise into the executor" rule as Langfuse.
+- **Effort:** S–M. A `notify` section in the Job row and one `notify_run(run_id)` helper, called
+  after **every** terminal `_update_run`, not once at the end of `executor.execute_run`, which
+  returns early. The call sites are: validation failure after retries (`executor.py:263`), success
+  (`executor.py:269`, before the early `return`), exception failure (`executor.py:293`) and,
+  optionally, cancellation. Runs failed by `reconcile_stale_runs` after a restart never reach the
+  executor, so reconciliation must also return the IDs of the runs it failed (select them before the
+  bulk `UPDATE`), and startup then sends their failure notifications. The same rule as Langfuse
+  applies: `notify_run` catches and logs its own errors and never raises into the executor or startup.
 
 #### F2. Approval queue (human-in-the-loop) for outward-facing actions
 - **Problem:** the auto-apply and email automations act on the real world (submit applications,
@@ -126,9 +132,15 @@ Runs are user-scoped (`_assert_run_visible`), but:
   authenticated user can fetch any 利潤健檢 financial report by iterating run IDs.
 - `/api/stats`, `/api/schedules` and `/jobs/{id}/overview` are global.
 
-**Fix:** a single `_assert_job_visible(job, user)` mirroring the run helper, a user dependency on
-the report and stats endpoints, and a parametrized conformance test: *every* `{id}` route returns
-404 for another non-admin user. The test is what prevents a regression the next time a router is added.
+**Fix:**
+- A single `_assert_job_visible(job, user)` mirroring the run helper, called by every `{job_id}` route.
+- `GET /api/jobs` filters to `Job.created_by == user.id` for non-admins; admins still see all jobs.
+- `report.pdf` takes `require_user`, loads the `Run` (404 if missing) and calls
+  `_assert_run_visible(run, user)` **before** serving the file. A user dependency alone is not enough.
+- `/stats`, `/schedules` and `/overview` take the user and scope to their own rows for non-admins.
+- Tests: a parametrized conformance test that *every* `{id}` route returns 404 for another non-admin
+  user, plus a multi-user collection test that user A's `GET /api/jobs` never contains user B's jobs
+  (and an admin's does). These tests are what prevent a regression the next time a router is added.
 
 #### E2. Bounded concurrency & backpressure
 `launch_run` calls `asyncio.create_task` without a limit. A cron burst or a user clicking "run" ten
@@ -139,8 +151,16 @@ shown in the UI, and a rule that skips a scheduled tick when the previous run of
 #### E3. Real migrations
 `init_db()` has more than 20 hand-written `ALTER TABLE … ADD COLUMN` statements in try/except blocks.
 That cannot rename, backfill, add indexes safely or downgrade, and F2/F3 need new tables with foreign keys.
-**Fix:** adopt Alembic with a baseline revision that matches the current schema. Keep `init_db()`
-calling `alembic upgrade head` so the "idempotent on startup" contract still holds.
+**Fix:** adopt Alembic with a baseline revision that matches the current schema, and keep
+`init_db()` calling `alembic upgrade head` on startup so the "idempotent on startup" contract still holds.
+Fresh and existing databases need different first steps:
+- **Fresh database** (no tables): `upgrade head` runs the baseline migration, which creates the schema.
+- **Existing database** (tables but no `alembic_version`): first run the legacy `ALTER TABLE` pass
+  one last time, then check that the live schema matches the baseline (for example, an
+  `alembic check` / autogenerate diff with no changes, or a test that compares the inspected
+  columns and indexes). Only then run `alembic stamp <baseline>`, and after that `upgrade head`. If
+  the check finds a mismatch, stop with a clear error instead of stamping a database that the
+  baseline does not describe.
 
 #### E4. Data retention & PII handling
 Run logs, `result` JSON, leads (including `responsible` / 負責人, a natural person), uploads and
@@ -201,5 +221,5 @@ This is a PDPA/GDPR basic once Email Collector is used for real.
 | Median eval score | `run.eval_score` | ↑, with no drop after prompt changes (E15) |
 | Cost per successful run / per qualified lead | `run.cost_usd` + F3 | ↓ |
 | Time-to-detect a broken scraper | E7 canary vs first user report | ↓ < 24 h |
-| Scheduled-run failures acknowledged in 24 h | F1 | ↑ |
+| Scheduled-run failures acknowledged in 24 h | F1 adds `notified_at` and `acknowledged_at` to `Run`; `acknowledged_at` is set by an "Acknowledge" action on the failed run (UI button or the link in the notification). KPI = failed scheduled runs with `acknowledged_at − notified_at ≤ 24 h` ÷ all failed scheduled runs that were notified | ↑ |
 | Weekly active users of review mode | F2 | ↑ |

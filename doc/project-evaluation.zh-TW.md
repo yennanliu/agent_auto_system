@@ -54,8 +54,13 @@
   webhook,或通用的簽章 HTTP webhook 送出 `{run_id, status, eval_score, summary, result_url}`。
 - **為何現在做:** 排程已經有了,但沒人看的排程只算完成一半。台灣使用者特別需要 LINE。
 - **成功指標:** 排程失敗在 24 小時內被處理的比例。
-- **工作量:** 小~中。掛在 `executor.execute_run` 結尾(`_update_run` 之後),Job 加一個
-  `notify` 設定;和 Langfuse 一樣遵守「絕不讓錯誤影響 executor」的原則。
+- **工作量:** 小~中。Job 加一個 `notify` 設定,並寫一個 `notify_run(run_id)` 函式。它要在**每一個**
+  結束狀態的 `_update_run` 之後呼叫,而不是只掛在 `executor.execute_run` 結尾,因為這個函式會提早
+  return。呼叫點包括:重試用完後驗證失敗(`executor.py:263`)、成功(`executor.py:269`,
+  在提早 `return` 之前)、例外失敗(`executor.py:293`),也可以視需要包含取消。重啟後被
+  `reconcile_stale_runs` 標成失敗的 run 不會經過 executor,所以修正流程也要回傳它標成失敗的
+  run ID(在批次 `UPDATE` 之前先查出來),啟動時再發送這些 run 的失敗通知。和 Langfuse 一樣,
+  `notify_run` 自己攔截並記錄錯誤,絕不讓錯誤影響 executor 或啟動流程。
 
 #### F2. 對外動作的審核佇列(Human-in-the-loop)
 - **問題:** 自動應徵和寄信類任務會直接對外產生影響(送出應徵、提案、寄信)。`dry_run`
@@ -118,9 +123,15 @@ Run 已經依使用者隔離(`_assert_run_visible`),但:
   的人只要遞增 run ID,就能下載別人的利潤健檢財務報表。
 - `/api/stats`、`/api/schedules`、`/jobs/{id}/overview` 都是全域資料。
 
-**修法:** 新增一個和 run 版本對應的 `_assert_job_visible(job, user)`;報表與統計端點加上使用者
-依賴;再加一個參數化的一致性測試:*每個* `{id}` 路由對其他非管理員使用者都回 404。
-這個測試能防止下次新增 router 時又出現同樣的漏洞。
+**修法:**
+- 新增一個和 run 版本對應的 `_assert_job_visible(job, user)`,每個 `{job_id}` 路由都要呼叫。
+- `GET /api/jobs` 對非管理員只回傳 `Job.created_by == user.id` 的資料;管理員仍可看到全部。
+- `report.pdf` 加上 `require_user`,先讀出 `Run`(不存在就回 404),並在回傳檔案**之前**呼叫
+  `_assert_run_visible(run, user)`。只加使用者依賴是不夠的。
+- `/stats`、`/schedules`、`/overview` 帶入使用者,非管理員只看到自己的資料。
+- 測試:一個參數化的一致性測試,確認*每個* `{id}` 路由對其他非管理員使用者都回 404;再加一個
+  多使用者的列表測試,確認使用者 A 的 `GET /api/jobs` 絕不包含使用者 B 的 job(管理員則看得到)。
+  這些測試能防止下次新增 router 時又出現同樣的漏洞。
 
 #### E2. 併發上限與背壓
 `launch_run` 直接 `asyncio.create_task`,沒有任何上限。排程同時觸發,或使用者連按十次「執行」,
@@ -131,8 +142,13 @@ Run 已經依使用者隔離(`_assert_run_visible`),但:
 #### E3. 正式的資料庫遷移
 `init_db()` 裡已經有 20 多條包在 try/except 裡的手寫 `ALTER TABLE … ADD COLUMN`。
 這種做法沒辦法改名、回填資料、安全地加索引或降版,而 F2/F3 需要帶外鍵的新資料表。
-**修法:** 導入 Alembic,建立對應目前 schema 的 baseline revision;`init_db()` 改為呼叫
-`alembic upgrade head`,維持「啟動時執行且可重複執行」的約定。
+**修法:** 導入 Alembic,建立對應目前 schema 的 baseline revision;`init_db()` 在啟動時呼叫
+`alembic upgrade head`,維持「啟動時執行且可重複執行」的約定。新資料庫和既有資料庫的第一步不同:
+- **新資料庫**(沒有任何資料表):`upgrade head` 會執行 baseline 遷移,建立整個 schema。
+- **既有資料庫**(有資料表但沒有 `alembic_version`):先最後一次執行舊的 `ALTER TABLE`,再確認
+  實際 schema 和 baseline 一致(例如 `alembic check` / autogenerate 比對沒有差異,或用測試比對
+  inspect 出來的欄位與索引)。確認一致後才執行 `alembic stamp <baseline>`,接著 `upgrade head`。
+  如果不一致,就停止並回報清楚的錯誤,不要把 baseline 描述不了的資料庫標記成 baseline。
 
 #### E4. 資料保存期限與個資處理
 執行日誌、`result` JSON、名單(包含 `responsible` / 負責人,屬於自然人個資)、上傳檔與 PDF
@@ -192,5 +208,5 @@ Run 已經依使用者隔離(`_assert_run_visible`),但:
 | 評分中位數 | `run.eval_score` | ↑,修改 prompt 後不下降(E15) |
 | 每次成功執行 / 每個合格名單的成本 | `run.cost_usd` + F3 | ↓ |
 | 發現爬蟲失效所需時間 | E7 canary 對比第一次使用者回報 | ↓ < 24 小時 |
-| 24 小時內被處理的排程失敗 | F1 | ↑ |
+| 24 小時內被處理的排程失敗 | F1 在 `Run` 加上 `notified_at` 與 `acknowledged_at`;使用者在失敗的 run 上按「已處理」(UI 按鈕或通知中的連結)時寫入 `acknowledged_at`。KPI = `acknowledged_at − notified_at ≤ 24 小時` 的失敗排程 run ÷ 所有已發通知的失敗排程 run | ↑ |
 | review 模式週活躍使用者 | F2 | ↑ |
