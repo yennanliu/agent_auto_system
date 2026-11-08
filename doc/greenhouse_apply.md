@@ -21,15 +21,28 @@ account to authenticate.
 Rules, in order, applied to each custom question's label:
 
 1. `extra_answers`: `keyword: answer` lines from the user. These win.
-2. Built-in rules: LinkedIn / GitHub / website URLs, sponsorship vs. work authorization
+2. **Default answers**, each a field on the run form with a default:
+   salary expectation (`70000 SGD / year`), current / last drawn salary (blank),
+   notice period (`1 month`), spoken languages (`English, Chinese`), programming
+   languages (`Python, Java, JavaScript`), AI / LLM experience (`5 years`), reason
+   for leaving, and a criminal-record flag (off). Spoken languages pick every
+   matching option (Chinese matches Mandarin, never Cantonese) and answer "Can you
+   speak X fluently?" Yes/No. Programming options that pair a language with a level
+   ("Java Advanced") are only picked for entries written with one
+   (`Python: Advanced`) — never a guessed proficiency.
+   From the profile: City / State / Country, "are you located in X?", and citizen /
+   PR / residency-status questions for a country outside `authorized_countries`
+   (answered No / Others). A sponsorship question about "the country where you
+   currently reside" is judged on where you are based, not on the job.
+3. Built-in rules: LinkedIn / GitHub / website URLs, sponsorship vs. work authorization
    (they're kept apart: "authorized … *without* sponsorship" is an authorization
    question), "worked here before" → No, how-did-you-hear, years of experience
-   (mapped onto range options), salary, location, preferred/full name, consent.
-3. A **required single-option select** ("I agree", "Aceito os termos…") is an
+   (mapped onto range options), expected salary (a "last drawn / current salary" question uses its own field, never the expectation), location, preferred/full name, consent.
+4. A **required single-option select** ("I agree", "Aceito os termos…") is an
    acknowledgement, so the one option is picked.
-4. Required EEOC/demographic selects → the "decline to self-identify" option, never a
+5. Required EEOC/demographic selects → the "decline to self-identify" option, never a
    guessed identity.
-5. If `candidate_background` is set, `GreenhouseAnswerCrew` answers the remaining
+6. If `candidate_background` is set, `GreenhouseAnswerCrew` answers the remaining
    **required** questions from that text only. It returns `confident: false` to abstain.
 
 Any required question still unanswered → the job is **skipped** with those questions
