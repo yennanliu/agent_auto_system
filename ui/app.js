@@ -1,6 +1,6 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'linkedin_apply', 'greenhouse_apply', 'email_collect', 'pipeline'];
+let ALL_TYPES = ['google_form_fill', 'web_scraper', 'hacker_news_digest', 'x_scraper', 'email_sender', 'google_sheet_reader', 'shopee_seller_scraper', 'profit_health_check', 'tasker_apply', 'tw104_apply', 'linkedin_apply', 'greenhouse_apply', 'smartrecruiters_discover', 'email_collect', 'pipeline'];
 
 const TYPE_META = {
   google_form_fill:   { chip: 'FORM',  cls: 'chip-form'     },
@@ -15,6 +15,7 @@ const TYPE_META = {
   tw104_apply:         { chip: '104',    cls: 'chip-104'    },
   linkedin_apply:      { chip: 'LINKEDIN', cls: 'chip-linkedin' },
   greenhouse_apply:    { chip: 'GREENHOUSE', cls: 'chip-greenhouse' },
+  smartrecruiters_discover: { chip: 'SMARTRECRUITERS', cls: 'chip-smartrecruiters' },
   email_collect:        { chip: 'EMAILS', cls: 'chip-leads' },
   pipeline:            { chip: 'PIPE',  cls: 'chip-pipeline' },
 };
@@ -166,6 +167,20 @@ const AUTO_CATALOG = {
     ],
     crew: 'GreenhouseRelevanceCrew + GreenhouseAnswerCrew', flow: 'GreenhouseApplyFlow',
     agent: 'Greenhouse Relevance Judge / Screening Answerer', tools: ['Greenhouse Apply'],
+  },
+  smartrecruiters_discover: {
+    icon: '🧩', name: 'SmartRecruiters Discover',
+    desc: 'Find jobs that companies post on SmartRecruiters — no login, no browser. Lists each company\'s open postings via the public Posting API, filters them by title keywords (role shorthand like SWE / SRE expanded) and location, optionally runs an AI relevance filter, and returns only postings you haven\'t seen in earlier runs. Each result has a posting link and an apply link to open in your own browser (SmartRecruiters blocks automated browsers on its application form, so this does not apply for you).',
+    inputs: [
+      { name: 'companies',   type: 'str',  desc: 'Company identifiers or jobs.smartrecruiters.com URLs, comma-separated (e.g. ServiceNow, BoschGroup)' },
+      { name: 'keywords',    type: 'str',  desc: 'Title filter phrases, comma-separated (blank = all postings)' },
+      { name: 'location',    type: 'str',  desc: 'Location filter substrings, e.g. Remote, Taipei (blank = any)' },
+      { name: 'task_filter', type: 'str',  desc: '2nd gate (optional): natural-language filter; AI drops postings that don\'t match' },
+      { name: 'max_results', type: 'int (1–500)', desc: 'Maximum postings to return' },
+      { name: 'only_new',    type: 'bool', desc: 'Skip postings returned by earlier runs (default on)' },
+    ],
+    crew: 'GreenhouseRelevanceCrew (shared)', flow: 'SmartRecruitersDiscoverFlow',
+    agent: 'Relevance Judge', tools: ['SmartRecruiters Discover'],
   },
   email_collect: {
     icon: '📧', name: 'Email Collector',

@@ -298,6 +298,27 @@ _CATALOG: dict = {
             "source_file": "src/automation/tools/greenhouse_apply_tool.py",
         },
         {
+            "id": "smartrecruiters_discover",
+            "name": "SmartRecruiters Discover",
+            "class": "SmartRecruitersDiscoverTool",
+            "description": (
+                "Find job postings companies publish on SmartRecruiters — no login, no "
+                "browser. Lists postings via the public Posting API, filters by title "
+                "keywords / location (optional LLM relevance gate), skips postings returned "
+                "by earlier runs, and returns posting + apply links for the user to apply "
+                "in their own browser. It never applies."
+            ),
+            "inputs": [
+                {"name": "companies",   "type": "str",  "description": "Company identifiers or jobs.smartrecruiters.com URLs, comma-separated"},
+                {"name": "keywords",    "type": "str",  "description": "Title filter phrases, comma-separated (blank = all)"},
+                {"name": "location",    "type": "str",  "description": "Location substrings, comma-separated (blank = any)"},
+                {"name": "max_results", "type": "int (1–500)", "description": "Maximum postings to return (default 50)"},
+                {"name": "only_new",    "type": "bool", "description": "Skip postings returned by earlier runs (default true)"},
+            ],
+            "used_by": ["SmartRecruitersDiscoverFlow"],
+            "source_file": "src/automation/tools/smartrecruiters_discover_tool.py",
+        },
+        {
             "id": "maps_search",
             "name": "Google Maps Search",
             "class": "MapsSearchTool",

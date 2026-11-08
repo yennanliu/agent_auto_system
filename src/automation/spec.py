@@ -491,6 +491,46 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
+    job_type="smartrecruiters_discover", desc='Find jobs companies post on SmartRecruiters',
+    name="SmartRecruiters Discover", icon="🧩",
+    flow_module="src.automation.flows.smartrecruiters_discover_flow",
+    flow_class="SmartRecruitersDiscoverFlow",
+    start_log="Discovering SmartRecruiters jobs...", temperature=0.2,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Discover", "Discovering SmartRecruiters jobs"), ("Report", "run complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("jobs"), list) and r.get("jobs_found") is not None and not r.get("error"),
+        r.get("error") or "no discovery result",
+    ),
+    rubric=("Matching SmartRecruiters postings were returned with title, company, location, "
+            "posting URL and apply URL; zero results are correct when nothing new matched the "
+            "filters (already-seen and 'filtered out' postings are expected), and the run "
+            "never claims to have applied."),
+    name_template="SmartRecruiters: {companies}",
+    fields=(
+        Field("companies", "text", "Companies", required=True,
+              placeholder="ServiceNow, BoschGroup",
+              help="SmartRecruiters company identifiers or jobs.smartrecruiters.com URLs, comma-separated. "
+                   "A posting URL returns that one posting."),
+        Field("keywords", "text", "Role / Title Keywords", placeholder="SWE, backend, SRE",
+              help="Comma-separated; a posting matches if its title contains every word of any phrase. "
+                   "Shorthand like SWE / SDE / BE / SRE / ML is expanded. Blank = all."),
+        Field("location", "text", "Job Location Filter", placeholder="Remote, Taipei",
+              help="Comma-separated substrings of the posting's location ('Remote' matches remote "
+                   "postings). Blank = any."),
+        Field("task_filter", "textarea", "Relevance Filter (LLM)",
+              placeholder="Only backend / platform roles; no management"),
+        Field("max_results", "number", "Max Results (1–500)", default=50, min=1, max=500),
+        Field("only_new", "checkbox", "Only postings not returned by earlier runs", default=True),
+    ),
+    help_note=(
+        "No login and no browser — postings come from SmartRecruiters' public Posting API. "
+        "Each result has an <b>apply link to open in your own browser</b>: SmartRecruiters' "
+        "application form blocks automated browsers, so this automation does not apply for you."
+    ),
+))
+
+register(AutomationSpec(
     job_type="email_collect", desc='Find businesses & collect their emails', custom_ui=True, name="Email Collector", icon="📧",
     flow_module="src.automation.flows.email_collect_flow", flow_class="EmailCollectFlow",
     start_log="Starting lead-collection funnel...", temperature=0.4, browser=True,
