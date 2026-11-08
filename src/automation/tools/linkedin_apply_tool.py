@@ -626,9 +626,12 @@ _FILL_JS = r"""
 
 
 def _hit_daily_limit(page) -> bool:
-    """True when LinkedIn is showing its daily Easy Apply limit dialog."""
+    """True when LinkedIn is *showing* its daily Easy Apply limit dialog. Only a
+    visible match counts: a hidden template copy of the text must not stop the
+    run. Any match may be the visible one, so check each (not just .first)."""
     try:
-        return page.get_by_text(_DAILY_LIMIT_TEXT, exact=False).count() > 0
+        loc = page.get_by_text(_DAILY_LIMIT_TEXT, exact=False)
+        return any(loc.nth(i).is_visible() for i in range(min(loc.count(), 5)))
     except Exception:  # noqa: BLE001
         return False
 
