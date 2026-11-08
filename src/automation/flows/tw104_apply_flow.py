@@ -61,7 +61,7 @@ class TW104ApplyState(BaseModel):
     keyword: str = ""               # 104 search keyword (required)
     area: str = ""                  # optional 104 area code(s), e.g. 6001001000
     order: str = "1"                # listing sort order
-    cover_letter: str = ""          # optional saved 推薦信 name; blank = site default
+    cover_letter: str = ""          # optional custom 自我推薦信 text; blank = site default
     task_filter: str = ""           # optional 2nd gate: LLM relevance filter (nat-lang)
     remote: bool = False            # only search 完全遠端 jobs (104 remoteWork=1)
     part_time: bool = False         # only search 兼職 jobs (104 工作性質 ro=2)
