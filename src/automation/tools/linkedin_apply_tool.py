@@ -178,7 +178,7 @@ _GEO_ALIASES = {
     "uae": "United Arab Emirates",
 }
 _GEO_FALLBACK = {
-    "taiwan": "104187078", "singapore": "102454443", "japan": "101355337",
+    "taiwan": "104187078", "taipei": "106907071", "singapore": "102454443", "japan": "101355337",
     "united kingdom": "101165590", "united states": "103644278",
     "hong kong": "103291313", "worldwide": "92000000",
 }
@@ -242,6 +242,52 @@ _CARD_SELECTOR = "[componentkey^='job-card-component-ref-'], [data-job-id]"
 _VERIFIED_SUFFIX = re.compile(r"\s*\((?:Verified job|已驗證職缺)\)\s*$")
 
 
+# Reads every job card on the page (new componentkey layout + legacy
+# data-job-id layout) into {job_id, title, company, applied} rows.
+_READ_CARDS_JS = """() => {
+    const out = [];
+    const seen = new Set();
+    const PREFIX = 'job-card-component-ref-';
+    const cards = Array.from(document.querySelectorAll(
+        "[componentkey^='" + PREFIX + "'], [data-job-id]"));
+    for (const card of cards) {
+        const ck = card.getAttribute('componentkey') || '';
+        const id = (ck.startsWith(PREFIX) ? ck.slice(PREFIX.length)
+                    : (card.getAttribute('data-job-id') || '')).trim();
+        if (!id || id === '0' || seen.has(id)) continue;
+        let title = '', company = '';
+        if (ck) {
+            // New UI: <p><span>Title (Verified job)</span><span aria-hidden>…</span></p>
+            // then <p>Company</p> then <p>Location</p>.
+            const ps = Array.from(card.querySelectorAll('p'));
+            if (ps[0]) {
+                const sr = ps[0].querySelector('span:not([aria-hidden])');
+                title = sr ? sr.innerText : ps[0].innerText;
+            }
+            if (ps[1]) company = ps[1].innerText || '';
+        } else {
+            const t = card.querySelector(
+                ".job-card-list__title, .job-card-list__title--link, "
+                + "a.job-card-container__link, [class*='job-card'][class*='title']");
+            title = t ? (t.getAttribute('aria-label') || t.innerText || '') : '';
+            const c = card.querySelector(
+                ".artdeco-entity-lockup__subtitle, "
+                + ".job-card-container__primary-description, [class*='subtitle']");
+            company = c ? (c.innerText || '') : '';
+        }
+        const cardText = card.innerText || '';
+        seen.add(id);
+        out.push({
+            job_id: id,
+            title: title.trim().slice(0, 200),
+            company: company.trim().slice(0, 120),
+            applied: /\\bApplied\\b/.test(cardText) || /已應徵/.test(cardText),
+        });
+    }
+    return out;
+}"""
+
+
 def _clean_title(title: str) -> str:
     """Strip the screen-reader '(Verified job)' suffix the new cards append."""
     return _VERIFIED_SUFFIX.sub("", (title or "").strip())
@@ -295,54 +341,34 @@ def _collect_page_jobs(page, keywords: str, location: str, page_num: int,
         page.wait_for_timeout(900)
 
     try:
-        rows = page.evaluate(
-            """() => {
-                const out = [];
-                const seen = new Set();
-                const PREFIX = 'job-card-component-ref-';
-                const cards = Array.from(document.querySelectorAll(
-                    "[componentkey^='" + PREFIX + "'], [data-job-id]"));
-                for (const card of cards) {
-                    const ck = card.getAttribute('componentkey') || '';
-                    const id = (ck.startsWith(PREFIX) ? ck.slice(PREFIX.length)
-                                : (card.getAttribute('data-job-id') || '')).trim();
-                    if (!id || id === '0' || seen.has(id)) continue;
-                    let title = '', company = '';
-                    if (ck) {
-                        // New UI: <p><span>Title (Verified job)</span><span aria-hidden>…</span></p>
-                        // then <p>Company</p> then <p>Location</p>.
-                        const ps = Array.from(card.querySelectorAll('p'));
-                        if (ps[0]) {
-                            const sr = ps[0].querySelector('span:not([aria-hidden])');
-                            title = sr ? sr.innerText : ps[0].innerText;
-                        }
-                        if (ps[1]) company = ps[1].innerText || '';
-                    } else {
-                        const t = card.querySelector(
-                            ".job-card-list__title, .job-card-list__title--link, "
-                            + "a.job-card-container__link, [class*='job-card'][class*='title']");
-                        title = t ? (t.getAttribute('aria-label') || t.innerText || '') : '';
-                        const c = card.querySelector(
-                            ".artdeco-entity-lockup__subtitle, "
-                            + ".job-card-container__primary-description, [class*='subtitle']");
-                        company = c ? (c.innerText || '') : '';
-                    }
-                    const cardText = card.innerText || '';
-                    seen.add(id);
-                    out.push({
-                        job_id: id,
-                        title: title.trim().slice(0, 200),
-                        company: company.trim().slice(0, 120),
-                        applied: /\\bApplied\\b/.test(cardText) || /已應徵/.test(cardText),
-                    });
-                }
-                return out;
-            }"""
-        )
+        rows = page.evaluate(_READ_CARDS_JS)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"page {page_num}: could not read job cards ({exc})")
         log(f"⚠ Page {page_num}: could not read job cards ({exc})")
         return None
+
+    # The new UI virtualises off-screen cards: the componentkey shell is in the
+    # DOM but its title/company only render once scrolled into view (and may
+    # unrender when scrolled away). Scroll each blank card in, re-read, and merge
+    # by job id — without this, cards below the fold came back title-less and
+    # the relevance gate judged a bare job id.
+    rows = rows or []
+    for r in rows:
+        if r.get("title"):
+            continue
+        try:
+            page.locator(
+                f"[componentkey='job-card-component-ref-{r['job_id']}']"
+            ).first.scroll_into_view_if_needed(timeout=3000)
+            page.wait_for_timeout(400)
+            fresh = {x["job_id"]: x for x in (page.evaluate(_READ_CARDS_JS) or [])}
+        except Exception:  # noqa: BLE001 — keep the id-only row
+            continue
+        for row in rows:
+            f = fresh.get(row["job_id"])
+            if f and f.get("title") and not row.get("title"):
+                row.update(title=f["title"], company=f.get("company", ""),
+                           applied=row.get("applied") or f.get("applied"))
 
     jobs = []
     for r in rows or []:
