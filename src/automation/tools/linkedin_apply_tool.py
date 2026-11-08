@@ -83,6 +83,9 @@ def _launch_browser(pw):
 _EASY_APPLY_SELECTORS = [
     "button.jobs-apply-button",
     "button[aria-label*='Easy Apply']",
+    # New job-view UI (Nov 2026): Easy Apply is an <a aria-label="Easy Apply to
+    # this job"> link, not a button. Exclude aria-disabled ones (closed jobs).
+    "a[aria-label*='Easy Apply']:not([aria-disabled='true'])",
     "button:has-text('Easy Apply')",
 ]
 # LinkedIn migrated the Easy Apply modal to a native <dialog aria-labelledby=
@@ -126,6 +129,11 @@ _POST_SUBMIT_DISMISS_SELECTORS = [
 ]
 # Post-submit confirmation banner. Substring match is case-insensitive.
 _SUCCESS_TEXTS = ("was sent", "Application sent", "已送出", "應徵已送出")
+# LinkedIn caps Easy Apply submissions per day; once hit, clicking Easy Apply
+# opens a "You reached today's Easy Apply limit" dialog instead of the form.
+# Every further job would fail the same way, so the run stops on it.
+_DAILY_LIMIT_TEXT = "Easy Apply limit"
+_LIMIT_STATUS = "limit_reached"
 _MAX_MODAL_STEPS = 12  # safety valve against a bad screening question looping forever
 
 
@@ -617,6 +625,29 @@ _FILL_JS = r"""
 """
 
 
+def _hit_daily_limit(page) -> bool:
+    """True when LinkedIn is showing its daily Easy Apply limit dialog."""
+    try:
+        return page.get_by_text(_DAILY_LIMIT_TEXT, exact=False).count() > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _limit_entry(page, entry: dict) -> dict:
+    """Close the limit dialog (only 'Got it' / Dismiss) and mark the entry."""
+    for sel in ("button:has-text('Got it')", "button[aria-label='Dismiss']"):
+        btn = _first_visible(page, [sel])
+        if btn is not None:
+            try:
+                btn.click(timeout=3000)
+                break
+            except Exception:  # noqa: BLE001
+                pass
+    entry.update(status=_LIMIT_STATUS, submitted=False,
+                 reason="LinkedIn daily Easy Apply limit reached")
+    return entry
+
+
 def _has_form_error(page) -> bool:
     for sel in (".artdeco-inline-feedback--error",
                 "[data-test-form-element-error-messages]",
@@ -724,6 +755,8 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
             # the layout is unexpected.
             submit, nxt = _wait_for_modal_step(page)
             if submit is None and nxt is None:
+                if _hit_daily_limit(page):
+                    return _limit_entry(page, entry)
                 entry.update(status="failed", submitted=False,
                              reason="modal page did not load (no Next/Review/Submit "
                                     f"button after {_STEP_READY_TIMEOUT_MS // 1000}s)")
@@ -901,6 +934,7 @@ def run_linkedin_apply(
             seen: set[str] = set()
             scanned = 0
             filtered = 0
+            limit_hit = False
             pages_scanned = 0
             page_num = 1
 
@@ -949,6 +983,13 @@ def run_linkedin_apply(
                             continue
 
                         entry = _apply_to_job(page, job, profile, dry_run, log, warnings)
+                        if entry.get("status") == _LIMIT_STATUS:
+                            limit_hit = True
+                            msg = ("LinkedIn daily Easy Apply limit reached — stopping; "
+                                   "retry tomorrow")
+                            warnings.append(msg)
+                            log(f"⛔ {msg}")
+                            break
                         if entry.get("status") in ("prepared", "submitted"):
                             applied.append(entry)
                         else:
@@ -960,6 +1001,8 @@ def run_linkedin_apply(
                         log(f"✗ {jid}: {type(exc).__name__}: {exc}")
                         skipped.append(job)
 
+                if limit_hit:
+                    break
                 page_num += 1
 
             warnings_out = warnings[:50]
@@ -975,6 +1018,8 @@ def run_linkedin_apply(
                 f"{len(skipped)} skipped"
             )
             summary += f" ({filtered} filtered by task_filter)." if filtered else "."
+            if limit_hit:
+                summary += " Stopped early: LinkedIn's daily Easy Apply limit was reached."
             return {
                 **base,
                 "jobs_found": scanned,
@@ -986,6 +1031,7 @@ def run_linkedin_apply(
                 "skipped_count": len(skipped),
                 "filtered_count": filtered,
                 "warnings": warnings_out,
+                "limit_reached": limit_hit,
                 "summary": summary,
             }
         finally:

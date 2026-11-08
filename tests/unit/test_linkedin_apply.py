@@ -68,3 +68,21 @@ def test_resolve_geo_uses_typeahead_first_hit(monkeypatch):
         def read(self): return b'[{"id":"999","displayName":"Taichung, Taiwan"}]'
     monkeypatch.setattr(t.urllib.request, "urlopen", lambda *a, **k: Resp())
     assert t._resolve_geo_id("Taichung") == ("999", "Taichung, Taiwan")
+
+
+class _FakePage:
+    def __init__(self, texts): self._texts = texts
+
+    def get_by_text(self, text, exact=False):
+        n = sum(text in t for t in self._texts)
+        return type("L", (), {"count": lambda self: n})()
+
+
+def test_hit_daily_limit_detects_dialog():
+    assert t._hit_daily_limit(_FakePage(["You reached today’s Easy Apply limit"]))
+    assert not t._hit_daily_limit(_FakePage(["Contact info"]))
+
+
+def test_easy_apply_selectors_cover_link_variant():
+    # New job-view UI renders Easy Apply as <a aria-label="Easy Apply to this job">.
+    assert any(s.startswith("a[aria-label*='Easy Apply']") for s in t._EASY_APPLY_SELECTORS)
