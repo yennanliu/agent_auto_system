@@ -14,8 +14,9 @@ LinkedIn guards login with 2FA / CAPTCHA, so we never automate the login itself.
 
 Flow per run:
   1. Load the jobs-search listing with the saved session; bail if logged out.
-  2. Page through /jobs/search/?keywords=...&location=...&f_AL=true&start=N
-     (`f_AL=true` is LinkedIn's own "Easy Apply" filter).
+  2. Page through /jobs/search-results/?keywords=...&geoId=...&f_AL=true&start=N
+     (`f_AL=true` is LinkedIn's own "Easy Apply" filter). The location text is
+     resolved to a LinkedIn geoId first — the search UI ignores `location=`.
   3. For each job card: read title + company; skip if already applied.
   4. Optional second gate: an LLM `relevance_fn(title, meta)` decides whether the
      job is worth applying to (natural-language task_filter). Fails open.
@@ -36,14 +37,20 @@ instead of raising; one bad job must never abort the whole run.
 with an LLM-backed relevance_fn). `LinkedInApplyTool` is a thin BaseTool wrapper
 for catalog/agent parity.
 """
+import json
 import os
+import re
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
 _BASE = "https://www.linkedin.com"
-_SEARCH = _BASE + "/jobs/search/"
+# LinkedIn moved job search to /jobs/search-results/ (Nov 2026, "AI search"
+# UI); the old /jobs/search/ now redirects there and drops `location=`.
+_SEARCH = _BASE + "/jobs/search-results/"
 _JOB_VIEW = _BASE + "/jobs/view/"
 DEFAULT_STATE_PATH = "data/linkedin_state.json"
 
@@ -158,22 +165,147 @@ def _looks_logged_out(page) -> bool:
 
 # ── search / listing ─────────────────────────────────────────────────────────
 
+# The search-results page IGNORES the free-text `location=` param — it silently
+# reuses the account's last-searched location — so a location must be sent as a
+# numeric `geoId`. Resolved via LinkedIn's public geo typeahead; these aliases
+# fix shorthand the typeahead gets wrong ("UK" → Ukraine), and the fallback
+# table covers common markets when the typeahead is unreachable.
+_GEO_ALIASES = {
+    "uk": "United Kingdom", "gb": "United Kingdom", "england": "United Kingdom",
+    "us": "United States", "usa": "United States", "u.s.": "United States",
+    "america": "United States", "tw": "Taiwan", "台灣": "Taiwan", "臺灣": "Taiwan",
+    "sg": "Singapore", "jp": "Japan", "日本": "Japan", "hk": "Hong Kong",
+    "uae": "United Arab Emirates",
+}
+_GEO_FALLBACK = {
+    "taiwan": "104187078", "taipei": "106907071", "singapore": "102454443", "japan": "101355337",
+    "united kingdom": "101165590", "united states": "103644278",
+    "hong kong": "103291313", "united arab emirates": "104305776",
+    "worldwide": "92000000",
+}
+_GEO_TYPEAHEAD = (_BASE + "/jobs-guest/api/typeaheadHits?typeaheadType=GEO"
+                  "&geoTypes=POPULATED_PLACE,ADMIN_DIVISION_2,MARKET_AREA,COUNTRY_REGION"
+                  "&query=")
+
+
+def _wants_geo(location: str) -> bool:
+    """True when the location names a place (not blank / 'remote' / 'anywhere')."""
+    loc = (location or "").strip().lower()
+    return bool(loc) and loc not in ("remote", "anywhere", "any")
+
+
+def _resolve_geo_id(location: str, log: Callable = None,
+                    warnings: list | None = None) -> tuple[str | None, str]:
+    """Map a location string to (geoId, display name). A numeric string is
+    taken as a geoId as-is. Returns (None, "") when it can't be resolved — the
+    caller then searches without a location filter and warns."""
+    log = log or _noop
+    loc = (location or "").strip()
+    if not _wants_geo(loc):
+        return None, ""
+    if loc.isdigit():
+        return loc, loc
+    query = _GEO_ALIASES.get(loc.lower(), loc)
+    # Built-in markets skip the network: the guest typeahead rate-limits (429)
+    # and can stall up to the timeout on every run for the default "Taiwan".
+    gid = _GEO_FALLBACK.get(query.lower())
+    if gid:
+        return gid, query
+    try:
+        req = urllib.request.Request(
+            _GEO_TYPEAHEAD + urllib.parse.quote(query),
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310 — fixed https host
+            hits = json.loads(resp.read().decode("utf-8") or "[]")
+        if hits and hits[0].get("id"):
+            return str(hits[0]["id"]), str(hits[0].get("displayName") or query)
+    except Exception as exc:  # noqa: BLE001 — fall back to the static table
+        log(f"⚠ geo lookup for '{loc}' failed ({exc})")
+    msg = (f"could not resolve location '{loc}' to a LinkedIn geoId; searching "
+           "without a location filter (LinkedIn may reuse your last location)")
+    if warnings is not None:
+        warnings.append(msg)
+    log(f"⚠ {msg}")
+    return None, ""
+
+
 def _search_url(keywords: str, location: str, page_num: int,
-                remote: bool = False) -> str:
+                remote: bool = False, geo_id: str | None = None) -> str:
     from urllib.parse import urlencode
     # f_AL=true is LinkedIn's Easy Apply filter; results paginate by 25.
     params = {"keywords": keywords, "f_AL": "true", "start": (page_num - 1) * 25}
+    if geo_id:
+        params["geoId"] = geo_id
     if location:
-        params["location"] = location
+        params["location"] = location  # ignored by the new UI; harmless, kept for logs
     if remote:
         # f_WT workplace-type filter: 1=On-site, 2=Remote, 3=Hybrid.
         params["f_WT"] = "2"
     return f"{_SEARCH}?{urlencode(params)}"
 
 
+# Job cards: the new search UI marks each card with componentkey=
+# "job-card-component-ref-<jobId>" (all classes obfuscated); the legacy layout
+# used data-job-id. Both are read so an A/B bucket on either layout works.
+_CARD_SELECTOR = "[componentkey^='job-card-component-ref-'], [data-job-id]"
+_VERIFIED_SUFFIX = re.compile(r"\s*\((?:Verified job|已驗證職缺)\)\s*$")
+
+
+# Reads every job card on the page (new componentkey layout + legacy
+# data-job-id layout) into {job_id, title, company, applied} rows.
+_READ_CARDS_JS = """() => {
+    const out = [];
+    const seen = new Set();
+    const PREFIX = 'job-card-component-ref-';
+    const cards = Array.from(document.querySelectorAll(
+        "[componentkey^='" + PREFIX + "'], [data-job-id]"));
+    for (const card of cards) {
+        const ck = card.getAttribute('componentkey') || '';
+        const id = (ck.startsWith(PREFIX) ? ck.slice(PREFIX.length)
+                    : (card.getAttribute('data-job-id') || '')).trim();
+        if (!id || id === '0' || seen.has(id)) continue;
+        let title = '', company = '';
+        if (ck.startsWith(PREFIX)) {
+            // New UI: <p><span>Title (Verified job)</span><span aria-hidden>…</span></p>
+            // then <p>Company</p> then <p>Location</p>.
+            const ps = Array.from(card.querySelectorAll('p'));
+            if (ps[0]) {
+                const sr = ps[0].querySelector('span:not([aria-hidden])');
+                title = sr ? sr.innerText : ps[0].innerText;
+            }
+            if (ps[1]) company = ps[1].innerText || '';
+        } else {
+            const t = card.querySelector(
+                ".job-card-list__title, .job-card-list__title--link, "
+                + "a.job-card-container__link, [class*='job-card'][class*='title']");
+            title = t ? (t.getAttribute('aria-label') || t.innerText || '') : '';
+            const c = card.querySelector(
+                ".artdeco-entity-lockup__subtitle, "
+                + ".job-card-container__primary-description, [class*='subtitle']");
+            company = c ? (c.innerText || '') : '';
+        }
+        const cardText = card.innerText || '';
+        seen.add(id);
+        out.push({
+            job_id: id,
+            title: title.trim().slice(0, 200),
+            company: company.trim().slice(0, 120),
+            applied: /\\bApplied\\b/.test(cardText) || /已應徵/.test(cardText),
+        });
+    }
+    return out;
+}"""
+
+
+def _clean_title(title: str) -> str:
+    """Strip the screen-reader '(Verified job)' suffix the new cards append."""
+    return _VERIFIED_SUFFIX.sub("", (title or "").strip())
+
+
 def _collect_page_jobs(page, keywords: str, location: str, page_num: int,
                        log: Callable, warnings: list,
-                       remote: bool = False) -> list[dict] | None:
+                       remote: bool = False,
+                       geo_id: str | None = None) -> list[dict] | None:
     """Job cards on a single listing page. Scrolls the results list to trigger
     LinkedIn's lazy load, then reads each card's job id / title / company /
     already-applied flag.
@@ -183,7 +315,7 @@ def _collect_page_jobs(page, keywords: str, location: str, page_num: int,
     distinct from []: [] means the page loaded but had no jobs (end of results),
     so the caller stops; None means "try the next page" — a transient blip must
     not look like the end of the listing and abort the whole run."""
-    url = _search_url(keywords, location, page_num, remote)
+    url = _search_url(keywords, location, page_num, remote, geo_id)
     for attempt in range(3):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -201,7 +333,7 @@ def _collect_page_jobs(page, keywords: str, location: str, page_num: int,
     prev = -1
     for _ in range(8):
         try:
-            count = page.locator("[data-job-id]").count()
+            count = page.locator(_CARD_SELECTOR).count()
         except Exception:  # noqa: BLE001
             count = 0
         if count == prev:
@@ -218,38 +350,34 @@ def _collect_page_jobs(page, keywords: str, location: str, page_num: int,
         page.wait_for_timeout(900)
 
     try:
-        rows = page.evaluate(
-            """() => {
-                const out = [];
-                const seen = new Set();
-                const cards = Array.from(document.querySelectorAll('[data-job-id]'));
-                for (const card of cards) {
-                    const id = (card.getAttribute('data-job-id') || '').trim();
-                    if (!id || id === '0' || seen.has(id)) continue;
-                    const t = card.querySelector(
-                        ".job-card-list__title, .job-card-list__title--link, "
-                        + "a.job-card-container__link, [class*='job-card'][class*='title']");
-                    let title = t ? (t.getAttribute('aria-label') || t.innerText || '') : '';
-                    const c = card.querySelector(
-                        ".artdeco-entity-lockup__subtitle, "
-                        + ".job-card-container__primary-description, [class*='subtitle']");
-                    let company = c ? (c.innerText || '') : '';
-                    const cardText = card.innerText || '';
-                    seen.add(id);
-                    out.push({
-                        job_id: id,
-                        title: title.trim().slice(0, 200),
-                        company: company.trim().slice(0, 120),
-                        applied: /\\bApplied\\b/.test(cardText) || /已應徵/.test(cardText),
-                    });
-                }
-                return out;
-            }"""
-        )
+        rows = page.evaluate(_READ_CARDS_JS)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"page {page_num}: could not read job cards ({exc})")
         log(f"⚠ Page {page_num}: could not read job cards ({exc})")
         return None
+
+    # The new UI virtualises off-screen cards: the componentkey shell is in the
+    # DOM but its title/company only render once scrolled into view (and may
+    # unrender when scrolled away). Scroll each blank card in, re-read, and merge
+    # by job id — without this, cards below the fold came back title-less and
+    # the relevance gate judged a bare job id.
+    rows = rows or []
+    for r in rows:
+        if r.get("title"):
+            continue
+        try:
+            page.locator(
+                f"[componentkey='job-card-component-ref-{r['job_id']}']"
+            ).first.scroll_into_view_if_needed(timeout=3000)
+            page.wait_for_timeout(400)
+            fresh = {x["job_id"]: x for x in (page.evaluate(_READ_CARDS_JS) or [])}
+        except Exception:  # noqa: BLE001 — keep the id-only row
+            continue
+        for row in rows:
+            f = fresh.get(row["job_id"])
+            if f and f.get("title") and not row.get("title"):
+                row.update(title=f["title"], company=f.get("company", ""),
+                           applied=row.get("applied") or f.get("applied"))
 
     jobs = []
     for r in rows or []:
@@ -257,7 +385,7 @@ def _collect_page_jobs(page, keywords: str, location: str, page_num: int,
         jobs.append({
             "job_id": jid,
             "url": f"{_JOB_VIEW}{jid}/",
-            "title": r.get("title", "") or jid,
+            "title": _clean_title(r.get("title", "")) or jid,
             "company": r.get("company", ""),
             "applied": bool(r.get("applied")),
         })
@@ -746,7 +874,18 @@ def run_linkedin_apply(
         )
         page = ctx.new_page()
         try:
-            first_url = _search_url(keywords, location, 1, remote)
+            geo_id, geo_name = _resolve_geo_id(location, log, warnings)
+            if geo_id:
+                log(f"Location '{location}' → LinkedIn geoId {geo_id} ({geo_name})")
+            elif not dry_run and _wants_geo(location):
+                # Without a geoId LinkedIn reuses the account's last location, so
+                # a live run would submit applications in the wrong market.
+                return {**base, "warnings": warnings[:50], "error": (
+                    f"Could not resolve location '{location}' to a LinkedIn geoId; "
+                    "refusing to submit applications in an unknown market. Use a "
+                    "country/city name LinkedIn recognises, or pass a numeric geoId."
+                )}
+            first_url = _search_url(keywords, location, 1, remote, geo_id)
             log(f"Opening {first_url}")
             page.goto(first_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(2000)
@@ -767,7 +906,7 @@ def run_linkedin_apply(
 
             while len(applied) < max_applications and page_num <= max_pages:
                 jobs = _collect_page_jobs(page, keywords, location, page_num,
-                                          log, warnings, remote)
+                                          log, warnings, remote, geo_id)
                 if jobs is None:
                     page_num += 1
                     continue
@@ -873,7 +1012,9 @@ class LinkedInApplyTool(BaseTool):
         "Log in to LinkedIn (via a saved session) and auto-apply to 'Easy Apply' "
         "jobs matching a keyword. Args: keywords, location, remote (only remote "
         "jobs), phone, years_experience, max_applications, max_pages, dry_run. "
-        "Pages through /jobs/search/?f_AL=true, opens each job, walks the Easy "
+        "Pages through /jobs/search-results/?f_AL=true&geoId=… (location is "
+        "resolved to a LinkedIn geoId; an unresolvable location warns, and a "
+        "live run aborts rather than apply in the wrong market), opens each job, walks the Easy "
         "Apply modal (fill → Next/Review → Submit), skips already-applied jobs, "
         "and submits only when dry_run is false (a confirmed 'application was "
         "sent' banner is required)."
