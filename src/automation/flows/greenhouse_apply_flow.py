@@ -79,7 +79,7 @@ class GreenhouseApplyState(BaseModel):
     website_url: str = ""
     cover_letter: str = ""          # uploaded as a .txt when the form has a cover-letter field
     years_experience: int = 3
-    salary_expectation: str = ""
+    salary_expectation: str = "70000 SGD / year"
     work_authorized: bool = True
     needs_sponsorship: bool = False
     authorized_countries: str = ""  # e.g. "Taiwan" — country-named questions answer from this
@@ -90,6 +90,14 @@ class GreenhouseApplyState(BaseModel):
     current_title: str = ""
     current_start: str = ""         # e.g. "2025-06"
     extra_answers: str = ""         # "keyword: answer" lines for recurring custom questions
+    # Default answers to recurring screening questions (all editable on the run form).
+    current_salary: str = ""        # "last drawn / current salary" — blank leaves it unanswered
+    notice_period: str = "1 month"
+    languages: str = "English, Chinese"                      # spoken, comma-separated
+    programming_languages: str = "Python, Java, JavaScript"  # "Python: Advanced" adds a level
+    ai_experience: str = "5 years"  # "describe your experience with AI / LLMs"
+    reason_for_leaving: str = "Looking for more challenging opportunities."
+    has_criminal_record: bool = False
     candidate_background: str = ""  # enables LLM answers to required screening questions
     task_filter: str = ""           # optional 2nd gate: LLM relevance filter (nat-lang)
     max_applications: int = 5
@@ -246,6 +254,13 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
             current_company=self.state.current_company, current_title=self.state.current_title,
             current_start=self.state.current_start,
             extra_answers=self.state.extra_answers,
+            current_salary=self.state.current_salary,
+            notice_period=self.state.notice_period,
+            languages=self.state.languages,
+            programming_languages=self.state.programming_languages,
+            ai_experience=self.state.ai_experience,
+            reason_for_leaving=self.state.reason_for_leaving,
+            has_criminal_record=self.state.has_criminal_record,
             max_applications=self.state.max_applications,
             max_per_board=self.state.max_per_board,
             max_scans_per_board=self.state.max_scans_per_board,

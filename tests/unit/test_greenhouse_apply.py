@@ -619,3 +619,124 @@ def test_match_option_prefers_shortest_prefix_hit():
     opts = ["National Taiwan Normal University", "National Taiwan University of Science And Technology",
             "National Taiwan University (NTU)"]
     assert gh.match_option(opts, "National Taiwan University") == "National Taiwan University (NTU)"
+
+
+# ── configurable default answers ──────────────────────────────────────────────
+
+DEFAULTS = {**PROFILE, "salary": "70000 SGD / year", "current_salary": "", "notice_period": "1 month",
+            "languages": "English, Chinese", "programming_languages": "Python, Java, JavaScript",
+            "ai_experience": "5 years", "reason_for_leaving": "Looking for more challenging opportunities.",
+            "has_criminal_record": False, "authorized_countries": {"taiwan"},
+            "employment": {"company": "Self-employed"}}
+SELECT = "multi_value_single_select"
+MULTI = "multi_value_multi_select"
+
+
+def test_default_answers_text_questions():
+    answers, unanswered = _plan([
+        _q("Please provide your salary expectations.", "q1"),
+        _q("If in case considered, how soon can you start working with us?", "q2"),
+        _q("Reason for leaving your current/last position.", "q3"),
+        _q("Please describe your experience with AI and large language models (LLMs).", "q4"),
+        _q("Have you ever been convicted of a criminal offence?", "q5"),
+        _q("Your residential area.", "q6"),
+        _q("Where are you currently employed or where were you last employed?", "q7"),
+    ], DEFAULTS)
+    assert unanswered == []
+    assert _by_field(answers) == {
+        "q1": "70000 SGD / year", "q2": "1 month",
+        "q3": "Looking for more challenging opportunities.", "q4": "5 years",
+        "q5": "No", "q6": "Taipei, Taiwan", "q7": "Self-employed"}
+
+
+def test_last_drawn_salary_is_not_the_expectation():
+    """Regression: 'last drawn salary' used to be answered with the expected salary."""
+    _, unanswered = _plan([_q("What was your last drawn salary?", "q1")], DEFAULTS)
+    assert unanswered == ["What was your last drawn salary?"]
+    answers, _ = _plan([_q("What was your last drawn salary?", "q1")],
+                       {**DEFAULTS, "current_salary": "60000 SGD / year"})
+    assert _by_field(answers) == {"q1": "60000 SGD / year"}
+
+
+def test_notice_period_maps_onto_options():
+    answers, _ = _plan([_q("What is your notice period to your current employer?", "q1", SELECT,
+                           values=["Immediate", "1 month", "2 months", "3 months and above"])], DEFAULTS)
+    assert _by_field(answers) == {"q1": "1 month"}
+
+
+def test_spoken_languages_multiselect_and_yes_no():
+    answers, unanswered = _plan([
+        _q("What language(s) can you speak at a native or business level?", "q1", MULTI,
+           values=["Arabic", "Cantonese", "English", "French", "Mandarin Chinese"]),
+        _q("Can you speak Chinese fluently?", "q2"),
+        _q("Can you speak Japanese fluently?", "q3", SELECT, values=["Yes", "No"]),
+    ], DEFAULTS)
+    assert unanswered == []
+    assert _by_field(answers) == {"q1": ["English", "Mandarin Chinese"], "q2": "Yes", "q3": "No"}
+
+
+def test_programming_languages_need_a_level_when_options_have_one():
+    q = _q("Please select up to 3 programming languages you are familiar with and indicate "
+           "your level of proficiency.", "q1", MULTI,
+           values=["Java Beginner", "Java Advanced", "JavaScript Intermediate", "JavaScript Advanced",
+                   "Python Intermediate", "Python Advanced"])
+    _, unanswered = _plan([q], DEFAULTS)          # no levels given → never a guessed proficiency
+    assert len(unanswered) == 1
+    answers, _ = _plan([q], {**DEFAULTS, "programming_languages":
+                             "Python: Advanced, Java: Advanced, JavaScript: Intermediate"})
+    assert _by_field(answers) == {"q1": ["Python Advanced", "Java Advanced", "JavaScript Intermediate"]}
+    answers, _ = _plan([_q("Which programming languages are you proficient in?", "q2")], DEFAULTS)
+    assert _by_field(answers) == {"q2": "Python, Java, JavaScript"}   # "Java" never matched "JavaScript"
+
+
+def test_residency_and_location_questions_follow_the_profile():
+    answers, unanswered = _plan([
+        _q("Are you a Singapore Citizen or Singapore Permanent Resident?", "q1", SELECT, values=["Yes", "No"]),
+        _q("What is your residency status in Singapore?", "q2", SELECT,
+           values=["Singapore Citizen", "Singapore PR", "Others"]),
+        _q("Are you located in Singapore?", "q3", SELECT, values=["Yes", "No"]),
+        _q("City", "q4"), _q("State", "q5"), _q("Country", "q6"),
+        _q("Where do you currently live?", "q7", SELECT, values=["Singapore", "Taiwan", "Thailand"]),
+        _q("What is your work eligibility in Singapore?", "q8", SELECT,
+           values=["Singaporean", "Singapore PR", "Work Visa", "I'm not eligible to work in Singapore"]),
+    ], DEFAULTS)
+    assert unanswered == []
+    assert _by_field(answers) == {"q1": "No", "q2": "Others", "q3": "No", "q4": "Taipei",
+                                  "q5": "Taipei", "q6": "Taiwan", "q7": "Taiwan",
+                                  "q8": "I'm not eligible to work in Singapore"}
+    # A country you ARE authorized in is not assumed to be your citizenship.
+    _, unanswered = _plan([_q("Are you a Taiwan citizen?", "q1", SELECT, values=["Yes", "No"])], DEFAULTS)
+    assert unanswered == ["Are you a Taiwan citizen?"]
+
+
+def test_extra_answers_still_beat_the_defaults():
+    profile = {**DEFAULTS, "extra_answers": [("notice period", "2 weeks")]}
+    answers, _ = _plan([_q("What is your notice period?", "q1")], profile)
+    assert _by_field(answers) == {"q1": "2 weeks"}
+
+
+def test_flow_passes_default_answers(mocker):
+    captured = {}
+    mocker.patch("src.automation.flows.greenhouse_apply_flow.run_greenhouse_apply",
+                 side_effect=lambda **kw: captured.update(kw) or {
+                     "applied": [], "skipped": [], "jobs_found": 0, "summary": "none"})
+    from src.automation.flows.greenhouse_apply_flow import GreenhouseApplyFlow
+
+    GreenhouseApplyFlow().kickoff(inputs={
+        "boards": "figma", "first_name": "Ada", "last_name": "L", "email": "a@x.io",
+        "notice_period": "2 months"})
+    assert captured["notice_period"] == "2 months"
+    assert captured["languages"] == "English, Chinese"
+    assert captured["salary_expectation"] == "70000 SGD / year"
+    assert captured["has_criminal_record"] is False
+
+
+def test_sponsorship_where_you_reside_is_judged_on_your_location_not_the_job():
+    q = _q("Will you require employer sponsorship for a work visa or work permit in the country "
+           "where you currently reside or are currently based?", "q1", SELECT, values=["Yes", "No"])
+    answers, unanswered = _plan([q], DEFAULTS, location={"name": "Singapore"})
+    assert unanswered == [] and _by_field(answers) == {"q1": "No"}
+    # The generic form of the question still follows the job's country.
+    answers, _ = _plan([_q("Will you require visa sponsorship for this role?", "q2", SELECT,
+                           values=["Yes", "No"])], DEFAULTS, location={"name": "Singapore"})
+    assert _by_field(answers) == {"q2": "Yes"}

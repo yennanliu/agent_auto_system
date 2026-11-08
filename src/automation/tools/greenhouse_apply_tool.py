@@ -355,6 +355,12 @@ def _authorized_for(lbl: str, profile: dict):
     named = countries_in(lbl)
     if named:
         return named <= allowed
+    # "…in the country where you currently reside / are based?" is about where
+    # you live, not where the job is.
+    if re.search(r"where you (currently )?(reside|live|are (currently )?based)", lbl):
+        loc = (profile.get("location") or "").lower()
+        here = countries_in(loc) | {n for n, pat in _CITIES.items() if re.search(pat, loc)}
+        return (here <= allowed) if here else _UNKNOWN
     jc = profile.get("job_countries")
     if jc is None:  # no job context (e.g. planning without a location)
         return None
@@ -363,13 +369,152 @@ def _authorized_for(lbl: str, profile: dict):
     return (jc <= allowed) if jc else _UNKNOWN
 
 
-def _rule_answer(label: str, profile: dict) -> str | None:
+# Spoken languages a question may name ("Can you speak Chinese fluently?").
+# Values are the words an option or the user's list may use for that language.
+_SPOKEN = {
+    "english": ("english",), "chinese": ("chinese", "mandarin"), "cantonese": ("cantonese",),
+    "japanese": ("japanese",), "korean": ("korean",), "spanish": ("spanish",),
+    "french": ("french",), "german": ("german",), "malay": ("malay", "bahasa melayu"),
+    "indonesian": ("indonesian", "bahasa indonesia"), "tamil": ("tamil",), "hindi": ("hindi",),
+    "vietnamese": ("vietnamese",), "thai": ("thai",), "arabic": ("arabic",),
+    "portuguese": ("portuguese",), "italian": ("italian",), "dutch": ("dutch",),
+}
+_LEVEL_RE = re.compile(r"\b(beginner|basic|elementary|intermediate|advanced|expert|proficient|fluent|native)\b", re.I)
+_PROGRAMMING_Q = re.compile(r"programming language|coding language|languages? (are you|you are|you're) "
+                            r"(familiar|proficient|comfortable)|which languages do you (code|program)", re.I)
+
+
+def _spoken_key(word: str) -> str | None:
+    """Canonical key of a spoken-language name ("Mandarin" → "chinese")."""
+    w = word.strip().lower()
+    for key, aliases in _SPOKEN.items():
+        if any(re.search(rf"\b{re.escape(a)}\b", w) for a in aliases):
+            return key
+    return None
+
+
+def _language_options(wanted: list[str], options: list[str]) -> list[str]:
+    """Options naming each wanted spoken language ("Chinese" also matches
+    "Mandarin Chinese" / "Chinese (Mandarin)", never "Cantonese")."""
+    picks: list[str] = []
+    for want in wanted:
+        key = _spoken_key(want)
+        aliases = _SPOKEN.get(key or "", (want.strip().lower(),))
+        hits = [o for o in options
+                if any(re.search(rf"\b{re.escape(a)}\b", o.lower()) for a in aliases)
+                and (key == "cantonese" or "cantonese" not in o.lower())]
+        if hits:
+            pick = min(hits, key=len)
+            if pick not in picks:
+                picks.append(pick)
+    return picks
+
+
+def _programming_options(wanted: list[str], options: list[str]) -> list[str]:
+    """Options for each wanted programming language. An entry may carry a level
+    ("Python: Advanced"); when the options pair each language with a level
+    ("Java Beginner / Java Advanced") a language WITHOUT a stated level is left
+    out rather than given a guessed proficiency."""
+    leveled = any(_LEVEL_RE.search(o) for o in options)
+    picks: list[str] = []
+    for want in wanted:
+        name, _, level = want.partition(":")
+        name, level = name.strip().lower(), level.strip().lower()
+        if not name:
+            continue
+        # Word-bounded so "Java" never matches "JavaScript".
+        pat = re.compile(rf"(?<![\w+#]){re.escape(name)}(?![\w+#])", re.I)
+        hits = [o for o in options if pat.search(o)]
+        if leveled:
+            if not level:
+                continue
+            hits = [o for o in hits if level in o.lower()]
+        if hits:
+            pick = min(hits, key=len)
+            if pick not in picks:
+                picks.append(pick)
+    return picks
+
+
+def _location_parts(location: str) -> list[str]:
+    return [p.strip() for p in (location or "").split(",") if p.strip()]
+
+
+def _profile_answer(label: str, profile: dict):
+    """Answers from the configurable defaults (notice period, languages,
+    reason for leaving, …) and from the profile's location / authorization.
+    Returns a str, a list (multi-value: languages), or None."""
+    lbl = label.lower()
+    plain = re.sub(r"[^a-z/ ]", "", lbl).strip()
+    loc_parts = _location_parts(profile.get("location", ""))
+
+    # Bare "City" / "State" / "Country" text questions about where you are.
+    if loc_parts and plain in ("city", "current city", "city of residence"):
+        return loc_parts[0]
+    if loc_parts and plain in ("state", "state/province", "province", "region", "state / province"):
+        # "Taipei, Taiwan" has no state: the city is the first-level division.
+        return loc_parts[1] if len(loc_parts) >= 3 else loc_parts[0]
+    if loc_parts and plain in ("country", "current country", "country of residence"):
+        return loc_parts[-1]
+
+    # Spoken languages — a question naming one asks Yes/No; otherwise it wants the list.
+    langs = _split_list(profile.get("languages", ""))
+    if not _PROGRAMMING_Q.search(lbl) and not re.search(r"language models?|\bllms?\b", lbl) \
+            and re.search(r"language|speak|fluen", lbl):
+        named = {k for k in _SPOKEN if any(re.search(rf"\b{re.escape(a)}\b", lbl) for a in _SPOKEN[k])}
+        if named and langs:
+            have = {_spoken_key(x) for x in langs}
+            return _yes_no(named <= have)
+        if not named and langs and re.search(r"language", lbl):
+            return langs
+
+    if _PROGRAMMING_Q.search(lbl):
+        progs = _split_list(profile.get("programming_languages", ""))
+        return progs or None
+
+    if re.search(r"notice period|how soon can you (start|join)|when can you (start|join)|"
+                 r"earliest (possible )?(start|joining)|availability to (start|join)", lbl):
+        return profile.get("notice_period") or None
+    if re.search(r"reasons? for (leaving|wanting to leave|looking|changing)|"
+                 r"why (are you|did you|do you want to) (leave|leaving|looking|change)", lbl):
+        return profile.get("reason_for_leaving") or None
+    if re.search(r"convicted|criminal (offen[cs]e|record|conviction|charge)", lbl):
+        return _yes_no(bool(profile.get("has_criminal_record")))
+    if re.search(r"experience (with|in|using|of) (ai|a\.i\.|artificial intelligence|llms?|large language|"
+                 r"generative|gen ?ai|machine learning)|\b(ai|llm|genai)\b.{0,40}\bexperience\b", lbl):
+        return profile.get("ai_experience") or None
+
+    # "Are you a Singapore Citizen or PR?" / "Residency status in Singapore" /
+    # "Work eligibility in Singapore": a country you are not authorized to work
+    # in is one you are not a citizen or resident of.
+    if re.search(r"citizen|permanent resident|residency status|resident status|\bpr\b|work eligibility", lbl):
+        named = countries_in(lbl)
+        allowed = profile.get("authorized_countries") or set()
+        if named and allowed and not (named <= allowed):
+            return "No"
+        return None
+    # "Are you located in Singapore?" — compared with where you are based.
+    m = re.search(r"\b(are you|do you) (currently )?(located|based|living|live|residing|reside) in\b", lbl)
+    if m and countries_in(lbl) and loc_parts:
+        here = countries_in(profile.get("location", "")) | {
+            n for n, pat in _CITIES.items() if re.search(pat, profile.get("location", "").lower())}
+        return _yes_no(countries_in(lbl) <= here)
+    if re.search(r"(currently|last) employed|current (employer|company)|where (do|did) you (currently )?work", lbl):
+        return (profile.get("employment") or {}).get("company") or None
+    return None
+
+
+def _rule_answer(label: str, profile: dict):
     """Heuristic answer for a custom question label, or None when unsure. The
-    caller maps the answer onto a select's options when the field is a select."""
+    caller maps the answer onto a select's options when the field is a select.
+    A list means several values (spoken / programming languages)."""
     lbl = label.lower()
     for kw, ans in profile.get("extra_answers") or []:
         if kw.lower() in lbl:
             return ans
+    prof = _profile_answer(label, profile)
+    if prof:
+        return prof
     if "linkedin" in lbl:
         return profile.get("linkedin_url") or None
     if "github" in lbl:
@@ -405,10 +550,14 @@ def _rule_answer(label: str, profile: dict) -> str | None:
         return "__source__"  # we found it on the employer's own job board
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
         return str(profile.get("years", 3))
+    # "Last drawn / current salary" is a fact about the past, not the expectation.
+    if re.search(r"(current|last|previous|present|most recent)( drawn)?( base)? (salary|compensation|pay)|"
+                 r"last drawn", lbl):
+        return profile.get("current_salary") or None
     if re.search(r"salary|compensation|pay expectation|expected pay", lbl):
         return profile.get("salary") or None
     if re.search(r"(where|which (city|country)).*(located|based|live|reside|intend to work|work from)|"
-                 r"current (location|city)|city of residence|country of residence", lbl):
+                 r"current (location|city)|city of residence|country of residence|residential area", lbl):
         return profile.get("location") or None
     if re.search(r"preferred (first )?name", lbl):
         return profile.get("first_name") or None
@@ -419,8 +568,18 @@ def _rule_answer(label: str, profile: dict) -> str | None:
     return None
 
 
-def _to_option(answer: str, options: list[str]) -> str | None:
+def _to_options(answer, options: list[str], label: str = "") -> list[str]:
+    """Every option a list answer (spoken / programming languages) maps onto."""
+    if _PROGRAMMING_Q.search(label or ""):
+        return _programming_options(answer, options)
+    return _language_options(answer, options)
+
+
+def _to_option(answer, options: list[str], label: str = "") -> str | None:
     """Map a heuristic/LLM answer onto one of a select's option labels."""
+    if isinstance(answer, list):
+        picks = _to_options(answer, options, label)
+        return picks[0] if picks else None
     if answer == "__agree__":
         return next((o for o in options if _AGREE_RE.match(o.strip())), None)
     hit = match_option(options, answer)
@@ -428,9 +587,19 @@ def _to_option(answer: str, options: list[str]) -> str | None:
         return hit
     if answer.isdigit():
         return _years_option(options, int(answer))
+    lead = re.match(r"\s*(\d+)\s*(\+|years?|yrs?)?\s*$", answer)
+    if lead:  # "5 years" against "3-5 years" / "5+ years"
+        return _years_option(options, int(lead.group(1)))
     if answer == "No":
-        # Sentence-style options: "I have never worked at Robinhood", "I do not…"
-        return next((o for o in options if re.search(r"\b(never|not|don.?t|no)\b", o, re.I)), None)
+        # Sentence-style options: "I have never worked at Robinhood", "I do not…",
+        # and a residency list's "Others" ("Citizen / PR / Others").
+        return next((o for o in options if re.search(r"\b(never|not|don.?t|no)\b", o, re.I)), None) \
+            or next((o for o in options if re.fullmatch(r"\s*(others?|none( of the above)?)\s*", o, re.I)), None)
+    if "," in answer:  # "Taipei, Taiwan" against a country list → "Taiwan"
+        for part in reversed(_location_parts(answer)):
+            hit = match_option(options, part)
+            if hit:
+                return hit
     if answer == "__source__":
         for pat in _SOURCE_PREFS:
             hit = next((o for o in options if re.search(pat, o, re.I)), None)
@@ -499,8 +668,14 @@ def plan_answers(job_data: dict, profile: dict,
             ans = _rule_answer(label, profile)
             if ans == "__skip__":
                 break  # must not be guessed — neither by rules nor the LLM
+            if kind == "multiselect" and isinstance(ans, list):
+                picks = _to_options(ans, options, label)
+                if picks:
+                    add(name, kind, picks, label)
+                    done = True
+                break
             if kind in ("select", "multiselect"):
-                pick = _to_option(ans, options) if ans else None
+                pick = _to_option(ans, options, label) if ans else None
                 if pick is None and required and len(options) == 1:
                     # A required single-option select ("I agree", "Aceito os
                     # termos…") is an acknowledgement — the only way to apply.
@@ -514,6 +689,8 @@ def plan_answers(job_data: dict, profile: dict,
                     add(name, kind, [pick] if kind == "multiselect" else pick, label)
                     done = True
             elif kind == "text":
+                if isinstance(ans, list):
+                    ans = ", ".join(ans)
                 if ans == "__source__":
                     ans = "Company careers page"
                 elif ans == "__agree__":
@@ -931,6 +1108,13 @@ def run_greenhouse_apply(
     current_title: str = "",
     current_start: str = "",
     extra_answers: str = "",
+    current_salary: str = "",
+    notice_period: str = "",
+    languages: str = "",
+    programming_languages: str = "",
+    ai_experience: str = "",
+    reason_for_leaving: str = "",
+    has_criminal_record: bool = False,
     max_applications: int = 5,
     max_per_board: int = 0,
     max_scans_per_board: int = 0,
@@ -998,6 +1182,13 @@ def run_greenhouse_apply(
             "authorized_countries": set().union(*(countries_in(c) for c in _split_list(authorized_countries))),
             "resume_path": resume_path, "cover_letter_path": cover_tmp,
             "extra_answers": _parse_extra_answers(extra_answers),
+            "current_salary": (current_salary or "").strip(),
+            "notice_period": (notice_period or "").strip(),
+            "languages": languages or "",
+            "programming_languages": programming_languages or "",
+            "ai_experience": (ai_experience or "").strip(),
+            "reason_for_leaving": (reason_for_leaving or "").strip(),
+            "has_criminal_record": bool(has_criminal_record),
             "education": {"school": school.strip(), "degree": degree.strip(),
                           "discipline": discipline.strip()},
             "employment": {"company": current_company.strip(), "title": current_title.strip(),

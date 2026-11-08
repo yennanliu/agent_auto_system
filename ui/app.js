@@ -159,6 +159,7 @@ const AUTO_CATALOG = {
       { name: 'first_name / last_name / email / phone', type: 'str', desc: 'Applicant contact fields' },
       { name: 'resume_path',          type: 'str',  desc: 'Resume file on the server (default GREENHOUSE_RESUME_PATH)' },
       { name: 'extra_answers',        type: 'str',  desc: '"keyword: answer" lines for recurring custom questions' },
+      { name: 'salary / notice / languages / programming / AI experience / reason for leaving', type: 'str', desc: 'Default answers to recurring screening questions, pre-filled and editable on the run form' },
       { name: 'candidate_background', type: 'str',  desc: 'Your own summary; enables LLM answers to required screening questions' },
       { name: 'task_filter',          type: 'str',  desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match' },
       { name: 'max_applications',     type: 'int (1–200)', desc: 'Number of jobs to actually apply to' },
@@ -1560,7 +1561,7 @@ function renderGenericFields(entry) {
       input = `<select ${attrs}>${(f.options || []).map(([v, l]) =>
         `<option value="${escHtml(v)}">${escHtml(l)}</option>`).join('')}</select>`;
     } else if (f.type === 'textarea') {
-      input = `<textarea ${attrs} placeholder="${escHtml(f.placeholder || '')}"></textarea>`;
+      input = `<textarea ${attrs} placeholder="${escHtml(f.placeholder || '')}">${escHtml(f.default != null ? String(f.default) : '')}</textarea>`;
     } else if (f.type === 'checkbox') {
       input = `<input type="checkbox" ${attrs} ${f.default ? 'checked' : ''} style="width:auto;margin:0" />`;
     } else if (f.type === 'number') {
@@ -1569,7 +1570,8 @@ function renderGenericFields(entry) {
       const dv = f.default != null ? ` value="${escHtml(String(f.default))}"` : '';
       input = `<input type="number" ${attrs}${mn}${mx}${dv} />`;
     } else {
-      input = `<input type="${f.type === 'url' ? 'url' : 'text'}" ${attrs} placeholder="${escHtml(f.placeholder || '')}" />`;
+      const dv = f.default != null ? ` value="${escHtml(String(f.default))}"` : '';
+      input = `<input type="${f.type === 'url' ? 'url' : 'text'}" ${attrs} placeholder="${escHtml(f.placeholder || '')}"${dv} />`;
     }
     const help = f.help
       ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${escHtml(f.help)}</div>` : '';
@@ -1596,7 +1598,12 @@ function collectGenericPayload(entry) {
       showToast(`${f.label.replace(/\s*\(.*\)$/, '')} is required`, 'error');
       return null;
     }
-    if (f.type !== 'checkbox' && (val === '' || val == null)) continue;  // omit empty optionals
+    if (f.type !== 'checkbox' && (val === '' || val == null)) {
+      // A cleared field that has a default is sent as "" so the server default
+      // doesn't silently come back; other empty optionals are omitted.
+      if (f.type !== 'number' && f.default != null && f.default !== '') payload[f.name] = '';
+      continue;
+    }
     payload[f.name] = val;
   }
   let jobName = entry.name;
