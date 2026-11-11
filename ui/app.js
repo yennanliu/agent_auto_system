@@ -201,14 +201,29 @@ const AUTO_CATALOG = {
 // ── LLM provider → model map ──────────────────────────────────────────────────
 
 const LLM_MODELS = {
-  openai:    [['gpt-4o-mini', 'gpt-4o-mini (fast)'], ['gpt-4o', 'gpt-4o (smart)']],
-  anthropic: [['claude-haiku-4-5-20251001', 'Haiku (fast)'], ['claude-sonnet-4-6', 'Sonnet (smart)']],
+  openai: [
+    ['gpt-4o-mini', 'gpt-4o-mini (fast)'],
+    ['gpt-4o',      'gpt-4o (smart)'],
+    ['gpt-6-luna',  'GPT-6 Luna (fast, newest)'],
+    ['gpt-6-sol',   'GPT-6 Sol (smart, newest)'],
+  ],
+  anthropic: [
+    ['claude-haiku-4-5-20251001', 'Haiku 4.5 (fast)'],
+    ['claude-sonnet-4-6',         'Sonnet 4.6 (smart)'],
+    ['claude-haiku-5-5',          'Haiku 5.5 (fast, newest)'],
+    ['claude-sonnet-5-5',         'Sonnet 5.5 (smart, newest)'],
+    ['claude-opus-5-5',           'Opus 5.5 (most capable)'],
+  ],
   gemini: [
     ['gemini/gemini-3.5-flash',       'Gemini 3.5 Flash'],
     ['gemini/gemini-3.1-flash-lite',   'Gemini 3.1 Flash-Lite'],
     ['gemini/gemini-2.5-pro',          'Gemini 2.5 Pro (smart)'],
     ['gemini/gemini-2.5-flash',        'Gemini 2.5 Flash'],
     ['gemini/gemini-2.5-flash-lite',   'Gemini 2.5 Flash-Lite (fast)'],
+    ['gemini/gemini-3.5-flash-lite',   'Gemini 3.5 Flash-Lite (fast, newest)'],
+    ['gemini/gemini-3.8-flash',        'Gemini 3.8 Flash (newest)'],
+    ['gemini/gemini-4-argon',          'Gemini 4 Argon (paid tier only)'],
+    ['gemini/gemini-4-carbon',         'Gemini 4 Carbon (paid tier only)'],
   ],
 };
 

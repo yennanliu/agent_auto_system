@@ -23,14 +23,23 @@ def _is_retriable(exc: Exception) -> bool:
         return True
     return any(m in str(exc).lower() for m in _RETRIABLE_MARKERS)
 
+# Model order matters: fallback_sequence() tries the requested model first, then the
+# rest of its provider's list in this order. Newer models are appended after the
+# existing ones so existing jobs keep their first fallbacks (lists are not price-ordered).
 _CATALOG: dict = {
     "openai": {
-        "models": ["gpt-4o-mini", "gpt-4o"],
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-6-luna", "gpt-6-sol"],
         "default": "gpt-4o-mini",
         "env": "OPENAI_API_KEY",
     },
     "anthropic": {
-        "models": ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
+        "models": [
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-6",
+            "claude-haiku-5-5",
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+        ],
         "default": "claude-haiku-4-5-20251001",
         "env": "ANTHROPIC_API_KEY",
     },
@@ -41,11 +50,39 @@ _CATALOG: dict = {
             "gemini/gemini-2.5-pro",
             "gemini/gemini-2.5-flash",
             "gemini/gemini-2.5-flash-lite",
+            "gemini/gemini-3.5-flash-lite",
+            "gemini/gemini-3.8-flash",
+            # Paid tier only — a free-tier key gets 403 PERMISSION_DENIED.
+            "gemini/gemini-4-argon",
+            "gemini/gemini-4-carbon",
         ],
         "default": "gemini/gemini-2.5-flash",
         "env": "GEMINI_API_KEY",
     },
 }
+
+# Models that reject a `temperature` parameter (400 on Claude 5.x; OpenAI's GPT-5/6
+# reasoning models accept only the default). Matched by prefix on the bare model id.
+# Omitting temperature is always valid, so the list errs on the side of omitting.
+_NO_TEMPERATURE_PREFIXES = (
+    "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5",
+    "claude-haiku-5", "claude-fable", "gpt-5", "gpt-6", "o1", "o3", "o4",
+)
+
+# Claude models that 400 on a forced tool_choice ({"type": "tool"|"any"}).
+_NO_FORCED_TOOL_CHOICE_PREFIXES = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-")
+
+
+# GPT-6 rejects function tools on /v1/chat/completions unless reasoning_effort is
+# "none" ("use /v1/responses or set reasoning_effort to 'none'"). crewai 1.14's
+# agent loop doesn't execute tool calls returned by /v1/responses, so stay on chat
+# completions with reasoning off — every crew here is tool-driven.
+_OPENAI_NO_REASONING_PREFIXES = ("gpt-6",)
+
+
+def accepts_temperature(model: str) -> bool:
+    return not model.split("/")[-1].startswith(_NO_TEMPERATURE_PREFIXES)
+
 
 PROVIDER_MODELS: dict[str, list[str]] = {k: v["models"] for k, v in _CATALOG.items()}
 
@@ -107,12 +144,44 @@ def resolve(provider: str | None, model: str | None, temperature: float = 0.7):
             f"Add {cfg['env']} to your .env file."
         )
 
+    temp = temperature if accepts_temperature(effective_model) else None
     try:
-        llm = LLM(model=effective_model, api_key=api_key, temperature=temperature)
+        if effective_provider == "anthropic":
+            # crewai only routes a bare "claude-*" id to Anthropic when the id is in
+            # its built-in model list; anything newer silently falls through to the
+            # OpenAI client. Build the native Anthropic client explicitly instead.
+            llm = _anthropic_llm(effective_model, api_key, temp)
+        elif effective_provider == "openai" and effective_model.startswith(_OPENAI_NO_REASONING_PREFIXES):
+            llm = LLM(
+                model=effective_model, api_key=api_key, temperature=temp,
+                additional_params={"reasoning_effort": "none"},
+            )
+        else:
+            llm = LLM(model=effective_model, api_key=api_key, temperature=temp)
     except ImportError as exc:
         raise ImportError(
             f"Provider '{effective_provider}' requires an extra package: {exc}. "
-            "Run: uv add 'crewai[google-genai]' (Gemini) or check your install."
+            "Run: uv add 'crewai[google-genai]' (Gemini), uv add 'crewai[anthropic]' "
+            "(Claude) or check your install."
         ) from exc
 
     return llm, effective_provider, effective_model
+
+
+def _anthropic_llm(model: str, api_key: str, temperature: float | None):
+    """Native crewai Anthropic client, adjusted for models that reject forced tool use."""
+    from crewai.llms.providers.anthropic.completion import AnthropicCompletion
+
+    class _AnthropicLLM(AnthropicCompletion):
+        def _prepare_completion_params(self, *args, **kwargs):
+            params = super()._prepare_completion_params(*args, **kwargs)
+            # crewai forces tool_choice when an agent has exactly one tool; newer
+            # Claude models 400 on that, so let the model choose (it still calls it).
+            choice = params.get("tool_choice")
+            if isinstance(choice, dict) and choice.get("type") in ("tool", "any") and self.model.startswith(
+                _NO_FORCED_TOOL_CHOICE_PREFIXES
+            ):
+                params["tool_choice"] = {"type": "auto"}
+            return params
+
+    return _AnthropicLLM(model=model, provider="anthropic", api_key=api_key, temperature=temperature)
