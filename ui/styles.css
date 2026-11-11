@@ -274,6 +274,12 @@ tr.detail-row td { background: var(--bg-alt); padding: 0; }
   position: sticky; bottom: 0; background: var(--surface);
   border-top: 1px solid var(--border); margin: 1.25rem -1.75rem 0; padding: 1rem 1.75rem 0;
 }
+.rerun-banner {
+  font-size: 0.78rem; color: var(--text-muted); background: var(--accent-soft);
+  border: 1px solid rgba(47,107,255,0.2); border-radius: 10px;
+  padding: 0.6rem 0.75rem; margin-bottom: 1rem;
+}
+.rerun-banner strong { color: var(--text); font-weight: 600; }
 .type-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1.25rem; }
 .type-card {
   border: 1.5px solid var(--border); border-radius: var(--radius); padding: 0.7rem 0.85rem;

@@ -614,7 +614,7 @@ async function unscheduleJob(jobId, name) {
 document.getElementById('schedules-refresh-btn').addEventListener('click', loadSchedulesPage);
 document.getElementById('schedules-tbody').addEventListener('click', (e) => {
   const runBtn = e.target.closest('[data-sched-run]');
-  if (runBtn) { navigate('activity'); rerun(parseInt(runBtn.dataset.schedRun, 10)); return; }
+  if (runBtn) { navigate('activity'); runJobNow(parseInt(runBtn.dataset.schedRun, 10)); return; }
   const editBtn = e.target.closest('[data-sched-edit]');
   if (editBtn) { editSchedule(parseInt(editBtn.dataset.schedEdit, 10), editBtn.dataset.cron); return; }
   const unsetBtn = e.target.closest('[data-sched-unset]');
@@ -1382,6 +1382,13 @@ async function renderAdminJudge() {
 // ── Modal open/close ──────────────────────────────────────────────────────────
 
 function openModal(preselect) {
+  if (rerunCtx) {
+    // Leaving a cancelled re-run: drop its pre-filled values.
+    runForm.reset();
+    document.getElementById('pipeline-steps-list').innerHTML = '';
+    updateModelOptions();
+  }
+  setRerunMode(null);
   // Hide automation types this user may not run (server enforces too).
   const visible = visibleTypeSet();
   let firstVisible = null;
@@ -1940,7 +1947,12 @@ runForm.addEventListener('submit', async (e) => {
 
   } else if (jobType === 'profit_health_check') {
     const picked = Array.from(document.getElementById('ph-files').files || []);
-    if (!picked.length) { showToast('請選取蝦皮 CSV 檔（可一次全選）', 'error'); return; }
+    const reuseUpload = !picked.length && rerunCtx?.jobType === 'profit_health_check' && rerunCtx.extras?.upload_id;
+    if (!picked.length && !reuseUpload) { showToast('請選取蝦皮 CSV 檔（可一次全選）', 'error'); return; }
+    if (reuseUpload) {
+      payload = { upload_id: rerunCtx.extras.upload_id };
+      jobName = rerunCtx.jobName;
+    } else {
     const MAX = 2 * 1024 * 1024;
     for (const f of picked) {
       if (f.size > MAX) { showToast(`${f.name} 超過 2 MB 上限`, 'error'); return; }
@@ -1968,6 +1980,7 @@ runForm.addEventListener('submit', async (e) => {
     }
     payload = { upload_id: uploadId };
     jobName = `利潤健檢：${roles.sales}`;
+    }
 
   } else if (jobType === 'tasker_apply') {
     const categories = document.getElementById('tasker-categories').value.trim();
@@ -2092,6 +2105,12 @@ runForm.addEventListener('submit', async (e) => {
     jobName  = `Pipeline: ${typeNames.join(' → ')}`;
   }
 
+  // Re-run: carry over payload keys the form doesn't own (set via API, upload ids…).
+  // Form-owned keys always win, so a field the user cleared stays cleared.
+  if (rerunCtx && rerunCtx.jobType === jobType && rerunCtx.extras) {
+    payload = { ...rerunCtx.extras, ...payload };
+  }
+
   // Attach LLM config to payload
   payload.llm_provider = document.getElementById('llm-provider').value;
   payload.llm_model    = document.getElementById('llm-model').value;
@@ -2099,6 +2118,7 @@ runForm.addEventListener('submit', async (e) => {
   const schedule = document.getElementById('job-schedule').value.trim();
 
   closeModalFn();
+  setRerunMode(null);
   runForm.reset();
   selectJobType('google_form_fill');
   updateModelOptions();
@@ -2162,8 +2182,171 @@ async function triggerRun(jobType, jobName, payload) {
 }
 
 // ── Re-run ────────────────────────────────────────────────────────────────────
+// Re-run opens the run form pre-filled with the previous job's settings so the
+// user can review/edit them before executing. Submitting creates a NEW job with
+// the (possibly edited) payload — the original job and its history are untouched.
+
+// Payload key → form element id for each hand-written (custom_ui) form. Keys
+// listed here are owned by the form; any other key in the old payload (e.g.
+// profit_health_check's upload_id, or fields set via the API) is carried over.
+const RERUN_FIELD_MAP = {
+  google_form_fill: { company_name: 'company-name', company_size: 'company-size', ai_problem: 'ai-problem' },
+  x_scraper:        { username: 'x-username', limit: 'x-limit' },
+  email_sender:     { to: 'email-to', cc: 'email-cc', subject: 'email-subject', body: 'email-body' },
+  tasker_apply: {
+    category_ids: 'tasker-categories', min_charge: 'tasker-min', max_charge: 'tasker-max',
+    max_cases: 'tasker-max-cases', dry_run: 'tasker-dry-run',
+    proposal_template: 'tasker-template', task_filter: 'tasker-filter',
+  },
+  tw104_apply: {
+    keyword: 'tw104-keyword', area: 'tw104-area', max_applications: 'tw104-max',
+    max_pages: 'tw104-max-pages', remote: 'tw104-remote', part_time: 'tw104-part-time',
+    dry_run: 'tw104-dry-run', cover_letter: 'tw104-cover', task_filter: 'tw104-filter',
+  },
+  linkedin_apply: {
+    keywords: 'li-keywords', location: 'li-location', nationality: 'li-nationality',
+    phone: 'li-phone', years_experience: 'li-years', max_applications: 'li-max',
+    max_pages: 'li-max-pages', remote: 'li-remote', dry_run: 'li-dry-run', task_filter: 'li-filter',
+  },
+  email_collect: {
+    query: 'lead-query', region: 'lead-region', industry: 'lead-industry', offer: 'lead-offer',
+    limit: 'lead-limit', smtp_check: 'lead-smtp', include_social: 'lead-social',
+    gcis_enrich: 'lead-gcis-enrich', resolve_missing_websites: 'lead-resolve-sites',
+  },
+};
+// Payload keys handled specially (not via RERUN_FIELD_MAP) but still form-owned.
+const RERUN_SPECIAL_KEYS = {
+  email_collect: ['sources', 'associations'],
+  pipeline: ['steps'],
+};
+
+// Active re-run context: { jobId, jobName, jobType, extras } or null.
+let rerunCtx = null;
+
+function setRerunMode(ctx) {
+  rerunCtx = ctx;
+  const banner = document.getElementById('rerun-banner');
+  const title  = document.getElementById('modal-title');
+  const submit = document.getElementById('run-submit-btn');
+  document.getElementById('type-grid').classList.toggle('hidden', !!ctx);
+  if (ctx) {
+    title.textContent = 'Re-run Automation';
+    submit.textContent = 'Execute ▶';
+    banner.innerHTML = `Settings copied from <strong>${escHtml(ctx.jobName)}</strong>. `
+      + 'Review or edit them, then click <strong>Execute</strong>. '
+      + 'The original job is left unchanged.';
+    banner.classList.remove('hidden');
+  } else {
+    title.textContent = 'New Automation Run';
+    submit.textContent = 'Run ▶';
+    banner.classList.add('hidden');
+    banner.innerHTML = '';
+  }
+}
+
+// Set one form control from a payload value (checkbox → checked, else value).
+function _setControl(el, value) {
+  if (!el) return;
+  if (el.type === 'checkbox') { el.checked = !!value; return; }
+  if (el.type === 'file') return;
+  const str = value == null ? '' : String(value);
+  if (el.tagName === 'SELECT' && str && ![...el.options].some(o => o.value === str)) {
+    el.add(new Option(str, str));  // keep a value the current option list doesn't offer
+  }
+  el.value = str;
+}
+
+// Fill the (already reset + selected) run form from a stored payload. Returns the
+// payload keys the form does not own, to be merged back in on submit.
+function prefillRunForm(jobType, payload) {
+  const owned = new Set(['llm_provider', 'llm_model', ...(RERUN_SPECIAL_KEYS[jobType] || [])]);
+  const entry = MANIFEST_BY_TYPE[jobType];
+
+  if (entry && !entry.custom_ui) {
+    const host = document.getElementById('generic-fields');
+    for (const f of (entry.fields || [])) {
+      owned.add(f.name);
+      if (f.name in payload) _setControl(host.querySelector(`[data-field="${f.name}"]`), payload[f.name]);
+    }
+  } else if (RERUN_FIELD_MAP[jobType]) {
+    for (const [key, id] of Object.entries(RERUN_FIELD_MAP[jobType])) {
+      owned.add(key);
+      const el = document.getElementById(id);
+      if (key in payload) _setControl(el, payload[key]);
+      // The form omits empty optional text fields, so an absent key means "was
+      // blank" — clear any HTML default (e.g. LinkedIn location "Taiwan").
+      else if (el && el.type !== 'checkbox' && el.type !== 'number' && el.tagName !== 'SELECT') el.value = '';
+    }
+  }
+
+  if (jobType === 'email_collect') {
+    const sources = Array.isArray(payload.sources) ? payload.sources : ['maps'];
+    document.getElementById('lead-src-maps').checked  = sources.includes('maps');
+    document.getElementById('lead-src-assoc').checked = sources.includes('association');
+    document.getElementById('lead-src-gov').checked   = sources.includes('govbiz');
+    const assoc = Array.isArray(payload.associations) ? payload.associations : [];
+    const slugBoxes = [...document.querySelectorAll('.lead-assoc-slug')];
+    const known = new Set(slugBoxes.map(c => c.value));
+    // Always sync — an empty list must clear the default-checked slug, or the
+    // re-run would submit associations the original job never had.
+    slugBoxes.forEach(c => { c.checked = assoc.includes(c.value); });
+    document.getElementById('lead-associations').value = assoc.filter(a => !known.has(a)).join('\n');
+    syncLeadSourceOptions();
+  } else if (jobType === 'tw104_apply') {
+    _tw104CoverCount();
+  } else if (jobType === 'pipeline') {
+    const list = document.getElementById('pipeline-steps-list');
+    const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    if (steps.length) {
+      list.innerHTML = '';
+      steps.forEach(step => {
+        addPipelineStep(step.job_type);
+        const card = list.querySelector('.pipeline-step-card:last-of-type');
+        const sp = step.payload || {};
+        card?.querySelectorAll('.ps-field').forEach(el => {
+          if (el.dataset.field in sp) _setControl(el, sp[el.dataset.field]);
+        });
+      });
+    }
+  }
+
+  // LLM provider/model
+  const provSel = document.getElementById('llm-provider');
+  if (payload.llm_provider) _setControl(provSel, payload.llm_provider);
+  updateModelOptions();
+  if (payload.llm_model) _setControl(document.getElementById('llm-model'), payload.llm_model);
+
+  return Object.fromEntries(Object.entries(payload).filter(([k]) => !owned.has(k)));
+}
 
 async function rerun(jobId) {
+  let job;
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`);
+    if (!resp.ok) throw new Error('Could not load the previous run settings');
+    job = await resp.json();
+  } catch (err) {
+    showToast(err.message, 'error');
+    return;
+  }
+  if (!visibleTypeSet().has(job.job_type)) {
+    showToast('This automation is not enabled for your account', 'error');
+    return;
+  }
+  let payload = {};
+  try { payload = typeof job.payload === 'string' ? JSON.parse(job.payload) : (job.payload || {}); }
+  catch { payload = {}; }
+
+  runForm.reset();
+  document.getElementById('pipeline-steps-list').innerHTML = '';
+  selectJobType(job.job_type);
+  const extras = prefillRunForm(job.job_type, payload);
+  setRerunMode({ jobId, jobName: job.name, jobType: job.job_type, extras });
+  modal.classList.remove('hidden');
+}
+
+// Run a stored job again exactly as-is (used by Schedules → "Run now").
+async function runJobNow(jobId) {
   try {
     const runResp = await fetch(`/api/jobs/${jobId}/run`, { method: 'POST' });
     if (!runResp.ok) throw new Error('Re-run failed');

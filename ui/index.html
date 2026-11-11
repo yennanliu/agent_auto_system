@@ -433,10 +433,11 @@
 <div class="modal-overlay hidden" id="modal">
   <div class="modal">
     <div class="modal-header">
-      <h3>New Automation Run</h3>
+      <h3 id="modal-title">New Automation Run</h3>
       <button class="modal-close" id="modal-close">&times;</button>
     </div>
     <form id="run-form">
+      <div class="rerun-banner hidden" id="rerun-banner"></div>
       <div class="type-grid" id="type-grid"></div>
       <input type="hidden" id="job-type" value="google_form_fill" />
 
