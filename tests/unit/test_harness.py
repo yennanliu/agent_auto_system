@@ -192,3 +192,113 @@ def test_validate_google_sheet_no_data():
     from src.automation.harness.validator import validate
     vr = validate("google_sheet_reader", {"error": "could not read sheet"})
     assert not vr.valid
+
+
+# ── newer models: temperature, Anthropic routing, forced tool choice ──────────
+
+def _fake_key(monkeypatch):
+    from src import settings_store
+    monkeypatch.setattr(settings_store, "get_llm_key", lambda provider, env_name: "test-key")
+
+
+@pytest.mark.parametrize("model,ok", [
+    ("gpt-4o-mini", True),
+    ("gpt-4o", True),
+    ("gpt-6-sol", False),
+    ("gpt-6-luna", False),
+    ("claude-haiku-4-5-20251001", True),
+    ("claude-sonnet-4-6", True),
+    ("claude-haiku-5-5", False),
+    ("claude-sonnet-5-5", False),
+    ("claude-opus-5-5", False),
+    ("gemini/gemini-4-argon", True),
+    ("gemini/gemini-3.8-flash", True),
+])
+def test_accepts_temperature(model, ok):
+    from src.automation.harness.provider import accepts_temperature
+    assert accepts_temperature(model) is ok
+
+
+@pytest.mark.parametrize("provider,model,temp", [
+    ("openai", "gpt-4o-mini", 0.3),
+    ("openai", "gpt-6-sol", None),
+    ("gemini", "gemini/gemini-4-argon", 0.3),
+])
+def test_resolve_drops_temperature_only_where_rejected(monkeypatch, provider, model, temp):
+    from src.automation.harness.provider import resolve
+    _fake_key(monkeypatch)
+    llm, _, eff = resolve(provider, model, temperature=0.3)
+    assert eff == model
+    assert llm.temperature == temp
+
+
+@pytest.mark.parametrize("model,temp", [
+    ("claude-sonnet-4-6", 0.3),
+    ("claude-haiku-5-5", None),
+    ("claude-sonnet-5-5", None),
+    ("claude-opus-5-5", None),
+])
+def test_resolve_routes_claude_to_native_anthropic_client(monkeypatch, model, temp):
+    # Bare claude-* ids crewai doesn't know would otherwise fall through to the
+    # OpenAI client and send the Anthropic key to api.openai.com.
+    from crewai.llms.providers.anthropic.completion import AnthropicCompletion
+
+    from src.automation.harness.provider import resolve
+    _fake_key(monkeypatch)
+    llm, provider, eff = resolve("anthropic", model, temperature=0.3)
+    assert isinstance(llm, AnthropicCompletion)
+    assert (provider, eff, llm.model) == ("anthropic", model, model)
+    assert llm.temperature == temp
+
+
+_ONE_TOOL = [{"name": "fetch", "description": "Fetch stories", "input_schema": {"type": "object", "properties": {}}}]
+
+
+@pytest.mark.parametrize("model,choice", [
+    ("claude-sonnet-4-6", "tool"),   # older models keep crewai's forced choice
+    ("claude-haiku-5-5", "tool"),
+    ("claude-sonnet-5-5", "auto"),   # 400 on forced tool_choice
+    ("claude-opus-5-5", "auto"),
+])
+def test_single_tool_forced_choice_relaxed_only_where_rejected(monkeypatch, model, choice):
+    from src.automation.harness.provider import resolve
+    _fake_key(monkeypatch)
+    llm, _, _ = resolve("anthropic", model)
+    params = llm._prepare_completion_params(
+        [{"role": "user", "content": "hi"}], tools=_ONE_TOOL, available_functions={"fetch": lambda: None},
+    )
+    assert params["tool_choice"]["type"] == choice
+    assert "temperature" not in params or model == "claude-sonnet-4-6"
+
+
+def test_every_catalog_model_has_pricing():
+    from src.automation.harness.costs import _PRICING
+    from src.automation.harness.provider import PROVIDER_MODELS
+    missing = [m for ms in PROVIDER_MODELS.values() for m in ms if m.split("/")[-1] not in _PRICING]
+    assert not missing, f"add pricing for {missing}"
+
+
+def test_ui_model_dropdown_matches_backend_catalog():
+    import re
+    from pathlib import Path
+
+    from src.automation.harness.provider import PROVIDER_MODELS
+    js = (Path(__file__).resolve().parents[2] / "ui" / "app.js").read_text()
+    block = js[js.index("const LLM_MODELS = {"):]
+    block = block[:block.index("};")]
+    for provider, models in PROVIDER_MODELS.items():
+        section = re.search(rf"{provider}:\s*\[(.*?)\n  \]", block, re.S)
+        assert section, provider
+        ui_models = re.findall(r"\['([^']+)'", section.group(1))
+        assert ui_models == models, provider
+
+
+@pytest.mark.parametrize("model,effort", [("gpt-6-luna", "none"), ("gpt-6-sol", "none"), ("gpt-4o-mini", None)])
+def test_gpt6_chat_request_turns_reasoning_off_and_omits_temperature(monkeypatch, model, effort):
+    # GPT-6 400s on function tools over chat completions unless reasoning_effort="none".
+    from src.automation.harness.provider import resolve
+    _fake_key(monkeypatch)
+    llm, _, _ = resolve("openai", model, temperature=0.3)
+    params = llm._prepare_completion_params([{"role": "user", "content": "hi"}])
+    assert params.get("reasoning_effort") == effort
+    assert ("temperature" in params) is (effort is None)

@@ -145,11 +145,13 @@ The harness (`src/automation/harness/`) sits between the executor and CrewAI. It
 | `resolve(provider, model, temperature)` | Builds a `crewai.LLM`; raises if the API key is missing |
 | `fallback_sequence(provider, model)` | Ordered model list for cross-model retry within a provider |
 
+`resolve()` omits `temperature` for models that reject it (Claude 5.x, OpenAI GPT-5/6), runs GPT-6 with `reasoning_effort: "none"` (required for function tools on chat completions), and builds Claude models on crewai's native Anthropic client (`crewai[anthropic]`). Gemini 4 models are paid-tier only.
+
 | Provider | Default (fast) | Also available | Env var |
 |---|---|---|---|
-| `openai` | `gpt-4o-mini` | `gpt-4o` | `OPENAI_API_KEY` |
-| `anthropic` | `claude-haiku-4-5-20251001` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` |
-| `gemini` | `gemini/gemini-2.5-flash` | `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-pro`, `gemini-2.5-flash-lite` | `GEMINI_API_KEY` |
+| `openai` | `gpt-4o-mini` | `gpt-4o`, `gpt-6-luna`, `gpt-6-sol` | `OPENAI_API_KEY` |
+| `anthropic` | `claude-haiku-4-5-20251001` | `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
+| `gemini` | `gemini/gemini-2.5-flash` | `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-carbon` | `GEMINI_API_KEY` |
 
 ### 2 — Validation + retry with error context
 
