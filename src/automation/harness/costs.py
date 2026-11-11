@@ -12,7 +12,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     "claude-sonnet-5-5":         (2.00,  10.00),
     "claude-opus-5-5":           (4.00,  20.00),
     # Gemini
-    "gemini-3.5-flash":          (0.075,  0.30),
+    "gemini-3.5-flash":          (1.50,   9.00),  # launch price; no longer on Google's page
     "gemini-3.1-flash-lite":     (0.04,   0.15),
     "gemini-2.5-pro":            (1.25,  10.00),
     "gemini-2.5-flash":          (0.075,  0.30),

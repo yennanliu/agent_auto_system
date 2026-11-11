@@ -302,3 +302,11 @@ def test_gpt6_chat_request_turns_reasoning_off_and_omits_temperature(monkeypatch
     params = llm._prepare_completion_params([{"role": "user", "content": "hi"}])
     assert params.get("reasoning_effort") == effort
     assert ("temperature" in params) is (effort is None)
+
+
+def test_lite_models_priced_below_their_full_sibling():
+    from src.automation.harness.costs import _PRICING
+    for lite, rates in _PRICING.items():
+        full = lite.removesuffix("-lite")
+        if lite.endswith("-lite") and full in _PRICING:
+            assert rates < _PRICING[full], f"{lite} {rates} should be cheaper than {full} {_PRICING[full]}"

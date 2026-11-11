@@ -24,8 +24,8 @@ def _is_retriable(exc: Exception) -> bool:
     return any(m in str(exc).lower() for m in _RETRIABLE_MARKERS)
 
 # Model order matters: fallback_sequence() tries the requested model first, then the
-# rest of its provider's list in this order. Newer models are appended so existing
-# jobs keep their first fallbacks; the priciest model in each list comes last.
+# rest of its provider's list in this order. Newer models are appended after the
+# existing ones so existing jobs keep their first fallbacks (lists are not price-ordered).
 _CATALOG: dict = {
     "openai": {
         "models": ["gpt-4o-mini", "gpt-4o", "gpt-6-luna", "gpt-6-sol"],
