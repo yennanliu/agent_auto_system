@@ -2287,7 +2287,9 @@ function prefillRunForm(jobType, payload) {
     const assoc = Array.isArray(payload.associations) ? payload.associations : [];
     const slugBoxes = [...document.querySelectorAll('.lead-assoc-slug')];
     const known = new Set(slugBoxes.map(c => c.value));
-    if (assoc.length) slugBoxes.forEach(c => { c.checked = assoc.includes(c.value); });
+    // Always sync — an empty list must clear the default-checked slug, or the
+    // re-run would submit associations the original job never had.
+    slugBoxes.forEach(c => { c.checked = assoc.includes(c.value); });
     document.getElementById('lead-associations').value = assoc.filter(a => !known.has(a)).join('\n');
     syncLeadSourceOptions();
   } else if (jobType === 'tw104_apply') {
