@@ -177,8 +177,8 @@ def _anthropic_llm(model: str, api_key: str, temperature: float | None):
             params = super()._prepare_completion_params(*args, **kwargs)
             # crewai forces tool_choice when an agent has exactly one tool; newer
             # Claude models 400 on that, so let the model choose (it still calls it).
-            choice = params.get("tool_choice") or {}
-            if choice.get("type") in ("tool", "any") and self.model.startswith(
+            choice = params.get("tool_choice")
+            if isinstance(choice, dict) and choice.get("type") in ("tool", "any") and self.model.startswith(
                 _NO_FORCED_TOOL_CHOICE_PREFIXES
             ):
                 params["tool_choice"] = {"type": "auto"}
