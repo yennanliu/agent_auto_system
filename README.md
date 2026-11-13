@@ -302,6 +302,7 @@ Or with compose (wires volumes + optional Prometheus sidecar): `docker compose u
 | `SHOPEE_USERNAME` / `SHOPEE_PASSWORD` / `SHOPEE_STORAGE_STATE` | for Shopee | Session creds (run `scripts/shopee_login.py` once) |
 | `TASKER_USERNAME` / `TASKER_PASSWORD` / `TASKER_STORAGE_STATE` | for `tasker_apply` | Session creds (run `scripts/tasker_login.py` once) |
 | `NITTER_INSTANCES` | no | Overrides the X scraper's nitter list |
+| `RETENTION_ENABLED` / `RETENTION_RUN_DAYS` / `RETENTION_UPLOAD_DAYS` | no | Daily purge of old runs/PDFs (90 d) and unreferenced uploads (30 d). **Off unless `RETENTION_ENABLED=1`** — see [doc/data-retention.md](doc/data-retention.md) |
 | `OTEL_ENABLED` / `OTEL_SERVICE_NAME` | no | OpenTelemetry export (set by compose) |
 
 **Persisted volumes:** `/app/data` (SQLite), `/app/uploads` (uploaded CSVs), `/app/reports` (PDFs).

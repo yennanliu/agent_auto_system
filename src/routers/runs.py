@@ -16,6 +16,7 @@ from src.automation.registry import cancel as cancel_task
 from src.automation.report_render import REPORTS_ROOT
 from src.database import get_engine, get_session
 from src.models import Job, Run, User
+from src.retention import delete_report
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -176,6 +177,7 @@ def delete_run(
         raise HTTPException(status_code=409, detail="Cannot delete a run that is in progress")
     session.delete(run)
     session.commit()
+    delete_report(run_id)  # the run's PDF must not outlive it (ids can be reused)
 
 
 @router.get("/runs/{run_id}")
@@ -335,10 +337,13 @@ def bulk_delete_runs(
     if not user.is_admin:
         stmt = stmt.where(Run.user_id == user.id)  # users only delete their own
     runs = session.exec(stmt).all()
+    run_ids = [run.id for run in runs]
 
     for run in runs:
         session.delete(run)
     session.commit()
+    for run_id in run_ids:
+        delete_report(run_id)
     return {"deleted": len(runs)}
 
 
