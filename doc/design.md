@@ -380,7 +380,7 @@ uv run pytest tests/unit tests/integration -v
 uv run pytest tests/e2e --e2e -v
 
 # 6. Start the server
-uv run uvicorn src.main:app --reload --port 8000
+ALLOW_INSECURE_DEFAULTS=1 uv run uvicorn src.main:app --reload --port 8000  # dev only: admin/admin + dev secret
 
 # 7. Open UI
 open http://localhost:8000

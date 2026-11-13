@@ -1,5 +1,5 @@
 import * as cdk from 'aws-cdk-lib/core';
-import { Template, Match } from 'aws-cdk-lib/assertions';
+import { Annotations, Template, Match } from 'aws-cdk-lib/assertions';
 import * as AgentAutoSystemStack from '../lib/agent-auto-system-stack-stack';
 
 function synth() {
@@ -80,6 +80,46 @@ test('injects API keys from the environment and omits unset ones', () => {
   } finally {
     if (prev === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = prev;
+  }
+});
+
+test('passes APP_SECRET / ADMIN_PASSWORD through and errors at synth when missing', () => {
+  const names = ['APP_SECRET', 'ADMIN_PASSWORD', 'SESSION_COOKIE_SECURE'] as const;
+  const prev = names.map((n) => process.env[n]);
+  const errors = (stack: cdk.Stack) =>
+    Annotations.fromStack(stack).findError('*', Match.stringLikeRegexp('APP_SECRET'));
+  const build = () => {
+    const app = new cdk.App();
+    return new AgentAutoSystemStack.AgentAutoSystemStackStack(app, 'TestStack', {
+      env: { account: '123456789012', region: 'us-east-1' },
+    });
+  };
+  try {
+    names.forEach((n) => delete process.env[n]);
+    // The app would refuse to start → surface it at synth, not as a crash-loop.
+    expect(errors(build()).length).toBe(1);
+
+    process.env.APP_SECRET = 'test-secret';
+    process.env.ADMIN_PASSWORD = 'test-password';
+    process.env.SESSION_COOKIE_SECURE = '1';
+    const stack = build();
+    expect(errors(stack).length).toBe(0);
+    Template.fromStack(stack).hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Environment: Match.arrayWith([
+            { Name: 'APP_SECRET', Value: 'test-secret' },
+            { Name: 'ADMIN_PASSWORD', Value: 'test-password' },
+            { Name: 'SESSION_COOKIE_SECURE', Value: '1' },
+          ]),
+        }),
+      ]),
+    });
+  } finally {
+    names.forEach((n, i) => {
+      if (prev[i] === undefined) delete process.env[n];
+      else process.env[n] = prev[i];
+    });
   }
 });
 

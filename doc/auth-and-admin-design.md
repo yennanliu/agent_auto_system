@@ -60,9 +60,11 @@ New environment variables:
 
 | Var | Purpose | Notes |
 |---|---|---|
-| `APP_SECRET` | Cookie signing + Fernet key derivation | Required outside dev; rotation invalidates sessions and makes stored keys undecryptable. |
-| `ADMIN_USERNAME` | First-run admin seed | Default `admin` (warn if used). |
-| `ADMIN_PASSWORD` | First-run admin seed | Default `admin` (warn loudly if used). |
+| `APP_SECRET` | Cookie signing + Fernet key derivation | **Required** — startup is refused if unset/dev value (except `DESKTOP_MODE=1` / `ALLOW_INSECURE_DEFAULTS=1`). Rotation invalidates sessions and makes stored keys undecryptable. |
+| `ADMIN_USERNAME` | First-run admin seed | Default `admin`. |
+| `ADMIN_PASSWORD` | First-run admin seed | **Required** — startup is refused while unset/`admin` or while the seed account still has the password `admin` (same two exceptions). |
+| `SESSION_COOKIE_SECURE` | Session cookie `Secure` flag | `1` behind TLS; default `auto` follows the request scheme. |
+| `ALLOW_INSECURE_DEFAULTS` | Dev opt-out of the two refusals above | `1` = start anyway, logged at CRITICAL. Local development only. |
 
 ## 1. Data model — `src/models.py`
 

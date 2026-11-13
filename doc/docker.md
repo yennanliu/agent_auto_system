@@ -23,11 +23,19 @@ docker run -d \
   --name agent-auto \
   -p 8000:8000 \
   -e OPENAI_API_KEY=sk-... \
+  -e APP_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
+  -e ADMIN_PASSWORD='choose-a-strong-password' \
   -v agent_data:/app/data \
   agent-auto-system:local
 ```
 
-Then open **http://localhost:8000** in your browser.
+Then open **http://localhost:8000** in your browser and sign in as `admin` with
+that password.
+
+> `APP_SECRET` and `ADMIN_PASSWORD` are **required**: the container exits at
+> startup (`docker logs agent-auto` names what is missing) while either is unset
+> or a shipped default. Generate `APP_SECRET` once and reuse the same value on
+> every start — see [Environment variables](#environment-variables).
 
 > The image must be built locally first (see [Build the image](#build-the-image)).
 > There is no published registry image yet.
@@ -60,6 +68,7 @@ Subsequent builds are fast because dependency layers are cached unless
 # 1. Copy and fill in the environment file
 cp .env.example .env
 #    → set OPENAI_API_KEY (required)
+#    → set APP_SECRET + ADMIN_PASSWORD (required — the app refuses to start without them)
 #    → set GMAIL_ADDRESS + GMAIL_APP_PASSWORD (optional, for email sender)
 
 # 2. Build and start
@@ -84,12 +93,29 @@ Pass these via `-e`, `--env-file`, or the `env_file:` key in compose.
 | Variable | Required | Default in image | Description |
 |---|---|---|---|
 | `OPENAI_API_KEY` | **Yes** | — | API key for all LLM-backed automations |
+| `APP_SECRET` | **Yes** | — | Signs session cookies and derives the key that encrypts API keys stored via Admin. Long random value; startup is refused if unset or `dev-insecure-change-me` |
+| `ADMIN_PASSWORD` | **Yes** | — | Password of the first admin (seeded on an empty DB). Startup is refused while it is unset/`admin`; on an existing DB it also replaces a still-default `admin` password |
+| `ADMIN_USERNAME` | No | `admin` | Username of the first admin |
+| `SESSION_COOKIE_SECURE` | Behind TLS | `auto` | `1` → session cookie always `Secure` (set this when HTTPS terminates at a proxy/LB). `auto` → only on requests that arrive as `https`. `0` → never |
+| `ALLOW_INSECURE_DEFAULTS` | No | — | `1` → start on `admin`/`admin` + dev secret anyway, logged at CRITICAL. Local development only |
 | `DATABASE_URL` | No | `sqlite:///./data/auto.db` | SQLAlchemy DB URL; change to use an external DB |
 | `GMAIL_ADDRESS` | No | — | Gmail address for the Email Sender automation |
 | `GMAIL_APP_PASSWORD` | No | — | Gmail App Password (not your login password) |
 
 > **Never bake secrets into the image.** The `.env` file is in `.dockerignore`
 > and will never be included in a build context.
+
+> **Rotating `APP_SECRET`** signs everyone out and makes the API keys stored via
+> the Admin page undecryptable (they read as "not configured" — re-enter them).
+> This includes the one-time move off the old dev default: if you stored keys in
+> Admin while running without `APP_SECRET`, re-enter them after setting it. Keys
+> supplied as env vars (`OPENAI_API_KEY`, …) are unaffected.
+
+> **Behind a TLS-terminating proxy**, uvicorn only trusts `X-Forwarded-Proto` from
+> `127.0.0.1` by default, so `auto` will not see `https` from a proxy in another
+> container/host. Set `SESSION_COOKIE_SECURE=1` (simplest), or `FORWARDED_ALLOW_IPS`
+> to the proxy's address. Don't set `SESSION_COOKIE_SECURE=1` on a plain-HTTP
+> deployment — browsers drop `Secure` cookies over HTTP and login will not stick.
 
 ---
 

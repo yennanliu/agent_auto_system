@@ -6,7 +6,7 @@
 uv sync                                              # install deps
 uv run playwright install chromium                   # browser jobs: form_fill, shopee, x, tasker, email_collect
 
-uv run uvicorn src.main:app --reload --port 8000     # dev server
+ALLOW_INSECURE_DEFAULTS=1 uv run uvicorn src.main:app --reload --port 8000  # dev server (admin/admin)
 kill -9 $(lsof -ti:8000)                             # kill port 8000
 
 uv run pytest tests/unit tests/integration -v        # all tests
@@ -70,6 +70,8 @@ class MyCrew:
 **Automation registry (SSOT)** — every job type is declared once as an `AutomationSpec` in `src/automation/spec.py`. The allowlist (`settings_store.ALL_AUTOMATIONS`), dispatch (`executor._FLOW_MAP`), validator (`_CHECKS`), rubrics (`_RUBRICS`), and step graph (`flow_steps.FLOW_STEPS`) are all **derived** from it — do not hand-edit those tables. `test_spec_registry.py` fails loud if a spec is inconsistent or its flow can't import. The allowlist still gates both UI visibility (`enabled_automations`) and server-side running (`assert_can_run` → `is_automation_enabled`).
 
 **Eval judge independence** — `evaluator.py` must never score with the same model that produced the output (self-grading inflates scores). Preserve the fallback order: configured/independent judge → a sibling model in the run's provider → the run's own model only as a last resort.
+
+**Secure defaults** — `security.enforce_secure_defaults()` (called in `main.lifespan`) refuses to start a non-desktop server on `admin`/`admin` or a missing/dev `APP_SECRET`. Only two bypasses: `DESKTOP_MODE=1` (Electron, loopback) and `ALLOW_INSECURE_DEFAULTS=1` (local dev, logged CRITICAL). Don't add silent fallbacks, and don't change the `APP_SECRET` → Fernet derivation in `settings_store` (it would orphan stored API keys). Session cookie `Secure` flag: `SESSION_COOKIE_SECURE` (`security.SessionCookieMiddleware`).
 
 **Tracing/eval never break a run** — `evaluator.evaluate()` and `langfuse_tracer.record_run()` must degrade gracefully (heuristic score / no-op) and never raise into the executor.
 

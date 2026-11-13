@@ -99,6 +99,8 @@ jobs:
             .
 
       # ── Start container ───────────────────────────────────────────────────────
+      # Non-default APP_SECRET + ADMIN_PASSWORD: the server refuses to start on the
+      # shipped defaults (src/security.py), so this also exercises the secure path.
       - name: Start container
         run: |
           docker run -d \
@@ -108,7 +110,7 @@ jobs:
             --env DATABASE_URL=sqlite:///./data/auto.db \
             --env APP_SECRET=ci-smoke-secret \
             --env ADMIN_USERNAME=admin \
-            --env ADMIN_PASSWORD=admin \
+            --env ADMIN_PASSWORD=ci-smoke-admin-pw \
             agent-auto-system:ci
 
       # ── Wait for the app to be healthy ────────────────────────────────────────
@@ -132,7 +134,9 @@ jobs:
         run: python3 -m pip install --quiet httpx
 
       - name: Run smoke test against the container
-        run: python3 scripts/smoke_test.py --base-url http://localhost:8000 --no-run
+        run: |
+          python3 scripts/smoke_test.py --base-url http://localhost:8000 --no-run \
+            --username admin --password ci-smoke-admin-pw
 
       # ── Cleanup ───────────────────────────────────────────────────────────────
       - name: Print container logs on failure
