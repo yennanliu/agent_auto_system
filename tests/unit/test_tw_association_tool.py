@@ -282,7 +282,7 @@ def test_a_row_gains_its_website_key_when_the_website_arrives_second():
     ("http://[::1]/members", "::1"),
 ])
 def test_non_public_directory_urls_are_refused(monkeypatch, url, resolved):
-    monkeypatch.setattr(T.socket, "getaddrinfo",
+    monkeypatch.setattr(T.net_guard.socket, "getaddrinfo",
                         lambda *_a, **_k: [(None, None, None, "", (resolved, 80))])
     assert T._reject_reason(url)
 
@@ -295,7 +295,7 @@ def test_non_public_directory_urls_are_refused(monkeypatch, url, resolved):
 
 
 def test_a_public_directory_url_is_allowed(monkeypatch):
-    monkeypatch.setattr(T.socket, "getaddrinfo",
+    monkeypatch.setattr(T.net_guard.socket, "getaddrinfo",
                         lambda *_a, **_k: [(None, None, None, "", ("93.184.216.34", 443))])
     assert T._reject_reason("https://www.guild.org.tw/members.php") == ""
 
@@ -308,13 +308,13 @@ def test_non_http_schemes_are_refused(url):
 def test_an_unresolvable_host_is_refused(monkeypatch):
     def _boom(*_a, **_k):
         raise OSError("nodename nor servname provided")
-    monkeypatch.setattr(T.socket, "getaddrinfo", _boom)
+    monkeypatch.setattr(T.net_guard.socket, "getaddrinfo", _boom)
     assert "does not resolve" in T._reject_reason("https://nope.invalid/x")
 
 
 def test_a_redirect_to_a_private_address_is_blocked(monkeypatch):
     """A public host that 302s inward must not slip past the initial check."""
-    monkeypatch.setattr(T.socket, "getaddrinfo",
+    monkeypatch.setattr(T.net_guard.socket, "getaddrinfo",
                         lambda host, *_a, **_k: [(None, None, None, "", (
                             "127.0.0.1" if "internal" in str(host) else "93.184.216.34",
                             80))])
@@ -330,7 +330,7 @@ def test_a_same_site_link_to_a_private_host_is_not_crawled(monkeypatch):
     A public `guild.org.tw` linking to `internal.guild.org.tw` (→ 127.0.0.1)
     would otherwise get that page's text and emails harvested into leads.
     """
-    monkeypatch.setattr(T.socket, "getaddrinfo",
+    monkeypatch.setattr(T.net_guard.socket, "getaddrinfo",
                         lambda host, *_a, **_k: [(None, None, None, "", (
                             "127.0.0.1" if "internal" in str(host) else "93.184.216.34",
                             80))])

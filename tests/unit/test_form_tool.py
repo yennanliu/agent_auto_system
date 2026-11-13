@@ -126,7 +126,7 @@ def test_extract_hidden_inputs_ignores_non_hidden():
 # ── GoogleFormInspectorTool ───────────────────────────────────────────────────
 
 def test_inspector_returns_form_id_and_questions():
-    with patch("src.automation.tools.google_form_tools.urllib.request.urlopen",
+    with patch("src.automation.tools.google_form_tools.net_guard.urlopen",
                return_value=_make_resp_mock(FAKE_HTML)):
         result = GoogleFormInspectorTool()._run(url=FORM_URL)
 
@@ -135,7 +135,7 @@ def test_inspector_returns_form_id_and_questions():
 
 
 def test_inspector_includes_entry_ids():
-    with patch("src.automation.tools.google_form_tools.urllib.request.urlopen",
+    with patch("src.automation.tools.google_form_tools.net_guard.urlopen",
                return_value=_make_resp_mock(FAKE_HTML)):
         result = GoogleFormInspectorTool()._run(url=FORM_URL)
 

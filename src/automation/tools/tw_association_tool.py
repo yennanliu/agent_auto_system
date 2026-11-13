@@ -25,9 +25,7 @@ Two ways in:
 
 Like every scraper in this package it returns partial results instead of raising.
 """
-import ipaddress
 import re
-import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,6 +33,7 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation import net_guard
 from src.automation.tools.contact_harvest import (
     harvest_emails_from_text,
     merge_by_keys,
@@ -604,30 +603,16 @@ _CHARSET_RE = re.compile(rb'charset=["\']?\s*([\w\-]+)', re.I)
 # check has to run again on each hop rather than only on the URL we were given.
 
 def _reject_reason(url: str) -> str:
-    """Why `url` must not be fetched, or "" if it's a fine public target."""
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return f"unsupported scheme '{parsed.scheme}'"
-    host = parsed.hostname
-    if not host:
-        return "no host in URL"
-    try:
-        infos = socket.getaddrinfo(host, parsed.port or
-                                   (443 if parsed.scheme == "https" else 80),
-                                   proto=socket.IPPROTO_TCP)
-    except OSError as exc:
-        return f"host does not resolve ({type(exc).__name__})"
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return "host resolved to an unparseable address"
-        if not ip.is_global or ip.is_multicast:
-            return f"host resolves to the non-public address {ip}"
-    return ""
+    """Why `url` must not be fetched, or "" if it's a fine public target.
+
+    Delegates to the shared guard (`src/automation/net_guard.py`) so this crawler
+    follows the same rules — and the same `SSRF_ALLOW_*` escape hatches — as
+    every other fetch of a URL the server did not choose.
+    """
+    return net_guard.reject_reason(url)
 
 
-class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+class _PublicOnlyRedirectHandler(net_guard.RedirectGuard):
     """Re-run the host check on every redirect hop.
 
     Without this a public host can 302 to http://169.254.169.254/ and the guard
@@ -642,7 +627,9 @@ class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_SAFE_OPENER = urllib.request.build_opener(_PublicOnlyRedirectHandler)
+# The guard's opener also pins each connection to the address it validated, so a
+# DNS answer that changes between the check above and the connect buys nothing.
+_SAFE_OPENER = net_guard.build_opener(_PublicOnlyRedirectHandler())
 
 
 def _fetch_public(url: str, warnings: list[str]):
