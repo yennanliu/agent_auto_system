@@ -5,6 +5,7 @@ from itertools import zip_longest
 from crewai.flow.flow import Flow, listen, start
 from pydantic import BaseModel
 
+from src.automation import checkpoint
 from src.automation.crews.email_collect_crew.crew import EmailCollectCrew
 from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
@@ -46,6 +47,11 @@ _MAX_ENRICH = 40
 _CONF_RANK = {"high": 0, "medium": 1, "low": 2, "invalid": 3}
 
 _DEFAULT_OFFER = "an AI agent / automation consulting proposal for small businesses"
+
+# Checkpoint keys (src/automation/checkpoint.py). The funnel is read-only, so a
+# unit redone after a crash costs time, never a duplicate outward action.
+_CKPT_DISCOVERY = "email_collect:discovery"   # businesses + warnings (stage 1)
+_CKPT_CRAWL = "email_collect:crawl"           # per-business progress (stages 2-3)
 
 
 class EmailCollectState(BaseModel):
@@ -89,46 +95,59 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             x for x in (self.state.industry, self.state.query) if x
         )
 
-        # ── Stage 1: DISCOVER (Maps and/or 公會名錄 and/or 經濟部登記) ────────
-        businesses, warnings = self._discover(search_query, rid)
+        # Checkpoints from before a restart are only trusted for the exact same
+        # inputs — the job may have been edited since the run started.
+        sig = self._checkpoint_sig()
+        saved = checkpoint.load(self.state.run_id)
+        disc = saved.get(_CKPT_DISCOVERY)
+        crawl = saved.get(_CKPT_CRAWL)
+        if not (isinstance(disc, dict) and disc.get("sig") == sig
+                and isinstance(disc.get("businesses"), list)):
+            disc = crawl = None
+        if not (isinstance(crawl, dict) and crawl.get("sig") == sig):
+            crawl = None
 
-        # A registry row has no website, so nothing downstream can reach it.
-        # Resolving one turns it from a name on a list into a contactable lead.
-        if self.state.resolve_missing_websites:
-            self._resolve_websites(businesses)
+        # ── Stage 1: DISCOVER (Maps and/or 公會名錄 and/or 經濟部登記) ────────
+        if disc:
+            businesses, warnings = disc["businesses"], list(disc.get("warnings", []))
+            append_log(self.state.run_id,
+                       f"Resumed: reusing {len(businesses)} business(es) discovered "
+                       "before the restart (discovery not repeated)")
+        else:
+            businesses, warnings = self._discover(search_query, rid)
+
+            # A registry row has no website, so nothing downstream can reach it.
+            # Resolving one turns it from a name on a list into a contactable lead.
+            if self.state.resolve_missing_websites:
+                self._resolve_websites(businesses)
+            checkpoint.save(self.state.run_id, _CKPT_DISCOVERY,
+                            {"sig": sig, "businesses": businesses, "warnings": warnings})
 
         # ── Stage 2 + 3: EXTRACT EMAIL → VERIFY, deduped across businesses ────
         leads: list[dict] = []
         seen_emails: set[str] = set()
         with_website = 0
-        for i, biz in enumerate(businesses, 1):
-            website = biz.get("website", "")
-            # Directory rows sometimes publish the contact address outright —
-            # take it before spending a fetch on the company's site.
-            if biz.get("emails"):
-                self._append_leads(leads, seen_emails, biz, rid, website,
-                                   biz["emails"], source="directory")
-            if not website:
-                continue
-            with_website += 1
-            prefix = f"[{i}/{len(businesses)}]"
-
-            # A social profile as the "website" is a dead end for the plain
-            # scraper (login-walled, JS-rendered) — route it to a dedicated
-            # extractor and chase through to any real site it links out to.
-            platform = social_platform(website) if self.state.include_social else None
-            if platform in _SOCIAL_SOURCES:
-                self._mine_social(platform, prefix, biz, rid, website,
-                                  leads, seen_emails)
-                continue
-
+        done = 0
+        if crawl:
+            done = min(int(crawl.get("done", 0)), len(businesses))
+            leads = list(crawl.get("leads", []))
+            seen_emails = set(crawl.get("seen_emails", []))
+            with_website = int(crawl.get("with_website", 0))
             append_log(self.state.run_id,
-                       f"{prefix} Extracting email from {website}")
-            ext = extract_emails(website, log=lambda m: append_log(self.state.run_id, m),
-                                 render=self.state.render_js)
-            self._append_leads(
-                leads, seen_emails, biz, rid, website, ext.get("emails", []),
-                source="guessed" if ext.get("guessed") else "website")
+                       f"Resumed: {done}/{len(businesses)} business(es) already "
+                       f"crawled ({len(leads)} lead(s) kept), continuing from "
+                       f"#{done + 1}")
+        for i, biz in enumerate(businesses, 1):
+            if i <= done:
+                continue
+            if self._crawl_business(i, len(businesses), biz, rid, leads, seen_emails):
+                with_website += 1
+            # Written only after the business is fully processed: one interrupted
+            # mid-crawl is simply crawled again, from a consistent snapshot.
+            checkpoint.save(self.state.run_id, _CKPT_CRAWL, {
+                "sig": sig, "done": i, "leads": leads,
+                "seen_emails": sorted(seen_emails), "with_website": with_website,
+            })
 
         leads.sort(key=lambda x: _CONF_RANK.get(x["confidence"], 9))
         append_log(self.state.run_id,
@@ -166,6 +185,49 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
             result["warnings"] = warnings
         append_log(self.state.run_id, "Lead collection complete, formatting result...")
         return json.dumps(result, ensure_ascii=False)
+
+    def _checkpoint_sig(self) -> str:
+        """Hash of every input that shapes discovery or the crawl."""
+        s = self.state
+        return checkpoint.signature({
+            "query": s.query, "region": s.region, "industry": s.industry,
+            "limit": s.limit, "sources": self._sources(),
+            "associations": s.associations,
+            "resolve_missing_websites": s.resolve_missing_websites,
+            "include_social": s.include_social, "render_js": s.render_js,
+            "smtp_check": s.smtp_check,
+        })
+
+    def _crawl_business(self, i: int, total: int, biz: dict, rid: str,
+                        leads: list[dict], seen_emails: set[str]) -> bool:
+        """Extract + verify one business's emails. True if it had a website."""
+        website = biz.get("website", "")
+        # Directory rows sometimes publish the contact address outright —
+        # take it before spending a fetch on the company's site.
+        if biz.get("emails"):
+            self._append_leads(leads, seen_emails, biz, rid, website,
+                               biz["emails"], source="directory")
+        if not website:
+            return False
+        prefix = f"[{i}/{total}]"
+
+        # A social profile as the "website" is a dead end for the plain
+        # scraper (login-walled, JS-rendered) — route it to a dedicated
+        # extractor and chase through to any real site it links out to.
+        platform = social_platform(website) if self.state.include_social else None
+        if platform in _SOCIAL_SOURCES:
+            self._mine_social(platform, prefix, biz, rid, website,
+                              leads, seen_emails)
+            return True
+
+        append_log(self.state.run_id,
+                   f"{prefix} Extracting email from {website}")
+        ext = extract_emails(website, log=lambda m: append_log(self.state.run_id, m),
+                             render=self.state.render_js)
+        self._append_leads(
+            leads, seen_emails, biz, rid, website, ext.get("emails", []),
+            source="guessed" if ext.get("guessed") else "website")
+        return True
 
     # ── discovery ────────────────────────────────────────────────────────────
 

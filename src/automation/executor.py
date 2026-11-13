@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session
 
-from src.automation import spec
+from src.automation import checkpoint, spec
 from src.automation.harness import langfuse_tracer
 from src.automation.harness.costs import estimate_cost
 from src.automation.harness.evaluator import evaluate
@@ -35,6 +35,7 @@ def _update_run(run_id: int, status: str, result: dict | None = None, **metrics)
             run.result = json.dumps(result)
         if status in ("success", "failed"):
             run.finished_at = datetime.now(UTC)
+            run.checkpoint = None  # terminal: nothing left to resume
         for k, v in metrics.items():
             setattr(run, k, v)
         s.add(run)
@@ -215,6 +216,9 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
     for attempt in range(max_retries + 1):
         if attempt > 0:
             append_log(run_id, f"Retrying (attempt {attempt + 1}/{max_retries + 1})...")
+            # A retry is a fresh attempt, exactly as before checkpoints existed:
+            # replaying the rejected attempt's checkpoint would just reproduce it.
+            checkpoint.clear(run_id)
 
         current_payload = dict(payload)
         if attempt > 0 and vr is not None:

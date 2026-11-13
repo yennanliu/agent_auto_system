@@ -84,3 +84,6 @@ class Run(SQLModel, table=True):
     eval_confidence: float | None = None    # 0-1 confidence in the score
     eval_notes: str | None = None           # short rationale
     eval_method: str | None = None          # "llm" | "heuristic"
+    # Resumable runs (src/automation/checkpoint.py, resume.py)
+    checkpoint: str | None = None           # JSON {step_key: data}; cleared when the run ends
+    resume_count: int = 0                   # times re-launched after a restart (capped)

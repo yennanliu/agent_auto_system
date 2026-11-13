@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from src import telemetry as _tel
 from src.auth import require_user
-from src.database import get_engine, init_db, reconcile_stale_runs
+from src.database import get_engine, init_db
 from src.routers import (
     admin,
     auth,
@@ -77,7 +77,12 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(langfuse_tracer.ensure_score_configs)  # typed score schemas (idempotent)
     init_db()
     _seed_admin()
-    stale = reconcile_stale_runs()
+    # In-flight runs from before the restart: resume the checkpointed, resumable
+    # ones; mark the rest failed (see src/automation/resume.py).
+    from src.automation.resume import recover_stale_runs
+    resumed, stale = recover_stale_runs()
+    if resumed:
+        logger.warning("Resumed %d stale run(s) from checkpoint on startup: %s", len(resumed), resumed)
     if stale:
         logger.warning("Marked %d stale run(s) as failed on startup", stale)
 
