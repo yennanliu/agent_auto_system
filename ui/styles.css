@@ -175,6 +175,7 @@ tr.row-highlight { animation: rowGlow 2s ease-out forwards; }
   font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
 }
 .badge-pending { background: #eef0f2;           color: var(--gray); }
+.badge-queued  { background: var(--orange-soft); color: var(--orange); }
 .badge-running { background: var(--blue-soft);  color: var(--blue); animation: badgePulse 1.4s ease-in-out infinite; }
 .badge-success { background: var(--green-soft); color: var(--green); }
 .badge-failed  { background: var(--red-soft);   color: var(--red); }
@@ -1023,6 +1024,7 @@ html.theme-dark .lead-warn { border-color: rgba(224,182,74,0.3); }
 .ov-fill-failed  { background: var(--red); }
 .ov-fill-running { background: var(--blue); }
 .ov-fill-pending { background: #d7dbe0; color: var(--gray); }
+.ov-fill-queued  { background: var(--orange-soft); color: var(--orange); }
 html.theme-dark .ov-fill-pending { background: rgba(255,255,255,0.12); }
 
 .ov-legend { display: flex; gap: 1rem; margin-top: 0.85rem; font-size: 0.75rem; color: var(--text-muted); align-items: center; flex-wrap: wrap; }

@@ -2378,11 +2378,14 @@ async function runJobNow(jobId) {
   }
 }
 
+// A run that has not finished: 'queued' = waiting for a concurrency slot.
+const isActiveStatus = (s) => s === 'pending' || s === 'queued' || s === 'running';
+
 // ── Delete single run ─────────────────────────────────────────────────────────
 
 async function deleteRun(runId) {
   const run = cachedRuns.find(r => r.id === runId);
-  if (run?.status === 'pending' || run?.status === 'running') {
+  if (isActiveStatus(run?.status)) {
     showToast('Cannot delete an active run', 'error');
     return;
   }
@@ -2403,7 +2406,7 @@ async function deleteRun(runId) {
 
 async function abortRun(runId, btn) {
   const run = cachedRuns.find(r => r.id === runId);
-  if (run && run.status !== 'pending' && run.status !== 'running') {
+  if (run && !isActiveStatus(run.status)) {
     showToast('Run is no longer active', 'error');
     return;
   }
@@ -2444,7 +2447,7 @@ document.getElementById('delete-selected-btn').addEventListener('click', async (
 });
 
 document.getElementById('delete-all-btn').addEventListener('click', async () => {
-  const completedCount = cachedRuns.filter(r => r.status !== 'pending' && r.status !== 'running').length;
+  const completedCount = cachedRuns.filter(r => !isActiveStatus(r.status)).length;
   if (!completedCount) { showToast('No completed runs to delete', 'error'); return; }
   const ok = await confirmDialog('Delete All Runs', `Delete all ${completedCount} completed run(s)? Active runs will be kept.`);
   if (!ok) return;
@@ -2493,14 +2496,14 @@ confirmModal.addEventListener('click', (e) => {
 document.getElementById('select-all-cb').addEventListener('change', (e) => {
   const checked = e.target.checked;
   cachedRuns.forEach(run => {
-    if (run.status !== 'pending' && run.status !== 'running') {
+    if (!isActiveStatus(run.status)) {
       if (checked) selectedRunIds.add(run.id);
       else selectedRunIds.delete(run.id);
     }
   });
   document.querySelectorAll('.run-cb').forEach(cb => {
     const run = cachedRuns.find(r => r.id === parseInt(cb.dataset.runId, 10));
-    if (run && run.status !== 'pending' && run.status !== 'running') cb.checked = checked;
+    if (run && !isActiveStatus(run.status)) cb.checked = checked;
   });
   updateBulkActionButtons();
 });
@@ -2691,7 +2694,7 @@ function renderHistory(runs) {
 
   tbody.innerHTML = runs.map((run) => {
     const meta     = TYPE_META[run.job_type] || { chip: run.job_type?.toUpperCase() || '?', cls: 'chip-unknown' };
-    const isActive = run.status === 'running' || run.status === 'pending';
+    const isActive = isActiveStatus(run.status);
     const duration = run.finished_at
       ? `${((new Date(run.finished_at) - new Date(run.started_at)) / 1000).toFixed(1)}s`
       : '—';
