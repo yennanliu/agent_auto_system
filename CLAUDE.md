@@ -63,7 +63,7 @@ class MyCrew:
 
 **Flow state** — `llm_provider` and `llm_model` must be declared as Pydantic fields in the state model to survive `kickoff(inputs=...)`.
 
-**DB migrations** — add new columns in `database.init_db()` as `ALTER TABLE ADD COLUMN` wrapped in try/except. Runs on startup, idempotent.
+**DB migrations** — Alembic. `database.init_db()` runs `alembic upgrade head` on every startup (idempotent; configured in code by `src/migrations/__init__.py`, no `alembic.ini`/CWD dependency). To add a column/table/index: change `src/models.py` **and** add a revision under `src/migrations/versions/` (`uv run alembic revision --autogenerate -m "…" --rev-id 000N_slug`). Never edit `src/migrations/baseline.py` (frozen baseline + the last-run legacy `ALTER`s) and never add `ALTER TABLE` to `init_db()`. `test_migrations.py::test_models_match_migration_head` fails if models and revisions disagree. See [doc/dev-notes.md](doc/dev-notes.md#database-migrations-alembic).
 
 **Stats** — `get_stats()` does a single SQL pass; keep it that way.
 

@@ -12,7 +12,64 @@ Set `DATABASE_URL=postgresql+psycopg2://user:pass@host/db` in `.env`. SQLModel/S
 uv add psycopg2-binary
 ```
 
-The `ALTER TABLE` migrations in `init_db()` are SQLite-specific. For Postgres use `ADD COLUMN IF NOT EXISTS` instead.
+Schema migrations are dialect-neutral Alembic revisions (next section), so the same
+revisions apply to SQLite and Postgres.
+
+---
+
+## Database migrations (Alembic)
+
+`database.init_db()` runs on every startup and calls `src.migrations.run_migrations(engine)`,
+which is `alembic upgrade head` plus a one-time adoption step for databases that predate
+Alembic. It is idempotent — a database already at head is left untouched.
+
+| Database state | What startup does |
+|---|---|
+| **Fresh** (none of our tables) | `upgrade head` — the baseline revision builds the whole schema, later revisions apply on top |
+| **Legacy** (our tables, no `alembic_version` row) | Create any missing baseline table, run the old hand-written `ALTER TABLE … ADD COLUMN` block **one last time**, verify the live schema against the baseline, then `stamp 0001_baseline` + `upgrade head` |
+| **Versioned** (`alembic_version` row) | `upgrade head` (no-op when current) |
+
+If a legacy database does **not** match the baseline, startup stops with
+`SchemaMismatchError` listing every difference; nothing is stamped and no revision runs.
+The check (`baseline.schema_drift()`) compares tables, column names, column type
+families and named indexes. It deliberately does not compare nullability, defaults or
+foreign keys: columns added by the legacy `ALTER`s are looser than the baseline's
+(e.g. `run.tokens_in` is nullable `INTEGER DEFAULT 0` there) and SQLite cannot change
+that in place. A revision that needs those tightened must do it explicitly (batch mode).
+
+Layout:
+
+```
+src/migrations/__init__.py            run_migrations(), SchemaMismatchError, in-code Alembic Config
+src/migrations/baseline.py            FROZEN: baseline schema, legacy ALTER list, schema_drift()
+src/migrations/env.py                 Alembic environment (SQLite uses batch mode)
+src/migrations/versions/0001_baseline.py
+alembic.ini                           CLI authoring only — the app never reads it
+```
+
+Alembic is configured in code and finds its scripts relative to the package, not the
+working directory, so it behaves the same under `uvicorn`, in the Docker image (`COPY src/`)
+and in the frozen desktop build (`agent_backend.spec` ships `env.py` + `versions/*.py` as
+data files, because Alembic loads them by path). A revision that imports a module nothing
+else in the app imports needs that module added to `hiddenimports` in the spec.
+
+### Adding a column / table / index
+
+1. Change `src/models.py`.
+2. Generate a revision against a throwaway database that is at head (never your real one):
+   ```bash
+   export DATABASE_URL=sqlite:////tmp/mig.db
+   uv run alembic upgrade head
+   uv run alembic revision --autogenerate -m "add run.notified_at" --rev-id 0002_run_notified_at
+   ```
+3. Review the generated file in `src/migrations/versions/`. A `NOT NULL` column on an
+   existing table needs a `server_default` (or add nullable → backfill → tighten); keep it
+   working on both SQLite and Postgres (no dialect-specific SQL without a guard).
+4. `uv run pytest tests/unit/test_migrations.py` — `test_models_match_migration_head`
+   fails if the models and the revisions disagree.
+
+Do **not** add `ALTER TABLE` statements to `init_db()` and do **not** edit `baseline.py`:
+the baseline is what already-deployed databases were stamped with.
 
 ---
 
