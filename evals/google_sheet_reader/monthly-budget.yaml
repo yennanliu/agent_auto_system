@@ -1,0 +1,62 @@
+id: monthly-budget
+job_type: google_sheet_reader
+description: >-
+  A synthetic 6-row budget sheet. The totals are easy to verify (planned 60000,
+  actual 64500), so a hallucinated statistic is easy to spot; one line is over
+  budget by a wide margin and should be called out.
+payload:
+  url: "https://docs.google.com/spreadsheets/d/EVAL_FIXTURE_BUDGET/edit"
+  limit: 200
+fixtures:
+  tools:
+    google_sheet_reader:
+      url: "https://docs.google.com/spreadsheets/d/EVAL_FIXTURE_BUDGET/export?format=csv"
+      columns: ["month", "line_item", "planned_ntd", "actual_ntd"]
+      row_count: 6
+      data: &budget_rows
+        - {month: "2026-01", line_item: "rent", planned_ntd: "30000", actual_ntd: "30000"}
+        - {month: "2026-01", line_item: "utilities", planned_ntd: "4000", actual_ntd: "4500"}
+        - {month: "2026-01", line_item: "software", planned_ntd: "6000", actual_ntd: "6000"}
+        - {month: "2026-01", line_item: "marketing", planned_ntd: "10000", actual_ntd: "16000"}
+        - {month: "2026-01", line_item: "supplies", planned_ntd: "5000", actual_ntd: "3000"}
+        - {month: "2026-01", line_item: "travel", planned_ntd: "5000", actual_ntd: "5000"}
+      preview:
+        - {month: "2026-01", line_item: "rent", planned_ntd: "30000", actual_ntd: "30000"}
+        - {month: "2026-01", line_item: "utilities", planned_ntd: "4000", actual_ntd: "4500"}
+        - {month: "2026-01", line_item: "software", planned_ntd: "6000", actual_ntd: "6000"}
+        - {month: "2026-01", line_item: "marketing", planned_ntd: "10000", actual_ntd: "16000"}
+        - {month: "2026-01", line_item: "supplies", planned_ntd: "5000", actual_ntd: "3000"}
+expect:
+  contains:
+    - "marketing"
+    - "rent"
+  assertions:
+    - {path: "columns", equals: ["month", "line_item", "planned_ntd", "actual_ntd"]}
+    - {path: "row_count", equals: 6}
+    - {path: "summary", type: str, non_empty: true}
+    - {path: "insights", type: list, min_len: 3, max_len: 6}
+    - {path: "data", type: list, min_len: 6, max_len: 6}
+    - {path: "data[3].line_item", equals: "marketing"}
+    - {path: "preview", type: list, min_len: 5, max_len: 5}
+  min_judge_score: 70
+reference_output:
+  url: "https://docs.google.com/spreadsheets/d/EVAL_FIXTURE_BUDGET/export?format=csv"
+  columns: ["month", "line_item", "planned_ntd", "actual_ntd"]
+  row_count: 6
+  summary: >-
+    The sheet compares planned and actual spending in NTD for six budget line
+    items in January 2026. Actual spending of 64500 exceeded the 60000 plan,
+    driven almost entirely by marketing.
+  insights:
+    - "Total planned spend is 60000 NTD versus 64500 NTD actual, an overrun of 4500 NTD (7.5%)."
+    - "Marketing is the largest overrun: 16000 actual against 10000 planned (+6000, 60% over)."
+    - "Supplies came in under budget at 3000 against 5000 planned."
+    - "Rent is the largest line at 30000 NTD, half of the planned budget, and was on plan."
+    - "No blank cells or duplicate rows were found; all rows are for month 2026-01."
+  data: *budget_rows
+  preview:
+    - {month: "2026-01", line_item: "rent", planned_ntd: "30000", actual_ntd: "30000"}
+    - {month: "2026-01", line_item: "utilities", planned_ntd: "4000", actual_ntd: "4500"}
+    - {month: "2026-01", line_item: "software", planned_ntd: "6000", actual_ntd: "6000"}
+    - {month: "2026-01", line_item: "marketing", planned_ntd: "10000", actual_ntd: "16000"}
+    - {month: "2026-01", line_item: "supplies", planned_ntd: "5000", actual_ntd: "3000"}

@@ -1,0 +1,106 @@
+id: tw-design-studios-qualify
+job_type: email_collect
+description: >-
+  Qualify step on Traditional-Chinese input with the default offer (AI automation
+  consulting for small businesses). Every business is a plausible fit, so the test
+  is that hooks are specific to each company's category rather than one generic
+  line repeated, and that every input index gets a qualification.
+payload:
+  query: "設計工作室"
+  region: "範例市"
+  limit: 3
+  smtp_check: false
+fixtures:
+  businesses:
+    - name: "青苔品牌設計工作室（虛構）"
+      website: "https://moss-branding.example"
+      category: "品牌設計"
+      phone: "02-5550-0111"
+      address: "範例市範例路1號"
+      emails: ["hello@moss-branding.example"]
+    - name: "拾光婚禮攝影（虛構）"
+      website: "https://shiguang-wedding.example"
+      category: "婚禮攝影"
+      phone: "02-5550-0112"
+      address: "範例市範例路2號"
+      emails: ["booking@shiguang-wedding.example"]
+    - name: "木目室內裝修設計（虛構）"
+      website: "https://mokume-interior.example"
+      category: "室內設計"
+      phone: "02-5550-0113"
+      address: "範例市範例路3號"
+      emails: ["service@mokume-interior.example"]
+expect:
+  contains:
+    - "hello@moss-branding.example"
+    - "booking@shiguang-wedding.example"
+    - "service@mokume-interior.example"
+  assertions:
+    - {path: "discovered_count", equals: 3}
+    - {path: "leads", type: list, min_len: 3, max_len: 3}
+    - {path: "leads[*].icp_fit", type: int, min: 1, max: 5}
+    - {path: "leads[*].reason", type: str, non_empty: true}
+    - {path: "leads[*].hook", type: str, non_empty: true, max_len: 260}
+  min_judge_score: 65
+reference_output:
+  query: "設計工作室"
+  region: "範例市"
+  industry: ""
+  offer: "an AI agent / automation consulting proposal for small businesses"
+  sources: ["maps"]
+  discovered_count: 3
+  with_website: 3
+  lead_count: 3
+  leads:
+    - company: "青苔品牌設計工作室（虛構）"
+      email: "hello@moss-branding.example"
+      website: "https://moss-branding.example"
+      category: "品牌設計"
+      phone: "02-5550-0111"
+      address: "範例市範例路1號"
+      region: "範例市"
+      maps_url: ""
+      source: "directory"
+      discovery: "maps"
+      confidence: "medium"
+      mx_found: true
+      smtp_status: "skipped"
+      icp_fit: 4
+      reason: "小型設計工作室，提案與報價流程重複性高。"
+      hook: "品牌設計案從詢價、報價到提案往返多次，這段流程很適合交給 AI 助理先整理需求。"
+    - company: "拾光婚禮攝影（虛構）"
+      email: "booking@shiguang-wedding.example"
+      website: "https://shiguang-wedding.example"
+      category: "婚禮攝影"
+      phone: "02-5550-0112"
+      address: "範例市範例路2號"
+      region: "範例市"
+      maps_url: ""
+      source: "directory"
+      discovery: "maps"
+      confidence: "medium"
+      mx_found: true
+      smtp_status: "skipped"
+      icp_fit: 4
+      reason: "檔期詢問與訂金追蹤可自動化。"
+      hook: "婚攝旺季的檔期詢問常在深夜湧入，自動回覆檔期並跟進訂金能少漏掉幾組新人。"
+    - company: "木目室內裝修設計（虛構）"
+      email: "service@mokume-interior.example"
+      website: "https://mokume-interior.example"
+      category: "室內設計"
+      phone: "02-5550-0113"
+      address: "範例市範例路3號"
+      region: "範例市"
+      maps_url: ""
+      source: "directory"
+      discovery: "maps"
+      confidence: "medium"
+      mx_found: true
+      smtp_status: "skipped"
+      icp_fit: 4
+      reason: "工期長、與屋主溝通頻繁，進度回報可自動化。"
+      hook: "裝修案動輒數月，每週自動彙整工地進度給屋主，可以省下設計師大量的回報時間。"
+  businesses:
+    - {company: "青苔品牌設計工作室（虛構）", website: "https://moss-branding.example", category: "品牌設計", phone: "02-5550-0111", address: "範例市範例路1號", discovery: "maps"}
+    - {company: "拾光婚禮攝影（虛構）", website: "https://shiguang-wedding.example", category: "婚禮攝影", phone: "02-5550-0112", address: "範例市範例路2號", discovery: "maps"}
+    - {company: "木目室內裝修設計（虛構）", website: "https://mokume-interior.example", category: "室內設計", phone: "02-5550-0113", address: "範例市範例路3號", discovery: "maps"}

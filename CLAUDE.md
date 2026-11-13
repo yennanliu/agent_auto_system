@@ -95,6 +95,8 @@ are **derived from one declaration**. To add a job type:
 Run `pytest tests/unit/test_spec_registry.py` to confirm the new spec is consistent and its
 flow imports.
 
+A new spec also needs eval coverage: golden cases under `evals/<job_type>/` or a justified entry in `evals/skip.yaml` — `tests/unit/test_evalset.py` fails otherwise. See [doc/evals.md](doc/evals.md).
+
 **Manifest-driven UI (Phase 2).** `GET /api/automations/manifest` (`spec.manifest()`) drives
 the browser's picker, run form, and step graph. A spec with `custom_ui=False` + declared
 `fields` renders its form generically — **no UI edits needed**. Set `custom_ui=True` to keep a

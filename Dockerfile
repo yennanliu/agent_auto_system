@@ -86,6 +86,8 @@ RUN uv sync --frozen
 # along with the sample CSV fixtures the profit_calc tests read.
 COPY tests/ ./tests/
 COPY shopee/sample_data/ ./shopee/sample_data/
+# Golden eval cases — read by tests/unit/test_evalset.py (offline eval tier).
+COPY evals/ ./evals/
 
 # Default command: run the suite, skipping e2e (needs a real browser + API keys)
 CMD ["pytest", "tests/unit", "tests/integration", "-v", "--tb=short", "-m", "not e2e"]

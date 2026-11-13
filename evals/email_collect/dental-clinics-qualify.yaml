@@ -1,0 +1,111 @@
+id: dental-clinics-qualify
+job_type: email_collect
+description: >-
+  Qualify step with a sharply targeted offer (appointment-reminder automation for
+  clinics). Two fictional dental clinics are strong fits; a fictional hardware
+  wholesaler is a poor fit and must not be scored like the clinics. Discovery,
+  extraction and verification are stubbed from the fixture.
+payload:
+  query: "dental clinic"
+  region: "Exampleville"
+  offer: "an SMS and LINE appointment-reminder automation that cuts no-shows for clinics"
+  limit: 3
+  smtp_check: false
+fixtures:
+  businesses:
+    - name: "Brightside Family Dental (fictional)"
+      website: "https://brightside-dental.example"
+      category: "Dental clinic"
+      phone: "555-0101"
+      address: "100 Example Road, Exampleville"
+      emails: ["frontdesk@brightside-dental.example"]
+    - name: "Maple Court Orthodontics (fictional)"
+      website: "https://maplecourt-ortho.example"
+      category: "Orthodontist"
+      phone: "555-0102"
+      address: "22 Sample Street, Exampleville"
+      emails: ["hello@maplecourt-ortho.example"]
+    - name: "Ironbridge Hardware Wholesale (fictional)"
+      website: "https://ironbridge-hardware.example"
+      category: "Hardware wholesaler"
+      phone: "555-0103"
+      address: "7 Placeholder Avenue, Exampleville"
+      emails: ["sales@ironbridge-hardware.example"]
+expect:
+  contains:
+    - "frontdesk@brightside-dental.example"
+    - "hello@maplecourt-ortho.example"
+    - "sales@ironbridge-hardware.example"
+  assertions:
+    - {path: "discovered_count", equals: 3}
+    - {path: "lead_count", equals: 3}
+    - {path: "leads", type: list, min_len: 3, max_len: 3}
+    - {path: "leads[*].icp_fit", type: int, min: 1, max: 5}
+    - {path: "leads[*].reason", type: str, non_empty: true}
+    - {path: "leads[*].hook", type: str, non_empty: true, max_len: 260}
+    - {path: "leads[0].icp_fit", min: 4}
+    - {path: "leads[1].icp_fit", min: 4}
+    - {path: "leads[2].icp_fit", max: 2}
+  min_judge_score: 65
+reference_output:
+  query: "dental clinic"
+  region: "Exampleville"
+  industry: ""
+  offer: "an SMS and LINE appointment-reminder automation that cuts no-shows for clinics"
+  sources: ["maps"]
+  discovered_count: 3
+  with_website: 3
+  lead_count: 3
+  leads:
+    - company: "Brightside Family Dental (fictional)"
+      email: "frontdesk@brightside-dental.example"
+      website: "https://brightside-dental.example"
+      category: "Dental clinic"
+      phone: "555-0101"
+      address: "100 Example Road, Exampleville"
+      region: "Exampleville"
+      maps_url: ""
+      source: "directory"
+      discovery: "maps"
+      confidence: "medium"
+      mx_found: true
+      smtp_status: "skipped"
+      icp_fit: 5
+      reason: "Family dental clinic; recurring appointments make no-shows costly."
+      hook: "A family practice like Brightside likely loses chair time to missed check-ups; automated LINE reminders can win those slots back."
+    - company: "Maple Court Orthodontics (fictional)"
+      email: "hello@maplecourt-ortho.example"
+      website: "https://maplecourt-ortho.example"
+      category: "Orthodontist"
+      phone: "555-0102"
+      address: "22 Sample Street, Exampleville"
+      region: "Exampleville"
+      maps_url: ""
+      source: "directory"
+      discovery: "maps"
+      confidence: "medium"
+      mx_found: true
+      smtp_status: "skipped"
+      icp_fit: 5
+      reason: "Orthodontics runs on frequent adjustment visits that need reminders."
+      hook: "Orthodontic treatment means an adjustment visit every few weeks; reminders that reschedule themselves keep those plans on track."
+    - company: "Ironbridge Hardware Wholesale (fictional)"
+      email: "sales@ironbridge-hardware.example"
+      website: "https://ironbridge-hardware.example"
+      category: "Hardware wholesaler"
+      phone: "555-0103"
+      address: "7 Placeholder Avenue, Exampleville"
+      region: "Exampleville"
+      maps_url: ""
+      source: "directory"
+      discovery: "maps"
+      confidence: "medium"
+      mx_found: true
+      smtp_status: "skipped"
+      icp_fit: 1
+      reason: "Wholesaler with no patient appointments; reminders are irrelevant."
+      hook: "If Ironbridge schedules trade-counter pickups, automated reminders could cut the orders left waiting on your dock."
+  businesses:
+    - {company: "Brightside Family Dental (fictional)", website: "https://brightside-dental.example", category: "Dental clinic", phone: "555-0101", address: "100 Example Road, Exampleville", discovery: "maps"}
+    - {company: "Maple Court Orthodontics (fictional)", website: "https://maplecourt-ortho.example", category: "Orthodontist", phone: "555-0102", address: "22 Sample Street, Exampleville", discovery: "maps"}
+    - {company: "Ironbridge Hardware Wholesale (fictional)", website: "https://ironbridge-hardware.example", category: "Hardware wholesaler", phone: "555-0103", address: "7 Placeholder Avenue, Exampleville", discovery: "maps"}

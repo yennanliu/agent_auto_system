@@ -1,0 +1,62 @@
+id: top3-infra-mix
+job_type: hacker_news_digest
+description: >-
+  Three synthetic stories with one clear front-runner (score 912). The digest must
+  keep all three titles and scores verbatim and name themes that are actually present.
+payload:
+  limit: 3
+fixtures:
+  tools:
+    hn_top_stories:
+      - title: "Show HN: Tidepool – a SQLite replication layer in 900 lines of Zig"
+        url: "https://example.com/tidepool"
+        score: 912
+        comments: 304
+        author: "synthetic_user_a"
+      - title: "Postmortem: how a leap-second smear took down our job scheduler"
+        url: "https://example.org/blog/leap-smear-postmortem"
+        score: 441
+        comments: 187
+        author: "synthetic_user_b"
+      - title: "Ask HN: Is anyone still running bare-metal Postgres in 2026?"
+        url: "https://news.ycombinator.com/item?id=900000001"
+        score: 276
+        comments: 412
+        author: "synthetic_user_c"
+expect:
+  contains:
+    - "Tidepool"
+    - "leap-second smear"
+    - "bare-metal Postgres"
+    - "https://example.com/tidepool"
+  assertions:
+    - {path: "stories", type: list, min_len: 3, max_len: 3}
+    - {path: "stories[*].title", type: str, non_empty: true}
+    - {path: "stories[*].summary", type: str, non_empty: true}
+    - {path: "stories[*].url", type: str, non_empty: true}
+    - {path: "stories[0].score", equals: 912}
+    - {path: "story_of_the_day.title", type: str, non_empty: true}
+    - {path: "story_of_the_day.reason", type: str, non_empty: true}
+    - {path: "themes", type: list, min_len: 2, max_len: 3}
+  min_judge_score: 70
+reference_output:
+  story_of_the_day:
+    title: "Show HN: Tidepool – a SQLite replication layer in 900 lines of Zig"
+    reason: "It is the highest-scored story and shows a useful replication layer built in a remarkably small codebase."
+  stories:
+    - title: "Show HN: Tidepool – a SQLite replication layer in 900 lines of Zig"
+      score: 912
+      url: "https://example.com/tidepool"
+      summary: "A developer shares Tidepool, a compact SQLite replication layer written in about 900 lines of Zig."
+    - title: "Postmortem: how a leap-second smear took down our job scheduler"
+      score: 441
+      url: "https://example.org/blog/leap-smear-postmortem"
+      summary: "A postmortem explains how leap-second smearing caused a production job scheduler outage."
+    - title: "Ask HN: Is anyone still running bare-metal Postgres in 2026?"
+      score: 276
+      url: "https://news.ycombinator.com/item?id=900000001"
+      summary: "The community discusses whether running Postgres on bare metal is still worthwhile in 2026."
+  themes:
+    - "Databases and replication"
+    - "Infrastructure reliability"
+    - "Self-hosting vs managed services"
