@@ -16,6 +16,8 @@ uv run pytest tests/unit tests/integration -v -m "not e2e"  # skip e2e
 uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
+uv run python scripts/run_canaries.py                # read-only scraper drift probes (cron/CI; exit 1 on drift)
+
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
 ```
@@ -47,6 +49,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
 | Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
+| Canaries | `src/automation/canary.py`, `scripts/run_canaries.py` | Read-only scraper drift probes, declared per automation as `AutomationSpec.canary` (or `canary_skip` + reason). Outcomes `ok`/`failed`/`session_expired`/`skipped_no_session`/`error` land in `CanaryResult`; `decide_alert()` pages on the flip to failing → log + `CANARY_ALERT_WEBHOOK`. Nightly via the scheduler only with `CANARY_ENABLED=1`. `GET /api/admin/canaries`. **Must stay read-only**: no tool/flow imports, non-GET requests aborted, probes see only `ReadOnlyPage` |
 | UI | `ui/app.js` | `LLM_MODELS` dict drives the provider→model dropdown |
 
 ## Key Invariants

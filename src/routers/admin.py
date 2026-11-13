@@ -264,6 +264,16 @@ def set_eval_judge(data: EvalJudgeUpdate):
     return _eval_judge_payload()
 
 
+# ── Scraper drift canaries (E7) ─────────────────────────────────────────────────
+
+@router.get("/admin/canaries")
+def list_canaries(session: Session = Depends(get_session)):
+    """Latest read-only drift-probe status per browser automation."""
+    from src.automation import canary
+
+    return canary.status_report(session)
+
+
 # ── Custom (no-code) automations — Phase 3G ─────────────────────────────────────
 
 class CustomAutomationCreate(BaseModel):
