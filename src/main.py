@@ -18,6 +18,7 @@ from src.routers import (
     cover_letters,
     jobs,
     oauth,
+    retention,
     runs,
     sessions,
     system,
@@ -87,8 +88,13 @@ async def lifespan(app: FastAPI):
     if os.getenv("SCHEDULER_ENABLED", "1") != "0":
         scheduler.start()
 
+    # Data-retention purge (daily). Opt-in: a no-op unless RETENTION_ENABLED=1.
+    from src.retention import retention_task
+    retention_task.start()
+
     yield
 
+    await retention_task.stop()
     await scheduler.stop()
     langfuse_tracer.flush()  # drain buffered traces on shutdown
 
@@ -109,6 +115,7 @@ app.include_router(oauth.router, prefix="/api")
 
 # Admin router enforces require_admin internally (every route).
 app.include_router(admin.router, prefix="/api")
+app.include_router(retention.router, prefix="/api")  # admin-only (require_admin inside)
 
 # Everything else requires a logged-in user.
 _gated = [Depends(require_user)]

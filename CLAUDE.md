@@ -44,6 +44,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Pipeline | `src/automation/pipeline.py` | Chains steps; later steps read earlier output via `{{steps.N.result}}` |
 | Registry | `src/automation/registry.py` | asyncio task dict for run cancellation |
 | Auth / RBAC | `src/auth.py`, `src/settings_store.py` | login, per-user `allowed_automations`, global `ALL_AUTOMATIONS`/enabled set, Fernet-encrypted API keys, eval-judge choice |
+| Retention | `src/retention.py`, `src/routers/retention.py` | Opt-in daily purge (`RETENTION_ENABLED=1`; runs 90 d, uploads 30 d) started in `main.lifespan`; admin purge / per-user export + erase. Only deletes validated direct children of the uploads/reports dirs; never active runs or job-referenced uploads. See [doc/data-retention.md](doc/data-retention.md) |
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
 | Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
