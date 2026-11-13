@@ -80,6 +80,33 @@ _NO_FORCED_TOOL_CHOICE_PREFIXES = ("claude-opus-5-5", "claude-sonnet-5-5", "clau
 _OPENAI_NO_REASONING_PREFIXES = ("gpt-6",)
 
 
+def prompt_cache_enabled() -> bool:
+    """Anthropic prompt caching for the crews' stable prefix (tools + system prompt).
+
+    On by default; set ``PROMPT_CACHE_ENABLED=0`` to send plain requests. OpenAI and
+    Gemini cache long prompt prefixes automatically and need no request change.
+    """
+    return os.getenv("PROMPT_CACHE_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _mark_cache_breakpoint(params: dict) -> None:
+    """Put one ``cache_control`` breakpoint at the end of the request's stable prefix.
+
+    Anthropic renders ``tools`` → ``system`` → ``messages``, so a breakpoint on the
+    system block caches the tool definitions with it. A prefix below the model's
+    minimum cacheable length (512–4096 tokens) is processed uncached, with no error
+    and no surcharge. Never touches ``messages``: the task text carries per-run inputs.
+    """
+    marker = {"type": "ephemeral"}  # 5-minute TTL
+    system = params.get("system")
+    if isinstance(system, str) and system:
+        params["system"] = [{"type": "text", "text": system, "cache_control": marker}]
+        return
+    tools = params.get("tools")
+    if not system and isinstance(tools, list) and tools and isinstance(tools[-1], dict):
+        params["tools"] = [*tools[:-1], {**tools[-1], "cache_control": marker}]
+
+
 def accepts_temperature(model: str) -> bool:
     return not model.split("/")[-1].startswith(_NO_TEMPERATURE_PREFIXES)
 
@@ -172,6 +199,8 @@ def _anthropic_llm(model: str, api_key: str, temperature: float | None):
     """Native crewai Anthropic client, adjusted for models that reject forced tool use."""
     from crewai.llms.providers.anthropic.completion import AnthropicCompletion
 
+    cache_prompt = prompt_cache_enabled()
+
     class _AnthropicLLM(AnthropicCompletion):
         def _prepare_completion_params(self, *args, **kwargs):
             params = super()._prepare_completion_params(*args, **kwargs)
@@ -182,6 +211,20 @@ def _anthropic_llm(model: str, api_key: str, temperature: float | None):
                 _NO_FORCED_TOOL_CHOICE_PREFIXES
             ):
                 params["tool_choice"] = {"type": "auto"}
+            if cache_prompt:
+                _mark_cache_breakpoint(params)
             return params
+
+        @staticmethod
+        def _extract_anthropic_token_usage(response):
+            # Anthropic's input_tokens excludes cache reads/writes; OpenAI and Gemini
+            # report them inside the prompt count. Fold them in so prompt_tokens means
+            # "whole prompt" for every provider and costs.py can price the sub-counts.
+            usage = AnthropicCompletion._extract_anthropic_token_usage(response)
+            cached = (usage.get("cached_prompt_tokens") or 0) + (usage.get("cache_creation_tokens") or 0)
+            if cached and "input_tokens" in usage:
+                usage["input_tokens"] = (usage["input_tokens"] or 0) + cached
+                usage["total_tokens"] = (usage.get("total_tokens") or 0) + cached
+            return usage
 
     return _AnthropicLLM(model=model, provider="anthropic", api_key=api_key, temperature=temperature)
