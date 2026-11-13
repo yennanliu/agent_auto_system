@@ -60,6 +60,56 @@ Langfuse LLM observability. CrewAI 1.x calls native provider SDKs (not litellm),
 
 ---
 
+## Structured logging
+
+`src/logging_setup.py` (stdlib `logging` only, no extra dependency). Configured from env in
+`src.main` — at import and again in the lifespan, because `uvicorn.run(app)` (desktop entry)
+applies uvicorn's own logging config after the import.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LOG_FORMAT` | `text` | `text`: logging is left exactly as uvicorn sets it up (unchanged dev output). `json`: one JSON object per line on stderr for **every** logger — app, uvicorn (error + access) and third-party libraries. |
+| `LOG_LEVEL` | unset | Root level. Unset = untouched in text mode, `INFO` in json mode. In text mode, setting it also installs a plain root handler so app `INFO` lines become visible. |
+
+Sample line (json mode, emitted inside a run):
+
+```json
+{"ts": "2026-11-13T02:19:14.201+00:00", "level": "INFO", "logger": "src.automation.executor", "message": "Starting run_id=42 job_type=web_scraper", "request_id": "430a5ce549e7490e8a3950adaada852c", "user_id": 1, "run_id": 42, "job_id": 7, "job_type": "web_scraper"}
+```
+
+**Correlation fields** live in one `ContextVar` and are stamped onto records by a handler-level
+`ContextFilter` (so library records get them too). Unbound fields are omitted.
+
+- `request_id`, `user_id` — bound per HTTP request by `RequestContextMiddleware` (pure ASGI,
+  inside `SessionMiddleware`). A well-formed incoming `X-Request-ID` is honoured, otherwise one
+  is generated; either way it is echoed on the response. `user_id` is the session's user id.
+- `run_id`, `job_id`, `job_type`, `user_id` (the run's owner) — bound by `launcher.launch_run`
+  around `asyncio.create_task` (a task copies the context at creation) and by
+  `executor.execute_run` inside the task. A run triggered over HTTP keeps the triggering
+  `request_id`; scheduled runs have none. Concurrent runs each have their own context.
+
+**Threads.** The context follows `await`, `asyncio.create_task` and `asyncio.to_thread` (how the
+executor runs `flow.kickoff`, the evaluator and Langfuse), and CrewAI 1.x copies it into its own
+worker threads (flow methods, async tasks, parallel tool calls) — covered by a test that kicks
+off a real `Flow`. It does **not** reach a thread started with a bare `threading.Thread`,
+`ThreadPoolExecutor.submit` or `loop.run_in_executor` (CrewAI's async `ainvoke` tool path does
+this; the app uses sync `kickoff`). Records from such threads are still JSON, just without the
+ids — wrap the target in `contextvars.copy_context().run` if you add one.
+
+**Limits / secrets.**
+- Only the ids above can be bound (`bind_log_context` rejects anything else) — payloads, API
+  keys, passwords and cookies never enter the context. `extra=` values under sensitive-looking
+  keys (`password`, `token`, `api_key`, `authorization`, `cookie`, `payload`, …) are redacted and
+  access-log lines drop the query string (OAuth `code`/`state`). Message *text* is not scrubbed:
+  never format a secret into a log message.
+- Only `logging` records are JSON. Raw `print()` / CrewAI `verbose=True` console output and
+  interpreter tracebacks written straight to stderr are not (crews run with `verbose=False`).
+- The per-run progress log shown in the UI (`progress.append_log` → DB) is separate and unchanged.
+- The Docker image and compose file keep the `text` default; set `LOG_FORMAT=json` in the
+  environment where a collector (CloudWatch, Loki, …) ingests the output.
+
+---
+
 ## Scalability Roadmap
 
 ### Task queue
