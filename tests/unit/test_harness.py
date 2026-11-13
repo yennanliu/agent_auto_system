@@ -118,14 +118,14 @@ def test_normalize_defaults_to_openai():
     from src.automation.harness.provider import normalize
     provider, model = normalize(None, None)
     assert provider == "openai"
-    assert model == "gpt-4o-mini"
+    assert model == "gpt-6-luna"
 
 
 def test_normalize_empty_string_defaults_to_openai():
     from src.automation.harness.provider import normalize
     provider, model = normalize("", "")
     assert provider == "openai"
-    assert model == "gpt-4o-mini"
+    assert model == "gpt-6-luna"
 
 
 def test_normalize_explicit_model():
@@ -139,14 +139,14 @@ def test_normalize_default_sentinel_picks_catalog_default():
     from src.automation.harness.provider import normalize
     provider, model = normalize("anthropic", "default")
     assert provider == "anthropic"
-    assert model == "claude-haiku-4-5-20251001"
+    assert model == "claude-haiku-5-5"
 
 
 def test_normalize_unknown_provider_falls_back_to_openai_default_model():
     from src.automation.harness.provider import normalize
     provider, model = normalize("totally-unknown", None)
     assert provider == "totally-unknown"
-    assert model == "gpt-4o-mini"
+    assert model == "gpt-6-luna"
 
 
 def test_resolve_raises_when_api_key_missing(monkeypatch):
@@ -291,6 +291,75 @@ def test_ui_model_dropdown_matches_backend_catalog():
         assert section, provider
         ui_models = re.findall(r"\['([^']+)'", section.group(1))
         assert ui_models == models, provider
+
+
+def test_provider_defaults_are_registered_and_priced():
+    from src.automation.harness.costs import _PRICING
+    from src.automation.harness.provider import _CATALOG
+    for provider, cfg in _CATALOG.items():
+        assert cfg["default"] in cfg["models"], provider
+        assert cfg["default"].split("/")[-1] in _PRICING, provider
+
+
+@pytest.mark.parametrize("provider,old_default", [
+    ("openai", "gpt-4o-mini"),
+    ("anthropic", "claude-haiku-4-5-20251001"),
+    ("gemini", "gemini/gemini-2.5-flash"),
+])
+def test_provider_default_never_costs_more_than_the_previous_default(provider, old_default):
+    # A default applies to every job that names no model, so bumping it must not
+    # raise anyone's bill; the previous default stays selectable and priced.
+    from src.automation.harness.costs import _PRICING
+    from src.automation.harness.provider import _CATALOG
+    cfg = _CATALOG[provider]
+    assert old_default in cfg["models"]
+    new_in, new_out = _PRICING[cfg["default"].split("/")[-1]]
+    old_in, old_out = _PRICING[old_default.split("/")[-1]]
+    assert new_in <= old_in and new_out <= old_out
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "gemini"])
+def test_default_model_run_is_judged_by_another_model_first(provider, mocker, monkeypatch):
+    # Eval-judge independence must survive a default change: for a run on the
+    # provider default, the run's own model is only ever the last-resort judge.
+    from src.automation.harness.evaluator import _judge_candidates
+    from src.automation.harness.provider import PROVIDER_MODELS, fallback_sequence, normalize
+    mocker.patch("src.settings_store.get_eval_judge", return_value=(None, None))
+    monkeypatch.delenv("EVAL_JUDGE_MODEL", raising=False)
+    run = normalize(provider, None)
+    cands = _judge_candidates(*run, PROVIDER_MODELS)
+    assert cands[0] != run
+    assert cands.index(run) == len(cands) - 1
+    assert fallback_sequence(provider, None)[0] == run[1]
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "gemini"])
+def test_judge_set_to_provider_default_does_not_self_grade_a_default_run(provider, mocker):
+    # An admin judge of (provider, None) means "that provider's default model". When
+    # the run used that same model it must not lead the candidates under its alias.
+    from src.automation.harness.evaluator import _judge_candidates
+    from src.automation.harness.provider import PROVIDER_MODELS, normalize
+    mocker.patch("src.settings_store.get_eval_judge", return_value=(provider, None))
+    run = normalize(provider, None)
+    cands = _judge_candidates(*run, PROVIDER_MODELS)
+    assert normalize(*cands[0]) != run
+    assert [normalize(*c) for c in cands].count(run) == 1
+    assert normalize(*cands[-1]) == run
+
+
+def test_ui_preselected_models_match_backend_defaults():
+    import re
+    from pathlib import Path
+
+    from src.automation.harness.provider import _CATALOG
+    js = (Path(__file__).resolve().parents[2] / "ui" / "app.js").read_text()
+    block = js[js.index("const LLM_DEFAULTS = {"):]
+    block = block[:block.index("};")]
+    ui_defaults = dict(re.findall(r"(\w+):\s*'([^']+)'", block))
+    assert ui_defaults == {p: cfg["default"] for p, cfg in _CATALOG.items()}
+    # The static first-paint <select> (OpenAI) preselects the same model.
+    html = (Path(__file__).resolve().parents[2] / "ui" / "index.html").read_text()
+    assert f'<option value="{_CATALOG["openai"]["default"]}" selected>' in html
 
 
 @pytest.mark.parametrize("model,effort", [("gpt-6-luna", "none"), ("gpt-6-sol", "none"), ("gpt-4o-mini", None)])

@@ -227,6 +227,14 @@ const LLM_MODELS = {
   ],
 };
 
+// Model preselected per provider — mirrors the "default" of each provider in
+// src/automation/harness/provider.py (list order above is fallback order, not rank).
+const LLM_DEFAULTS = {
+  openai: 'gpt-6-luna',
+  anthropic: 'claude-haiku-5-5',
+  gemini: 'gemini/gemini-2.5-flash',
+};
+
 // ── Flow step definitions ─────────────────────────────────────────────────────
 // job_type → [{label, trigger}]. Populated from the automation manifest at boot
 // (GET /api/automations/manifest) so the client can never drift from the server's
@@ -370,6 +378,8 @@ function updateModelOptions() {
   const modelSel = document.getElementById('llm-model');
   const models = LLM_MODELS[provider] || LLM_MODELS.openai;
   modelSel.innerHTML = models.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  const def = LLM_DEFAULTS[provider];
+  if (def && models.some(([v]) => v === def)) modelSel.value = def;
 }
 
 // ══════════════════════════════════════ TASK OVERVIEW ════════════════════════════
