@@ -13,6 +13,8 @@ uv run pytest tests/unit tests/integration -v        # all tests
 uv run pytest tests/unit/test_flow.py::test_name -v  # single test
 uv run pytest tests/unit tests/integration -v -m "not e2e"  # skip e2e
 
+make coverage                                        # same tests + the CI coverage gate (see below)
+
 uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
@@ -67,6 +69,8 @@ class MyCrew:
 
 **Stats** — `get_stats()` does a single SQL pass; keep it that way.
 
+**Coverage gate is a ratchet** — CI measures `src/` over unit + integration and fails below `[tool.coverage.report] fail_under` in `pyproject.toml` (the only place the number lives). Raise it when coverage grows; never lower it — `scripts/coverage_ratchet.py` fails any PR that does. Don't add `omit` entries to move the number.
+
 **Automation registry (SSOT)** — every job type is declared once as an `AutomationSpec` in `src/automation/spec.py`. The allowlist (`settings_store.ALL_AUTOMATIONS`), dispatch (`executor._FLOW_MAP`), validator (`_CHECKS`), rubrics (`_RUBRICS`), and step graph (`flow_steps.FLOW_STEPS`) are all **derived** from it — do not hand-edit those tables. `test_spec_registry.py` fails loud if a spec is inconsistent or its flow can't import. The allowlist still gates both UI visibility (`enabled_automations`) and server-side running (`assert_can_run` → `is_automation_enabled`).
 
 **Eval judge independence** — `evaluator.py` must never score with the same model that produced the output (self-grading inflates scores). Preserve the fallback order: configured/independent judge → a sibling model in the run's provider → the run's own model only as a last resort.
@@ -78,6 +82,17 @@ class MyCrew:
 Since Phase 1 of the [extensibility RFC](doc/automation-extensibility-design.md), the
 per-job-type tables (`_FLOW_MAP`, `ALL_AUTOMATIONS`, `_CHECKS`, `_RUBRICS`, `FLOW_STEPS`)
 are **derived from one declaration**. To add a job type:
+
+**Shortcut — scaffold steps 1–4 plus a unit-test skeleton** (single-crew, modelled on `hn_digest`):
+
+```bash
+make new-automation NAME=my_thing            # or: uv run python scripts/new_automation.py my_thing [--title "My Thing"]
+```
+
+It writes the flow, the crew (YAML + plain-class `crew.py`), `tests/unit/test_my_thing_flow.py`,
+and inserts the `register(AutomationSpec(...))` entry and the `_AGENT_DEFS` row. The spec uses
+`custom_ui=False` + a declared `topic` field, so step 5 (UI) is not needed. It refuses to run if
+the name is invalid/taken or any target file exists. Then fill in the TODOs. The manual steps:
 
 1. `src/automation/spec.py` — add one `register(AutomationSpec(...))` (name, icon, flow
    module/class, `start_log`, `temperature`, `steps`, `validate`, `rubric`). This single

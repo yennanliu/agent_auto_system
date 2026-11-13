@@ -52,6 +52,17 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = ["e2e: end-to-end tests requiring real browser and API keys"]
 
+# Coverage of src/ over unit + integration tests. `fail_under` is the CI gate and
+# a RATCHET: raise it as coverage grows, never lower it (CI enforces this on PRs
+# via scripts/coverage_ratchet.py). Keep it ~1 point under the measured total.
+# Nothing is omitted — live-browser tool modules count against the number too.
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+fail_under = 71
+precision = 2
+
 [tool.ruff]
 line-length = 100
 
