@@ -39,6 +39,7 @@ class CronScheduler:
         self.interval = max(5, interval)
         self._next_due: dict[int, datetime] = {}
         self._task: asyncio.Task | None = None
+        self._canary_task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
 
     # ── pure core (unit-tested without a DB or event loop) ────────────────────
@@ -78,6 +79,7 @@ class CronScheduler:
     async def tick(self, now: datetime | None = None) -> list[int]:
         """One scheduling pass. Returns the run_ids launched (for tests/logging)."""
         now = now or datetime.now(UTC)
+        self._maybe_run_canaries(now)
         try:
             jobs = await asyncio.to_thread(self._load_scheduled_jobs)
         except Exception:
@@ -107,6 +109,17 @@ class CronScheduler:
             except Exception:
                 logger.exception("Scheduler: failed to launch job_id=%d", job.id)
         return launched
+
+    def _maybe_run_canaries(self, now: datetime) -> None:
+        """Opt-in nightly scraper canaries (CANARY_ENABLED=1) — see canary.py.
+        Runs off-loop (blocking Playwright) and never overlaps a previous run."""
+        try:
+            from src.automation import canary
+            if canary.schedule.due(now) and (self._canary_task is None or self._canary_task.done()):
+                logger.info("Scheduler: starting scraper canaries")
+                self._canary_task = asyncio.create_task(asyncio.to_thread(canary.run_all_safe))
+        except Exception:
+            logger.exception("Scheduler: canary trigger failed")
 
     async def _run_loop(self) -> None:
         logger.info("Cron scheduler started (interval=%ds)", self.interval)

@@ -58,6 +58,35 @@ class Field:
 
 
 @dataclass(frozen=True)
+class Canary:
+    """A cheap, **read-only** drift probe for one automation (see ``canary.py``).
+
+    Pure data on purpose: there is no callable here, so a canary cannot be wired
+    to an apply / submit / send code path. The runner only ever loads ``url`` and
+    *counts* elements (or, for ``kind="http"``, greps a GET response body).
+
+    ``expect`` — every entry must be satisfied:
+      * ``kind="browser"``: CSS selectors; each must match at least one element.
+      * ``kind="http"``: substrings; each must appear in the response body.
+    """
+
+    kind: str  # "browser" | "http"
+    url: str  # https target; may contain "{seed}" when seed_url is set
+    expect: tuple[str, ...]
+    # Tool module whose selectors `expect` mirrors. A unit test asserts each
+    # browser selector still appears in that module, so the canary can't quietly
+    # probe something the automation no longer relies on.
+    source: str = ""
+    session: str = ""  # browser_session name whose saved login is loaded; "" = login-free
+    headed: bool = False  # site serves headless browsers an empty/blocked page
+    # Optional two-step probe: GET seed_url (JSON), read seed_path (dotted, e.g.
+    # "jobs.0.id") and substitute it for "{seed}" in url.
+    seed_url: str = ""
+    seed_path: str = ""
+    wait_ms: int = 15000  # how long to wait for client-side rendering
+
+
+@dataclass(frozen=True)
 class AutomationSpec:
     """Everything the platform needs to know about one job type."""
 
@@ -84,6 +113,10 @@ class AutomationSpec:
     custom_ui: bool = False
     help_note: str = ""  # optional HTML note rendered under a generic form
     desc: str = ""  # one-line description shown on the picker tile
+    # Scraper drift detection (E7). `canary` is the nightly read-only probe;
+    # `canary_skip` says why a browser automation deliberately has none.
+    canary: Canary | None = None
+    canary_skip: str = ""
 
 
 REGISTRY: dict[str, AutomationSpec] = {}
@@ -184,6 +217,12 @@ def step_map() -> dict[str, list[tuple[str, str]]]:
     return {jt: list(s.steps) for jt, s in REGISTRY.items() if s.steps}
 
 
+def canaries() -> dict[str, Canary]:
+    """job_type → drift canary, for the automations that declare one."""
+    ensure_plugins_loaded()
+    return {jt: s.canary for jt, s in REGISTRY.items() if s.canary is not None}
+
+
 def manifest() -> list[dict]:
     """Serialize the registry for the browser (GET /api/automations/manifest).
 
@@ -217,6 +256,26 @@ def manifest() -> list[dict]:
     return out
 
 
+def _canary_problems(s: AutomationSpec) -> list[str]:
+    c = s.canary
+    if c is None:
+        return []
+    out: list[str] = []
+    if s.canary_skip:
+        out.append("canary and canary_skip are mutually exclusive")
+    if c.kind not in ("browser", "http"):
+        out.append(f"canary kind {c.kind!r} is not browser/http")
+    if not c.url.startswith("https://"):
+        out.append("canary url must be https")
+    if not c.expect or not all(c.expect):
+        out.append("canary expects nothing")
+    if bool(c.seed_url) != bool(c.seed_path) or bool(c.seed_url) != ("{seed}" in c.url):
+        out.append("canary seed_url, seed_path and a {seed} placeholder go together")
+    if c.kind == "http" and (c.session or c.headed):
+        out.append("an http canary has no session/headed browser")
+    return out
+
+
 def validate_registry() -> list[str]:
     """Return a list of consistency problems (empty == healthy).
 
@@ -237,6 +296,7 @@ def validate_registry() -> list[str]:
         # A flow-backed type needs both module and class.
         if bool(s.flow_module) != bool(s.flow_class):
             problems.append(f"{jt}: flow_module/flow_class must be set together")
+        problems.extend(f"{jt}: {p}" for p in _canary_problems(s))
     return problems
 
 
@@ -253,6 +313,14 @@ register(AutomationSpec(
            *_QA, _DONE),
     validate=lambda r: (r.get("submitted") is True, "form not submitted"),
     rubric="The form was actually submitted (submitted=true) with sensible field values.",
+    # The inspector parses FB_PUBLIC_LOAD_DATA_ out of the public viewform HTML.
+    # Probed with a plain GET of the demo form — nothing is ever submitted.
+    canary=Canary(
+        kind="http",
+        url="https://docs.google.com/forms/d/e/1FAIpQLSc0E2-jTMy8WNFLlHc5rG4zw3U1QaCykBra3mdqFv0DNb8i9Q/viewform",
+        expect=("FB_PUBLIC_LOAD_DATA_",),
+        source="src.automation.tools.google_form_tools",
+    ),
 ))
 
 register(AutomationSpec(
@@ -301,6 +369,11 @@ register(AutomationSpec(
         "no profile data found",
     ),
     rubric="Real profile/post data was captured, not empty or an error page.",
+    canary_skip=(
+        "Logged-out x.com needs a POST guest-token handshake, which the canary's "
+        "read-only network guard blocks; the nitter mirrors the tool tries first "
+        "come and go too often to page on."
+    ),
 ))
 
 register(AutomationSpec(
@@ -342,6 +415,12 @@ register(AutomationSpec(
            *_QA, _DONE),
     validate=lambda r: (bool(r.get("sellers")), "no sellers found"),
     rubric="A non-empty list of sellers with plausible fields was returned.",
+    canary=Canary(
+        kind="browser", session="shopee",
+        url="https://shopee.tw/search?keyword=%E8%80%B3%E6%A9%9F&page=0",
+        expect=('a[href*="-i."]',),
+        source="src.automation.tools.shopee_scraper_tool",
+    ),
     name_template="Shopee: {keyword}",
     fields=(
         Field("keyword", "text", "Search Keyword", required=True,
@@ -383,6 +462,12 @@ register(AutomationSpec(
     rubric=("Cases were found and an accurate applied[] list reflects real submissions; "
             "when a task_filter was used, cases skipped as 'filtered out' with a reason are "
             "correct behavior, not failures."),
+    canary=Canary(
+        kind="browser", session="tasker",
+        url="https://www.tasker.com.tw/cases",
+        expect=('a[href*="/cases/"]',),
+        source="src.automation.tools.tasker_apply_tool",
+    ),
 ))
 
 register(AutomationSpec(
@@ -399,6 +484,15 @@ register(AutomationSpec(
             "(a submission counts only when the site confirmed /job/apply/done/); jobs "
             "skipped as already-applied or 'filtered out' with a reason are correct "
             "behavior, not failures."),
+    # The job search is public, so this probe is login-free: an expired 104
+    # session can never masquerade as listing drift. Headed because 104 serves
+    # headless browsers an empty result list (same reason the tool is headed).
+    canary=Canary(
+        kind="browser", headed=True,
+        url="https://www.104.com.tw/jobs/search/?keyword=python&order=1&page=1",
+        expect=("a[href*='/job/']",),
+        source="src.automation.tools.tw104_apply_tool",
+    ),
 ))
 
 register(AutomationSpec(
@@ -415,6 +509,12 @@ register(AutomationSpec(
             "(a submission counts only when LinkedIn confirmed the 'application was sent' "
             "banner); jobs skipped as already-applied or 'filtered out' with a reason are "
             "correct behavior, not failures."),
+    canary=Canary(
+        kind="browser", session="linkedin", headed=True,
+        url="https://www.linkedin.com/jobs/search-results/?keywords=software+engineer&f_AL=true",
+        expect=("[componentkey^='job-card-component-ref-'], [data-job-id]",),
+        source="src.automation.tools.linkedin_apply_tool",
+    ),
 ))
 
 register(AutomationSpec(
@@ -431,6 +531,18 @@ register(AutomationSpec(
             "applications (a submission counts only when Greenhouse showed its "
             "confirmation page); jobs skipped as already-applied, 'filtered out', or "
             "for an unanswerable required question are correct behavior, not failures."),
+    # Two-step, login-free: take a live job id from the public Job Board API,
+    # open its application form and check the fields + Submit button the filler
+    # targets are still there (counted, never touched).
+    canary=Canary(
+        kind="browser",
+        seed_url="https://boards-api.greenhouse.io/v1/boards/figma/jobs", seed_path="jobs.0.id",
+        url="https://job-boards.greenhouse.io/embed/job_app?for=figma&token={seed}",
+        expect=("[id='first_name']",
+                "button[type='submit']:has-text('Submit'), "
+                "button:has-text('Submit application'), input[type='submit']"),
+        source="src.automation.tools.greenhouse_apply_tool",
+    ),
     name_template="Greenhouse: {boards}",
     fields=(
         Field("boards", "text", "Job Boards", required=True,
@@ -517,6 +629,13 @@ register(AutomationSpec(
            ("Qualify", "Qualifying"), *_QA, _DONE),
     validate=lambda r: (r.get("discovered_count", 0) > 0, "no businesses discovered"),
     rubric="Real businesses were discovered with verified contact emails and useful personalization hooks.",
+    # Google Maps is the default discovery source and the only browser-driven one.
+    canary=Canary(
+        kind="browser",
+        url="https://www.google.com/maps/search/coffee%20Taipei?hl=en",
+        expect=('a[href*="/maps/place/"]',),
+        source="src.automation.tools.maps_search_tool",
+    ),
 ))
 
 # Pipeline is dispatched directly by the executor (no flow class) and defines no

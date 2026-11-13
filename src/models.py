@@ -84,3 +84,16 @@ class Run(SQLModel, table=True):
     eval_confidence: float | None = None    # 0-1 confidence in the score
     eval_notes: str | None = None           # short rationale
     eval_method: str | None = None          # "llm" | "heuristic"
+
+
+class CanaryResult(SQLModel, table=True):
+    """One read-only scraper drift probe (E7) — see src/automation/canary.py."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    job_type: str = Field(index=True)
+    # ok | failed | session_expired | skipped_no_session | error
+    status: str
+    detail: str = ""
+    duration_ms: int = 0
+    alert: str | None = None  # failing | failure_rate | recovered, when this probe raised one
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
