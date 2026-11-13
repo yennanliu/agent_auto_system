@@ -41,7 +41,7 @@ def scraper():
 
 @pytest.fixture
 def result(scraper):
-    with patch("src.automation.tools.web_scraper_tool.urllib.request.urlopen",
+    with patch("src.automation.tools.web_scraper_tool.net_guard.urlopen",
                return_value=_mock_urlopen(SAMPLE_HTML)):
         return scraper._run(url="https://test.example.com")
 
@@ -65,7 +65,7 @@ def test_title_extracted(result):
 
 def test_title_fallback_on_missing(scraper):
     html = "<html><body><p>No title here</p></body></html>"
-    with patch("src.automation.tools.web_scraper_tool.urllib.request.urlopen",
+    with patch("src.automation.tools.web_scraper_tool.net_guard.urlopen",
                return_value=_mock_urlopen(html)):
         r = scraper._run(url="https://example.com")
     assert r["title"] == "Untitled"
@@ -79,7 +79,7 @@ def test_meta_description_extracted(result):
 
 def test_meta_description_empty_when_absent(scraper):
     html = "<html><head><title>X</title></head><body>hi</body></html>"
-    with patch("src.automation.tools.web_scraper_tool.urllib.request.urlopen",
+    with patch("src.automation.tools.web_scraper_tool.net_guard.urlopen",
                return_value=_mock_urlopen(html)):
         r = scraper._run(url="https://example.com")
     assert r["meta_description"] == ""
@@ -117,7 +117,7 @@ def test_style_stripped_from_text(result):
 def test_text_truncated_to_8000_chars(scraper):
     long_body = "word " * 2000  # ~10 000 chars
     html = f"<html><head><title>T</title></head><body><p>{long_body}</p></body></html>"
-    with patch("src.automation.tools.web_scraper_tool.urllib.request.urlopen",
+    with patch("src.automation.tools.web_scraper_tool.net_guard.urlopen",
                return_value=_mock_urlopen(html)):
         r = scraper._run(url="https://example.com")
     assert len(r["text"]) <= 8000

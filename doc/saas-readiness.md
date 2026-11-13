@@ -245,9 +245,11 @@ Carrying over from `improvements.md` §5, now higher-severity because untrusted 
 users will hit these:
 
 **TODO**
-- [ ] **SSRF** in `WebScraperTool` — scrapes any URL, including `169.254.169.254`
+- [x] **SSRF** in `WebScraperTool` — scrapes any URL, including `169.254.169.254`
       (cloud metadata) and RFC-1918 internal hosts. Add an allowlist/blocklist + response
-      size cap. Critical once *customers* control the URL.
+      size cap. Critical once *customers* control the URL. *Done: shared guard in
+      `src/automation/net_guard.py` covers every payload/LLM/scrape-supplied fetch — see
+      [ssrf-guard.md](ssrf-guard.md) for the audit and residual gaps.*
 - [ ] **No insecure defaults in production**: `admin`/`admin` seed and
       `APP_SECRET=dev-insecure-change-me` are shipped in `.env.example` and are the fallback
       defaults (`main.py:22,36`). Fail-fast (refuse to boot) when these are unset/default in
@@ -332,7 +334,7 @@ checks). Gaps for running it *as a service*:
 - [ ] Fix the `pipeline.py:55` 3-tuple unpack bug (§6).
 - [ ] Scope `GET /jobs` and job detail/edit/delete by owner (§1) — a real isolation hole now.
 - [ ] Fail-fast on default `APP_SECRET` / `admin` password in prod (§8).
-- [ ] SSRF blocklist in `WebScraperTool` (§8).
+- [x] SSRF blocklist in `WebScraperTool` (§8) — [ssrf-guard.md](ssrf-guard.md).
 - [ ] `https_only=True` + `same_site` on the session cookie in prod (§2).
 - [ ] Confirmation dialog before bulk-delete; Retry button on failed runs (§9).
 </content>

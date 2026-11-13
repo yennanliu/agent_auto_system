@@ -19,6 +19,7 @@ and flagged `guessed=True` so the verify stage can confirm it before use — nev
 on shared hosts (facebook.com, etc.), where a guess would be meaningless.
 """
 import json
+import logging
 import re
 import ssl
 import urllib.parse
@@ -28,11 +29,14 @@ import tldextract
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation import net_guard
 from src.automation.tools.contact_harvest import _EMAIL_RE, _ROLE_LOCALPARTS
 from src.automation.tools.contact_harvest import decode_cfemail as _decode_cfemail
 from src.automation.tools.contact_harvest import deobfuscate_emails as _deobfuscate
 from src.automation.tools.contact_harvest import is_valid_email as _is_valid
 from src.automation.tools.contact_harvest import rank_emails as _rank
+
+_logger = logging.getLogger(__name__)
 
 _HEADERS = {
     "User-Agent": (
@@ -189,11 +193,18 @@ def _render_and_harvest(base: str, domain: str, log) -> tuple[set[str], int]:
                 page = browser.new_context(
                     user_agent=_HEADERS["User-Agent"]
                 ).new_page()
+                # SSRF: abort any request (document, iframe, script fetch) to a
+                # non-public host, and vet where each navigation ends up.
+                net_guard.guard_page(page)
 
                 def render(url: str) -> str | None:
                     try:
-                        page.goto(url, wait_until="networkidle", timeout=20000)
+                        net_guard.safe_goto(page, url, wait_until="networkidle",
+                                            timeout=20000)
                         return page.content()
+                    except net_guard.BlockedURLError as exc:
+                        log(f"Skipped {url}: blocked by SSRF guard ({exc})")
+                        return None
                     except Exception:  # noqa: BLE001 — nav timeout / crash
                         return None
 
@@ -293,11 +304,17 @@ def _normalize(website: str) -> str:
 def _fetch(url: str) -> str | None:
     try:
         req = urllib.request.Request(url, headers=_HEADERS)
-        resp = urllib.request.urlopen(req, timeout=15, context=_SSL_CTX)
+        # The website comes from a Maps listing / registry / payload and the
+        # contact links from the page itself — none of it is ours, so every
+        # fetch (and every redirect hop) goes through the SSRF guard.
+        resp = net_guard.urlopen(req, timeout=15, context=_SSL_CTX)
         cl = resp.headers.get("Content-Length")
         if cl and int(cl) > _MAX_BYTES:
             return None
         return resp.read(_MAX_BYTES).decode("utf-8", errors="replace")
+    except net_guard.BlockedURLError as exc:
+        _logger.warning("SSRF guard skipped %s: %s", url, exc)
+        return None
     except Exception:  # noqa: BLE001 — dead link / timeout / TLS error → skip page
         return None
 

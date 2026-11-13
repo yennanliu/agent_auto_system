@@ -5,6 +5,8 @@ from crewai.tools import BaseTool
 from playwright.sync_api import Page, sync_playwright
 from pydantic import BaseModel
 
+from src.automation import net_guard
+
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSc0E2-jTMy8WNFLlHc5rG4zw3U1QaCykBra3mdqFv0DNb8i9Q/viewform"
 SCREENSHOT_DIR = Path("data/screenshots")
 
@@ -31,21 +33,32 @@ class PlaywrightFormTool(BaseTool):
         company_size: str = "0-10",
         ai_problem: str = "",
     ) -> dict:
+        # `url` is a tool argument (payload / agent), so vet it before a browser
+        # is even launched. Chromium can't be pinned to the checked address — the
+        # request interceptor + post-navigation check below narrow that gap.
+        reason = net_guard.reject_reason(url)
+        if reason:
+            return {"submitted": False, "error": f"Blocked by SSRF guard: {reason}"}
+
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_page()
+            net_guard.guard_page(page)
 
             try:
                 # 'load' fires once HTML + blocking resources are done.
                 # Google Forms never reaches 'networkidle' (analytics keep polling).
-                page.goto(url, wait_until="load", timeout=30_000)
+                net_guard.safe_goto(page, url, wait_until="load", timeout=30_000)
 
                 # Wait until the first real question input appears.
                 page.wait_for_selector('input[type="text"]', timeout=15_000)
 
                 result = _fill_and_submit(page, company_name, company_size, ai_problem)
+            except net_guard.BlockedURLError as exc:
+                browser.close()
+                return {"submitted": False, "error": f"Blocked by SSRF guard: {exc}"}
             except Exception as exc:
                 page.screenshot(path=str(SCREENSHOT_DIR / "error.png"))
                 browser.close()

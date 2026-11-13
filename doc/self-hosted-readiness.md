@@ -159,8 +159,9 @@ and those are the runtime fallback defaults (`main.py:22,36`) with only a log wa
       via the wizard (P0-2).
 - [ ] `SessionMiddleware(https_only=True, same_site="lax")` and ship TLS guidance
       (reverse-proxy / Caddy auto-HTTPS in the compose file).
-- [ ] SSRF blocklist in `WebScraperTool` (RFC-1918 + cloud metadata) — the operator's
-      internal network is now the thing at risk.
+- [x] SSRF blocklist in `WebScraperTool` (RFC-1918 + cloud metadata) — the operator's
+      internal network is now the thing at risk. *Done — [ssrf-guard.md](ssrf-guard.md);
+      intranet scraping is opt-in via `SSRF_ALLOW_HOSTS` / `SSRF_ALLOW_PRIVATE`.*
 - [ ] A short **hardening checklist** in the docs (change secrets, put behind TLS, don't
       expose Prometheus :9090 publicly — today compose maps it to the host).
 
@@ -286,7 +287,7 @@ boundary — polish it rather than rebuild it.
 - [ ] Surface the app version in `/health` and the UI footer.
 - [ ] Publish the Docker image to a registry and switch compose to `image:` not `build:`.
 - [ ] Add the registry-conformance test; fix the `pipeline.py:55` unpack bug.
-- [ ] SSRF blocklist in `WebScraperTool`.
+- [x] SSRF blocklist in `WebScraperTool` — [ssrf-guard.md](ssrf-guard.md).
 - [ ] Don't expose Prometheus :9090 to the host by default in the shipped compose file.
 
 ---

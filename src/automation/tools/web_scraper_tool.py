@@ -4,6 +4,8 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation import net_guard
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -29,7 +31,12 @@ class WebScraperTool(BaseTool):
 
     def _run(self, url: str) -> dict:
         req = urllib.request.Request(url, headers=_HEADERS)
-        resp = urllib.request.urlopen(req, timeout=30)
+        # The URL comes from the job payload / the agent, so it goes through the
+        # SSRF guard (public hosts only, re-checked on every redirect hop).
+        try:
+            resp = net_guard.urlopen(req, timeout=30)
+        except net_guard.BlockedURLError as exc:
+            return {"url": url, "error": f"Blocked by SSRF guard: {exc}"}
 
         content_length = resp.headers.get("Content-Length")
         if content_length and int(content_length) > _MAX_RESPONSE_BYTES:
