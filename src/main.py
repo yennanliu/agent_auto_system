@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -119,8 +120,29 @@ app.include_router(sessions.router, prefix="/api", dependencies=_gated)
 app.include_router(uploads.router, prefix="/api", dependencies=_gated)
 app.include_router(cover_letters.router, prefix="/api", dependencies=_gated)
 
+# The UI is a set of native ES modules (ui/js/*.js, no build step). Browsers refuse a
+# module script that isn't served with a JavaScript MIME type, and some hosts (notably
+# Windows, via the registry) map .js to text/plain — so pin it rather than trust the OS.
+mimetypes.add_type("text/javascript", ".js")
+
+
+class _RevalidatedStatic(StaticFiles):
+    """Static UI files that the browser must revalidate on every load.
+
+    Without a Cache-Control header browsers cache heuristically, so after an upgrade a
+    client could mix a fresh module with a stale one whose exports no longer match —
+    which fails the whole module graph. ``no-cache`` still allows caching, but forces an
+    ETag/Last-Modified check (a cheap 304) so the module set is always consistent.
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
 if Path("ui").exists():
-    app.mount("/ui", StaticFiles(directory="ui"), name="ui")
+    app.mount("/ui", _RevalidatedStatic(directory="ui"), name="ui")
 
 
 @app.get("/")

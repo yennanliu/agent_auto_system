@@ -127,7 +127,7 @@ All LLM-backed jobs accept optional `llm_provider`, `llm_model`, and `max_retrie
 
 ### Adding a new job type
 
-Touch these 6 files (see `CLAUDE.md`): `executor.py` (`_FLOW_MAP`) · `flows/<name>_flow.py` · `crews/<name>_crew/` · `routers/system.py` (`_CATALOG`) · `ui/app.js` (+ `ui/index.html`) · `settings_store.py` (`ALL_AUTOMATIONS` — required, or the type is invisible in the UI and blocked server-side).
+Touch these 6 files (see `CLAUDE.md`): `executor.py` (`_FLOW_MAP`) · `flows/<name>_flow.py` · `crews/<name>_crew/` · `routers/system.py` (`_CATALOG`) · `ui/js/` (+ `ui/index.html`) · `settings_store.py` (`ALL_AUTOMATIONS` — required, or the type is invisible in the UI and blocked server-side).
 
 ---
 
@@ -364,7 +364,7 @@ agent_auto_system/
 │                                #   gmail, maps_search, email_extract, email_verify
 ├── scripts/                     # shopee_login.py, tasker_login.py (persist sessions)
 ├── tests/  (unit/ + integration/, 380 tests)
-├── ui/     index.html · app.js · styles.css
+├── ui/     index.html · styles.css · js/ (ES modules, no build step; entry: js/main.js)
 └── doc/    design · dev-notes · docker · auth-and-admin · profit-health · email_collect · …
 ```
 
