@@ -87,6 +87,8 @@ Pass these via `-e`, `--env-file`, or the `env_file:` key in compose.
 | `DATABASE_URL` | No | `sqlite:///./data/auto.db` | SQLAlchemy DB URL; change to use an external DB |
 | `GMAIL_ADDRESS` | No | — | Gmail address for the Email Sender automation |
 | `GMAIL_APP_PASSWORD` | No | — | Gmail App Password (not your login password) |
+| `LOG_FORMAT` | No | `text` | Set `json` for one-JSON-object-per-line logs (recommended when a log collector reads the container's output); see [dev-notes](dev-notes.md#structured-logging) |
+| `LOG_LEVEL` | No | — | Root log level (`DEBUG`/`INFO`/…); `INFO` in json mode when unset |
 
 > **Never bake secrets into the image.** The `.env` file is in `.dockerignore`
 > and will never be included in a build context.

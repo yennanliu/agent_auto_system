@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src import telemetry as _tel
 from src.auth import require_user
 from src.database import get_engine, init_db, reconcile_stale_runs
+from src.logging_setup import RequestContextMiddleware, setup_logging
 from src.routers import (
     admin,
     auth,
@@ -24,6 +25,7 @@ from src.routers import (
     uploads,
 )
 
+setup_logging()  # LOG_FORMAT=json|text (default text = no-op), LOG_LEVEL
 logger = logging.getLogger(__name__)
 
 # Cookie signing + (later) key-derivation secret. A fixed dev default is used when
@@ -67,6 +69,7 @@ def _seed_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()  # again: uvicorn.run(app) configures its loggers after import
     _tel.setup(app)
     # Off the event loop — these do network I/O (client auth + score-config
     # registration) and must not block startup if Langfuse is slow/unreachable.
@@ -100,6 +103,8 @@ if APP_SECRET == _DEV_SECRET:
         "APP_SECRET is unset; using an insecure dev default. Set APP_SECRET in "
         "production — sessions are signed with it."
     )
+# Added before SessionMiddleware so it runs *inside* it and can read the session.
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET, https_only=False)
 
 # Auth endpoints stay open (login must be reachable without a session).
