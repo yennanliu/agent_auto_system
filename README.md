@@ -295,6 +295,7 @@ Or with compose (wires volumes + optional Prometheus sidecar): `docker compose u
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | ≥ 1 | LLM provider key(s) — can also be stored (encrypted) via Admin |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | no | First admin seeded on startup (`admin`/`admin`) |
 | `APP_SECRET` | prod | Signs session cookies — set a long random value |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_LOGIN_IP` / `RATE_LIMIT_LOGIN_USERNAME` / `RATE_LIMIT_RUN` | no | Login brute-force + run-trigger limits (on by default) — see [doc/dev-notes.md](doc/dev-notes.md#rate-limiting) |
 | `DATABASE_URL` | no | Defaults to `sqlite:///./data/auto.db`; set a Postgres URL for prod |
 | `EVAL_JUDGE_PROVIDER` / `EVAL_JUDGE_MODEL` | no | Override the LLM-as-judge (else Admin setting → default Gemini) |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | no | Enable per-run Langfuse traces |

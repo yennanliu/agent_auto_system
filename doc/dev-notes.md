@@ -16,6 +16,46 @@ The `ALTER TABLE` migrations in `init_db()` are SQLite-specific. For Postgres us
 
 ---
 
+## Rate limiting
+
+`src/rate_limit.py` — a small in-process limiter built on the `limits` library (the engine
+underneath `slowapi`; slowapi's own decorators can't key on the username in the login body or
+count only failed attempts). Over-budget requests get **429** with a `Retry-After` header and a
+readable `detail`, which the UI shows as-is.
+
+| Env var | Default | Counts | Keyed by |
+|---|---|---|---|
+| `RATE_LIMIT_ENABLED` | `1` | `0` turns every limit off | — |
+| `RATE_LIMIT_LOGIN_IP` | `10/minute` | **failed** `POST /api/auth/login` | client IP |
+| `RATE_LIMIT_LOGIN_USERNAME` | `10/5minutes` | **failed** `POST /api/auth/login` | submitted username (lower-cased) |
+| `RATE_LIMIT_RUN` | `20/minute;200/hour` | `POST /api/jobs/{id}/run` | authenticated user id |
+
+Values use the `limits` syntax (`N/second|minute|hour|day`, `N/5minutes`); `;` combines several
+windows; an empty value disables that one limit; an invalid value logs a warning and falls back to
+the default. Moving-window strategy.
+
+- **Login** — successful sign-ins are never counted, so a shared office IP isn't penalised for
+  normal use. Once a budget is exhausted the endpoint answers 429 *before* checking the password
+  (even a correct one), so a locked-out guesser learns nothing. Trade-off: someone can lock a known
+  username out for the window by failing on purpose — the usual price of a per-account limit; raise
+  or empty `RATE_LIMIT_LOGIN_USERNAME` if that matters more than distributed guessing.
+- **Run trigger** — the check lives in the HTTP route, not in `launcher.launch_run()`, so the cron
+  scheduler is **not** rate limited. It caps how *often* a user starts runs, not how many run at
+  once.
+- **Client IP behind a proxy** — the limiter uses `request.client.host` and never reads
+  `X-Forwarded-For` itself (a client-supplied header would make the key spoofable). Behind a
+  reverse proxy / load balancer, set uvicorn's `FORWARDED_ALLOW_IPS` (or `--forwarded-allow-ips`)
+  to the proxy's address/CIDR — uvicorn then rewrites the client address from the header for
+  trusted peers only. Left unset, every client behind the proxy shares one IP bucket: coarse, but
+  not bypassable. Do not set it to `*` on a directly reachable server.
+- **Single process only** — counters are in memory: they reset on restart and are not shared
+  between workers or replicas (N workers ⇒ up to N× each budget). Move the `limits` storage to
+  Redis before running more than one worker.
+- **Not covered** — SSO callbacks (the provider does its own throttling), `POST /api/auth/password`
+  and the admin endpoints (both already require a session).
+
+---
+
 ## Harness Internals
 
 ### provider.py
