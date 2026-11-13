@@ -129,6 +129,18 @@ def _quality_bucket(score: float) -> str:
     return "poor"
 
 
+def _usage_details(tokens_in: int, tokens_out: int, cached: int = 0, cache_write: int = 0) -> dict:
+    """Langfuse usage breakdown. ``tokens_in`` is the whole prompt, so when part of it
+    hit the prompt cache, ``input`` is narrowed to the uncached remainder and the cache
+    parts get their own keys (the parts still sum to ``total``)."""
+    details = {"input": tokens_in, "output": tokens_out, "total": tokens_in + tokens_out}
+    if cached or cache_write:
+        details["input"] = max(tokens_in - cached - cache_write, 0)
+        details["cache_read_input_tokens"] = cached
+        details["cache_creation_input_tokens"] = cache_write
+    return details
+
+
 def record_run(
     *,
     run_id: int,
@@ -141,6 +153,8 @@ def record_run(
     tokens_in: int = 0,
     tokens_out: int = 0,
     cost_usd: float = 0.0,
+    tokens_cached: int = 0,
+    tokens_cache_write: int = 0,
     duration_secs: float | None = None,
     eval_score: float | None = None,
     eval_confidence: float | None = None,
@@ -203,11 +217,7 @@ def record_run(
                     model=model,
                     input=payload,
                     output=result,
-                    usage_details={
-                        "input": tokens_in,
-                        "output": tokens_out,
-                        "total": tokens_in + tokens_out,
-                    },
+                    usage_details=_usage_details(tokens_in, tokens_out, tokens_cached, tokens_cache_write),
                     cost_details={"total": cost_usd},
                     level=level,
                     status_message=status_message,

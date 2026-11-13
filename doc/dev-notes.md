@@ -45,6 +45,15 @@ LLM-as-judge quality scoring (0-100 score + 0-1 confidence), purely informationa
 
 Pricing table keyed by bare model name (strips `gemini/` prefix). `estimate_cost(model, tokens_in, tokens_out)` returns USD float.
 
+### Prompt caching
+
+`estimate_cost` also takes `cached_tokens` and `cache_write_tokens`: the parts of `tokens_in` billed at the model's cache-read and cache-write rates (`_CACHE_PRICING`). A model with no verified cache rate is charged full input for reads and 1.25x input for writes, so the estimate can run high but not low. `prompt_tokens` always means the whole prompt: OpenAI and Gemini report it that way, and `provider._AnthropicLLM` folds Anthropic's separately reported cache counts back in. The counts reach the run log (`Prompt cache: N tokens read, M written`) and the Langfuse generation's `usage_details`; they are not stored on the `Run` row.
+
+- **Anthropic** caches only what a request marks. `provider._mark_cache_breakpoint` puts one 5-minute `cache_control` breakpoint on the system prompt, which also covers the tool definitions rendered before it. On by default; `PROMPT_CACHE_ENABLED=0` turns it off. crewai 1.14 has no caching option of its own (it calls the Anthropic SDK directly, no litellm), so the marker is added in the `_prepare_completion_params` override.
+- **OpenAI and Gemini** cache a repeated prompt prefix on their own once it is long enough (around 1,024 tokens on OpenAI). Nothing is sent differently; the task templates already put the stable text (filter, offer, instructions) before the per-item text, and no crew puts a date or run id in its prompt. Keep it that way.
+
+**What it saves today: nothing for the built-in crews.** Their stable prefix (tools + system prompt) is about 140-300 tokens by an offline `tiktoken` count, perhaps 400 on Claude's newer tokenizer. Anthropic's minimum is 512 tokens on the 5.x models, 1,024 on Sonnet 4.6 and 4,096 on Haiku 4.5 (the default), and a shorter prefix is silently sent uncached. A cache entry also lives 5 minutes, so an hourly or daily schedule would miss it even with a long prompt. Caching starts to pay when a custom automation has long instructions (they become the system prompt) and runs many times within minutes, or when a funnel flow judges dozens of items in a row with a long shared prefix. The task message is deliberately not marked: most crews make two LLM calls per run, and a cache write that is read at most once costs 25% extra for nothing.
+
 ### tracker.py (removed)
 
 `update_run_metrics()` was merged into `executor._update_run()` via `**metrics` kwargs so metrics and status are written in a single DB session.
