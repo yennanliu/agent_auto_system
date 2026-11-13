@@ -1,0 +1,81 @@
+id: top5-ai-tooling
+job_type: hacker_news_digest
+description: >-
+  Five synthetic stories, three of them about AI tooling, so "AI" must surface as a
+  theme. One story has no external URL (HN item link) and one has a zero score —
+  neither may be dropped or have its numbers invented.
+payload:
+  limit: 5
+fixtures:
+  tools:
+    hn_top_stories:
+      - title: "Local-first code review with a 4GB model: what actually works"
+        url: "https://example.com/local-code-review"
+        score: 688
+        comments: 251
+        author: "synthetic_user_d"
+      - title: "We replaced our eval harness with 200 golden files"
+        url: "https://example.org/golden-file-evals"
+        score: 530
+        comments: 142
+        author: "synthetic_user_e"
+      - title: "Lanternfish: an open-source tracing UI for agent runs"
+        url: "https://example.net/lanternfish"
+        score: 377
+        comments: 96
+        author: "synthetic_user_f"
+      - title: "The quiet return of server-rendered HTML"
+        url: "https://example.com/server-rendered-html"
+        score: 214
+        comments: 178
+        author: "synthetic_user_g"
+      - title: "Ask HN: What did you automate this year that you regret?"
+        url: "https://news.ycombinator.com/item?id=900000002"
+        score: 0
+        comments: 3
+        author: "synthetic_user_h"
+expect:
+  contains:
+    - "Local-first code review"
+    - "200 golden files"
+    - "Lanternfish"
+    - "server-rendered HTML"
+    - "automate this year"
+  assertions:
+    - {path: "stories", type: list, min_len: 5, max_len: 5}
+    - {path: "stories[*].title", type: str, non_empty: true}
+    - {path: "stories[*].summary", type: str, non_empty: true}
+    - {path: "stories[*].score", type: number, min: 0, max: 688}
+    - {path: "stories[4].score", equals: 0}
+    - {path: "story_of_the_day.title", type: str, non_empty: true}
+    - {path: "themes", type: list, min_len: 2, max_len: 3}
+  min_judge_score: 70
+reference_output:
+  story_of_the_day:
+    title: "Local-first code review with a 4GB model: what actually works"
+    reason: "It tops the list and gives practical evidence about what small local models can do for code review."
+  stories:
+    - title: "Local-first code review with a 4GB model: what actually works"
+      score: 688
+      url: "https://example.com/local-code-review"
+      summary: "A practical write-up of which code review tasks a small 4GB local model handles well."
+    - title: "We replaced our eval harness with 200 golden files"
+      score: 530
+      url: "https://example.org/golden-file-evals"
+      summary: "A team describes swapping a complex evaluation harness for 200 golden files."
+    - title: "Lanternfish: an open-source tracing UI for agent runs"
+      score: 377
+      url: "https://example.net/lanternfish"
+      summary: "Lanternfish is a new open-source interface for tracing and inspecting AI agent runs."
+    - title: "The quiet return of server-rendered HTML"
+      score: 214
+      url: "https://example.com/server-rendered-html"
+      summary: "An essay argues that server-rendered HTML is steadily coming back into favour."
+    - title: "Ask HN: What did you automate this year that you regret?"
+      score: 0
+      url: "https://news.ycombinator.com/item?id=900000002"
+      summary: "A new discussion asks readers which automations from this year they regret building."
+  themes:
+    - "AI tooling and evaluation"
+    - "Open-source developer tools"
+    - "Simpler web architecture"

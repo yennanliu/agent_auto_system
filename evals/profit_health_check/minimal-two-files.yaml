@@ -1,0 +1,113 @@
+# Synthetic shop data. reference_output.skus / .flags are profit_calc's exact output for
+# the fixture CSVs (the offline tier re-computes and compares them) — if you edit a CSV,
+# re-derive them; do not hand-edit the numbers.
+id: minimal-two-files
+job_type: profit_health_check
+description: 'A new seller who uploads only sales + cost (no ads, no returns). One cancelled order (不成立) must be
+  excluded from every number. Nothing is wrong with this shop: no fake hits, no ad or return flags, and the report
+  must not invent problems or ad figures.'
+payload:
+  upload_id: eval-minimal-two-files
+fixtures:
+  upload:
+    sales.csv: |
+      訂單編號,訂單狀態,不成立原因,退貨/退款狀態,訂單出貨類型,買家帳號,訂單建立日期,商品名稱,商品SKU,數量,商品原價(NTD),賣家優惠折扣(NTD),蝦皮平台折扣(NTD),小計(NTD),買家付款金額(NTD),蝦皮手續費(NTD),運費補貼-賣家負擔(NTD),賣家實際入帳(NTD)
+      EVAL0001,已完成,,,由賣家自行出貨,b***1,2026-03-02 10:00,薰衣草手工皂100g,SOAP-LAV-100,2,180,0,0,180,360,18,0,342
+      EVAL0002,已完成,,,由賣家自行出貨,b***2,2026-03-03 10:00,薰衣草手工皂100g,SOAP-LAV-100,3,180,0,0,180,540,27,0,513
+      EVAL0003,不成立,買家取消,,由賣家自行出貨,b***3,2026-03-04 10:00,薰衣草手工皂100g,SOAP-LAV-100,5,180,0,0,180,900,0,0,0
+      EVAL0004,已完成,,,由賣家自行出貨,b***4,2026-03-05 10:00,薰衣草手工皂100g,SOAP-LAV-100,1,180,0,0,180,180,9,0,171
+      EVAL0005,已完成,,,由賣家自行出貨,b***5,2026-03-06 10:00,大豆蠟燭小罐,CANDLE-SOY-S,1,320,0,0,320,320,16,0,304
+      EVAL0006,已完成,,,由賣家自行出貨,b***6,2026-03-07 10:00,大豆蠟燭小罐,CANDLE-SOY-S,2,320,0,0,320,640,32,0,608
+    cost.csv: |
+      商品SKU,商品名稱,進貨成本(NTD),包材成本(NTD),人工/雜項(NTD),單位總成本(NTD),備註
+      SOAP-LAV-100,薰衣草手工皂100g,50,12,8,70,
+      CANDLE-SOY-S,大豆蠟燭小罐,120,12,8,140,
+expect:
+  contains:
+  - SOAP-LAV-100
+  - CANDLE-SOY-S
+  assertions:
+  - path: skus
+    type: list
+    min_len: 2
+    max_len: 2
+  - path: skus[*].ad_spend
+    equals: 0
+  - path: skus[*].refunds
+    equals: 0
+  - path: recommendations
+    type: list
+    min_len: 1
+  - path: summary
+    type: str
+    non_empty: true
+  - path: skus[*].sku
+    type: str
+    non_empty: true
+  - path: recommendations[*].sku
+    type: str
+    non_empty: true
+  - path: recommendations[*].action
+    type: str
+    non_empty: true
+  - path: recommendations[*].reason
+    type: str
+    non_empty: true
+  - path: action_items
+    type: list
+    min_len: 1
+  - path: validation.ok
+    equals: true
+  min_judge_score: 70
+reference_output:
+  summary: 本期僅提供銷售與成本資料，共 5 筆已完成訂單（另有 1 筆不成立訂單已排除）。兩項商品皆健康獲利：薰衣草手工皂淨利 606 元、淨利率 59.06%，大豆蠟燭淨利 492 元、淨利率 53.95%。沒有假爆品、廣告或退貨異常；因未上傳廣告與退貨資料，這兩個面向無法評估。
+  skus:
+  - sku: CANDLE-SOY-S
+    name: 大豆蠟燭小罐
+    revenue: 912.0
+    cost: 420.0
+    ad_spend: 0.0
+    refunds: 0.0
+    net_profit: 492.0
+    margin_pct: 53.95
+    units: 3
+    roas: null
+    return_count: 0
+    return_rate: 0.0
+    flags:
+    - 最賺錢
+  - sku: SOAP-LAV-100
+    name: 薰衣草手工皂100g
+    revenue: 1026.0
+    cost: 420.0
+    ad_spend: 0.0
+    refunds: 0.0
+    net_profit: 606.0
+    margin_pct: 59.06
+    units: 6
+    roas: null
+    return_count: 0
+    return_rate: 0.0
+    flags:
+    - 最賺錢
+  flags:
+    most_profitable:
+    - SOAP-LAV-100
+    - CANDLE-SOY-S
+    fake_hits: []
+    ad_eats_profit: []
+    high_return_rate: []
+  recommendations:
+  - sku: SOAP-LAV-100
+    action: 補貨
+    reason: 淨利率 59.06% 且銷量最高，是目前最賺錢的商品。
+  - sku: CANDLE-SOY-S
+    action: 改組合包
+    reason: 淨利率 53.95% 但僅售出 3 件，可與手工皂組成禮盒提高銷量。
+  action_items:
+  - 下週上傳廣告與退貨資料，以完成完整健檢。
+  - 為 SOAP-LAV-100 補貨並觀察銷量。
+  - 測試手工皂加蠟燭的組合包。
+  validation:
+    ok: true
+    issues: []

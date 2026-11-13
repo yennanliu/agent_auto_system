@@ -1,0 +1,29 @@
+# Automations with NO eval cases, and why. Every registered automation must have
+# either a case under evals/<job_type>/ or an entry here — the offline tier
+# (tests/unit/test_evalset.py) fails otherwise. Keep reasons specific: this list
+# is the backlog of what the eval set does not protect. See doc/evals.md.
+
+google_form_fill: >-
+  The outcome is a side effect (a real Playwright form submission, submitted=true);
+  there is no LLM-only step to replay from fixtures without a live form.
+email_sender: >-
+  The outcome is a side effect (a real Gmail send, sent=true). Stubbing the send
+  tool would leave nothing prompt-sensitive to judge.
+x_scraper: >-
+  Quality is dominated by the logged-in browser scraper, whose DOM contract
+  changes independently of the prompt. Candidate for a fixture case later (stub
+  x_post_scraper), once the post shape is stable.
+shopee_seller_scraper: >-
+  Needs a saved Shopee session; the LLM only reformats the scraper's seller list,
+  so a fixture replay would measure the fixture, not the prompt.
+tasker_apply: &browser_apply >-
+  Browser auto-apply against a live, logged-in site. The LLM crews (relevance
+  gate, proposal/answer drafting) are called per item from inside the browser
+  loop and the judged result (applied[]) is produced by the browser tool, so a
+  run cannot be replayed from fixtures. Follow-up: per-crew cases.
+tw104_apply: *browser_apply
+linkedin_apply: *browser_apply
+greenhouse_apply: *browser_apply
+pipeline: >-
+  A composition of other job types with no prompt of its own; its steps are
+  covered (or skipped) under their own job types.

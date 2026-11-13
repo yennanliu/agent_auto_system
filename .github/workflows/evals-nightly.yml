@@ -1,0 +1,97 @@
+name: Evals (nightly)
+
+# Live tier of the eval regression set (doc/evals.md): runs each golden case's LLM
+# step from fixtures, scores it with the existing judge, and fails on a quality
+# regression against evals/baseline.json. The offline tier needs no keys and runs
+# in normal PR CI as tests/unit/test_evalset.py — this workflow is never a PR gate.
+#
+# Needs at least one provider key as a repository secret (OPENAI_API_KEY /
+# GEMINI_API_KEY / ANTHROPIC_API_KEY). Two providers are better: the judge must be
+# a different model from the one under test. With no secret set, the job prints a
+# notice and exits green.
+
+on:
+  schedule:
+    - cron: "17 19 * * *"   # 03:17 Asia/Taipei
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Run provider (openai / gemini / anthropic). Blank = first with a key."
+        required: false
+        default: ""
+      model:
+        description: "Run model. Blank = the provider's default."
+        required: false
+        default: ""
+      only:
+        description: "Limit to one job type or job_type/case_id. Blank = all cases."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-nightly
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Live eval regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Optional repository variables; a manual run's inputs win.
+      EVAL_RUN_PROVIDER: ${{ inputs.provider || vars.EVAL_RUN_PROVIDER }}
+      EVAL_RUN_MODEL: ${{ inputs.model || vars.EVAL_RUN_MODEL }}
+      EVAL_JUDGE_PROVIDER: ${{ vars.EVAL_JUDGE_PROVIDER }}
+      EVAL_JUDGE_MODEL: ${{ vars.EVAL_JUDGE_MODEL }}
+      EVAL_ONLY: ${{ inputs.only }}
+
+    steps:
+      - name: Check for provider API keys
+        id: keys
+        run: |
+          if [ -n "$OPENAI_API_KEY$GEMINI_API_KEY$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Evals skipped::No provider API key secret is set (OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY), so the live eval tier did not run. See doc/evals.md."
+            echo "Live eval tier skipped: no provider API key secret is configured." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.keys.outputs.present == 'true'
+
+      - uses: astral-sh/setup-uv@v4
+        if: steps.keys.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.keys.outputs.present == 'true'
+        run: uv sync --frozen
+
+      - name: Run live evals
+        if: steps.keys.outputs.present == 'true'
+        run: |
+          args=(--live --report-dir eval-report)
+          if [ -n "$EVAL_ONLY" ]; then args+=(--only "$EVAL_ONLY"); fi
+          uv run python scripts/run_evals.py "${args[@]}"
+
+      - name: Publish report summary
+        if: always() && steps.keys.outputs.present == 'true'
+        run: |
+          if [ -f eval-report/report.md ]; then cat eval-report/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload report artifact
+        if: always() && steps.keys.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval-report/
+          if-no-files-found: warn
+          retention-days: 30
