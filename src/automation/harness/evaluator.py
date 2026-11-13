@@ -128,8 +128,11 @@ def _judge_candidates(run_provider: str, run_model: str, provider_models: dict) 
     ordered: list[tuple[str, str | None]] = []
     # Only lead with the preferred judge if it's independent of the run model —
     # otherwise it'd self-grade even when an independent sibling is available.
+    # A ``None`` model is an alias for the provider default, so resolve it before
+    # comparing (a run on the default model must not be judged by "<provider> default").
+    from src.automation.harness.provider import normalize
     preferred = _preferred_judge(run_provider)
-    if preferred != (run_provider, run_model):
+    if normalize(*preferred) != (run_provider, run_model):
         ordered.append(preferred)
     # A sibling model in the run's provider is still independent of run_model.
     for m in provider_models.get(run_provider, []):
