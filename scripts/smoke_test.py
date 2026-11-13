@@ -8,8 +8,9 @@ prints a pass/fail report. Exits non-zero if anything fails.
 
 Usage
 -----
-    # 1. start the app in another terminal:
-    uv run uvicorn src.main:app --reload --port 8000
+    # 1. start the app in another terminal (dev opt-out → login admin/admin; a
+    #    server with real APP_SECRET/ADMIN_PASSWORD needs --password below):
+    ALLOW_INSECURE_DEFAULTS=1 uv run uvicorn src.main:app --reload --port 8000
     # 2. run the smoke test:
     uv run python scripts/smoke_test.py
     uv run python scripts/smoke_test.py --base-url http://localhost:8000 \

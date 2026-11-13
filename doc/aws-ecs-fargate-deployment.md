@@ -157,9 +157,23 @@ etc.). We set them directly in the **task definition's `environment` block** —
 injected when the task launches, never baked into the image:
 
 ```
+APP_SECRET, ADMIN_PASSWORD                 # REQUIRED — see below
 OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
 GMAIL_ADDRESS, GMAIL_APP_PASSWORD          # + SHOPEE_* / NITTER_* if used
+ADMIN_USERNAME, SESSION_COOKIE_SECURE      # optional
 ```
+
+- ⚠️ **`APP_SECRET` and `ADMIN_PASSWORD` are required.** The app refuses to
+  start on the shipped `admin`/`admin` account or without a real `APP_SECRET`,
+  so a task launched without them exits at startup and the deployment circuit
+  breaker rolls back. The CDK stack therefore **fails at synth** when either is
+  missing from the deploy shell. Because phase 1 wipes the SQLite file on every
+  redeploy, the admin is re-seeded from `ADMIN_PASSWORD` each time.
+- **Keep `APP_SECRET` stable across deploys** (store it in your password
+  manager / SSM). It signs session cookies and derives the key that encrypts API
+  keys saved through the Admin page; changing it signs everyone out and — once
+  the DB is persistent (§8) — leaves those stored keys undecryptable until
+  re-entered.
 
 - ❌ **Do NOT put keys in the Dockerfile** (`ENV`/`ARG`). They would be frozen
   into image layers, pushed to ECR, and recoverable via `docker history`.
@@ -274,7 +288,7 @@ const svc = new ecsp.ApplicationLoadBalancedFargateService(this, 'Svc', {
     // inject keys actually present in the deploy shell; unset ones are omitted
     // (an empty string would override the app) and reported as a synth warning.
     // Never hardcode real values or commit them to the repo.
-    environment,   // built from process.env over API_KEY_ENV_VARS; see lib/
+    environment,   // API keys + required APP_SECRET/ADMIN_PASSWORD from process.env; see lib/
     // DATABASE_URL left at the Dockerfile default → sqlite on local disk
   },
   assignPublicIp: true,                 // egress without NAT
@@ -291,8 +305,8 @@ svc.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '300');
 ```
 
 That's the whole stack — no EFS volumes, no Secret constructs, no IAM for
-secrets. Run `OPENAI_API_KEY=… ANTHROPIC_API_KEY=… cdk deploy` (keys come from
-your shell env at synth time, not the repo).
+secrets. Run `APP_SECRET=… ADMIN_PASSWORD=… OPENAI_API_KEY=… ANTHROPIC_API_KEY=… cdk deploy`
+(values come from your shell env at synth time, not the repo).
 
 ---
 
@@ -304,7 +318,11 @@ your shell env at synth time, not the repo).
 - **No backups in phase 1** — data is disposable by design. If any data becomes
   worth keeping, that's the trigger for §8 (EFS + AWS Backup).
 - **TLS**: add an ACM cert + HTTPS listener on the ALB when you have a domain;
-  point Route 53 at the ALB.
+  point Route 53 at the ALB. Then deploy with `SESSION_COOKIE_SECURE=1` so the
+  session cookie is `Secure` (the ALB forwards plain HTTP to the task, and
+  uvicorn does not trust its `X-Forwarded-Proto` by default, so the `auto`
+  default would not see `https`). Don't set it while the ALB is HTTP-only —
+  browsers drop `Secure` cookies over HTTP and login will not stick.
 - **Restart safety**: the app already does stale-run reconciliation on startup,
   so a task restart cleanly fails-forward in-flight runs.
 

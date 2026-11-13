@@ -6,6 +6,9 @@ services:
     image: agent-auto-system:local
     ports:
       - "8000:8000"
+    # .env must set APP_SECRET and ADMIN_PASSWORD — the app refuses to start on
+    # the shipped defaults (see .env.example). Add SESSION_COOKIE_SECURE=1 when
+    # this is served over HTTPS.
     env_file:
       - .env
     environment:

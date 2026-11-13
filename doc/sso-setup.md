@@ -84,7 +84,7 @@ Providers are registered **at startup**, so restart the server after editing `.e
 
 ```bash
 kill -9 $(lsof -ti:8000)          # stop the running server
-uv run uvicorn src.main:app --reload --port 8000
+ALLOW_INSECURE_DEFAULTS=1 uv run uvicorn src.main:app --reload --port 8000  # dev only: admin/admin + dev secret
 ```
 
 Verify the provider(s) are now live:

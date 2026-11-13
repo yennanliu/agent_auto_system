@@ -193,14 +193,23 @@ Every run records `llm_provider`, `llm_model`, `tokens_in`, `tokens_out`, `cost_
 
 ## Authentication & Admin
 
-The app is login-gated. On first startup (empty users table) a default admin is seeded:
+The app is login-gated. On first startup (empty users table) an admin is seeded from the environment:
 
 | Field | Default | Env var |
 |---|---|---|
 | Username | `admin` | `ADMIN_USERNAME` |
-| Password | `admin` | `ADMIN_PASSWORD` |
+| Password | — (**required**) | `ADMIN_PASSWORD` |
 
-> ⚠️ **Change this before exposing the app.** The seed only runs while the users table is empty; afterwards manage users from the **Admin** page.
+**Secure defaults.** A server refuses to start — with an error naming what to set — while either is true:
+
+- `APP_SECRET` is unset or still the old dev value `dev-insecure-change-me`;
+- `ADMIN_PASSWORD` is unset/`admin` on a fresh database, or the `admin` (or `ADMIN_USERNAME`) account still has the password `admin`. Setting `ADMIN_PASSWORD` replaces that default password on the next start; a password already changed in the **Admin** page is left alone.
+
+Two explicit exceptions: the desktop app (`DESKTOP_MODE=1`, loopback-only, zero config) and local development with `ALLOW_INSECURE_DEFAULTS=1`, which starts on `admin`/`admin` and logs the open problems at CRITICAL on every boot.
+
+> ⚠️ `APP_SECRET` also derives the key that encrypts API keys stored via the Admin page. **Changing it logs everyone out and makes stored keys undecryptable** — re-enter them under Admin afterwards. Pick it once and keep it stable.
+
+Behind HTTPS (TLS at a reverse proxy / load balancer) set `SESSION_COOKIE_SECURE=1` so the session cookie carries the `Secure` flag. The default (`auto`) adds it only to requests that arrive as `https`.
 
 From the **Admin** tab admins can: create/toggle/reset users, scope which automations each user may run (`allowed_automations`), globally enable/disable automation types (`enabled_automations`), store **Fernet-encrypted** LLM API keys in the DB, and pick the eval judge model. Automation visibility (UI) and run permission (server) both derive from these settings.
 
@@ -278,7 +287,7 @@ uv run pytest tests/unit tests/integration --cov=src --cov-report=term-missing
 The runtime image is **lightweight (~450 MB)**: the 利潤健檢 PDF is rendered with **WeasyPrint** (pure Python), not a bundled Chromium. Secrets are **never baked in** — `.env` is `.gitignore`d and `.dockerignore`d; keys are injected only at runtime.
 
 ```bash
-cp .env.example .env                                   # fill in ≥ 1 LLM API key
+cp .env.example .env                                   # set APP_SECRET + ADMIN_PASSWORD, ≥ 1 LLM API key
 docker build --target runtime --tag agent-auto-system:local .
 docker run -d --name agent-auto -p 7000:8000 --env-file .env \
   -v agent_data:/app/data -v agent_uploads:/app/uploads -v agent_reports:/app/reports \
@@ -293,8 +302,10 @@ Or with compose (wires volumes + optional Prometheus sidecar): `docker compose u
 | Variable | Required | Purpose |
 |---|---|---|
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | ≥ 1 | LLM provider key(s) — can also be stored (encrypted) via Admin |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | no | First admin seeded on startup (`admin`/`admin`) |
-| `APP_SECRET` | prod | Signs session cookies — set a long random value |
+| `APP_SECRET` | **yes** | Signs session cookies + encrypts stored API keys — long random value, keep it stable. Startup is refused if unset/dev value |
+| `ADMIN_PASSWORD` / `ADMIN_USERNAME` | **yes** / no | First admin seeded on startup. Startup is refused while the password is unset/`admin` |
+| `SESSION_COOKIE_SECURE` | behind TLS | `1` marks the session cookie `Secure`; default `auto` follows the request scheme |
+| `ALLOW_INSECURE_DEFAULTS` | dev only | `1` starts on `admin`/`admin` + dev secret anyway (loud log). Never on a reachable host |
 | `DATABASE_URL` | no | Defaults to `sqlite:///./data/auto.db`; set a Postgres URL for prod |
 | `EVAL_JUDGE_PROVIDER` / `EVAL_JUDGE_MODEL` | no | Override the LLM-as-judge (else Admin setting → default Gemini) |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | no | Enable per-run Langfuse traces |
@@ -319,7 +330,9 @@ uv run playwright install chromium            # for browser jobs (form/Shopee/X/
 cp .env.example .env                          # add ≥ 1 LLM API key
 
 uv run pytest tests/unit tests/integration -v # run tests
-uv run uvicorn src.main:app --reload --port 8000
+# Dev server on the insecure defaults (login admin / admin). Without the flag the
+# server refuses to start until APP_SECRET and ADMIN_PASSWORD are set in .env.
+ALLOW_INSECURE_DEFAULTS=1 uv run uvicorn src.main:app --reload --port 8000
 open http://localhost:8000
 kill -9 $(lsof -ti:8000)                       # free port 8000
 ```
