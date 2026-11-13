@@ -53,3 +53,30 @@ async def test_tick_no_scheduled_jobs(test_engine, mocker):
     sch = CronScheduler()
     assert await sch.tick(now=datetime(2026, 1, 1, tzinfo=UTC)) == []
     launched.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["pending", "queued", "running"])
+async def test_tick_skips_job_whose_previous_run_is_still_active(
+    scheduled_job, db_session, test_engine, mocker, status
+):
+    from src.models import Run
+
+    mocker.patch("src.automation.scheduler.get_engine", return_value=test_engine)
+    launched = mocker.patch("src.automation.scheduler.launch_run", return_value=7)
+    mocker.patch("src.settings_store.is_automation_enabled", return_value=True)
+    run = Run(job_id=scheduled_job.id, status=status)
+    db_session.add(run)
+    db_session.commit()
+
+    sch = CronScheduler()
+    t0 = datetime(2026, 1, 1, 10, 0, 30, tzinfo=UTC)
+    await sch.tick(now=t0)
+    assert await sch.tick(now=t0 + timedelta(minutes=1, seconds=5)) == []
+    launched.assert_not_called()
+
+    # Once the previous run finishes, the next due slot fires normally.
+    run.status = "success"
+    db_session.add(run)
+    db_session.commit()
+    assert await sch.tick(now=t0 + timedelta(minutes=2, seconds=5)) == [7]
+    launched.assert_called_once()

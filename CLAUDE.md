@@ -35,6 +35,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Layer | File(s) | Role |
 |---|---|---|
 | Launcher | `src/automation/launcher.py` | `launch_run()` — the single create-Run → task → register path shared by the HTTP trigger and the scheduler |
+| Concurrency | `src/automation/concurrency.py` | Per-class run caps enforced in `launcher._run_in_background`: browser automations (`AutomationSpec.browser`) share `MAX_CONCURRENT_BROWSER_RUNS` slots (default 2), everything else `MAX_CONCURRENT_LLM_RUNS` (default 8). A run waiting for a slot has status `queued`; `ACTIVE_STATUSES` = pending/queued/running. The scheduler skips a fire while the job's previous run is still active |
 | Scheduler | `src/automation/scheduler.py` | `CronScheduler` (started in `main.lifespan`); `_sync_and_collect()` is the pure, unit-tested due-detection core. `cron_utils.py` wraps croniter (macros, validation, next-fire). Disable with `SCHEDULER_ENABLED=0` |
 | Overview | `src/automation/flow_steps.py` | Canonical flow-step definitions + `infer_step_states()`; source of truth for the `/jobs/{id}/overview` grid (mirrors `ui/app.js` `FLOW_STEPS`) |
 | Executor | `src/automation/executor.py` | `_FLOW_MAP` dispatch, retry loop + cross-model fallback, validate → evaluate → Langfuse trace, `_update_run()` |

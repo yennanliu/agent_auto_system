@@ -73,14 +73,14 @@ def init_db():
 
 
 def reconcile_stale_runs() -> int:
-    """Mark any runs stuck in pending/running as failed (e.g. after server restart)."""
+    """Mark any runs stuck in pending/queued/running as failed (e.g. after server restart)."""
     from sqlalchemy import text
     error = '{"error": "Server restarted while run was in progress"}'
     with engine.connect() as conn:
         result = conn.execute(
             text(
                 "UPDATE run SET status='failed', result=:result "
-                "WHERE status IN ('running', 'pending')"
+                "WHERE status IN ('running', 'pending', 'queued')"
             ),
             {"result": error},
         )
