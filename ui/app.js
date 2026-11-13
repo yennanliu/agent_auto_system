@@ -2183,7 +2183,7 @@ async function triggerRun(jobType, jobName, payload) {
     const job = await jobResp.json();
 
     const runResp = await fetch(`/api/jobs/${job.id}/run`, { method: 'POST' });
-    if (!runResp.ok) throw new Error('Failed to trigger run');
+    if (!runResp.ok) throw new Error((await runResp.json().catch(() => ({}))).detail || 'Failed to trigger run');
     const { run_id } = await runResp.json();
 
     showProgress(jobName, jobType);
@@ -2364,7 +2364,7 @@ async function rerun(jobId) {
 async function runJobNow(jobId) {
   try {
     const runResp = await fetch(`/api/jobs/${jobId}/run`, { method: 'POST' });
-    if (!runResp.ok) throw new Error('Re-run failed');
+    if (!runResp.ok) throw new Error((await runResp.json().catch(() => ({}))).detail || 'Re-run failed');
     const { run_id } = await runResp.json();
     const cached = cachedRuns.find(r => r.job_id === jobId);
     const jobName = cached?.job_name ?? `job ${jobId}`;

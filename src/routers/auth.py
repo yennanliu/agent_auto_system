@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from src import rate_limit
 from src.auth import current_user, hash_password, require_user, verify_password
 from src.database import get_session
 from src.models import User
@@ -50,11 +51,14 @@ def _public(user: User) -> dict:
 def login(
     data: LoginRequest, request: Request, session: Session = Depends(get_session)
 ):
+    # Brute-force guard: 429 while this IP / username is over its failed-attempt budget.
+    rate_limit.check_login(request, data.username)
     user = session.exec(select(User).where(User.username == data.username)).first()
     # SSO-only accounts have no password_hash and can't log in with a password.
     if not user or not user.password_hash or not verify_password(
         data.password, user.password_hash
     ):
+        rate_limit.record_login_failure(request, data.username)
         raise HTTPException(status_code=401, detail="Invalid username or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
