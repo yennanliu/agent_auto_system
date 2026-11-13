@@ -50,3 +50,14 @@ def launch_run(
     register(run_id, task)
     logger.info("Launched run_id=%d job_id=%d (%s, trigger=%s)", run_id, job_id, job_type, trigger)
     return run_id
+
+
+def relaunch_run(run_id: int, job_type: str, payload: dict) -> None:
+    """Spawn the executor task for an EXISTING Run (resume after a restart).
+
+    Same task → register path as ``launch_run``, minus creating the row. Must be
+    called from within the running event loop.
+    """
+    task = asyncio.create_task(_run_in_background(run_id, job_type, payload))
+    register(run_id, task)
+    logger.info("Re-launched run_id=%d (%s, trigger=resume)", run_id, job_type)

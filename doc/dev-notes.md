@@ -60,6 +60,22 @@ Langfuse LLM observability. CrewAI 1.x calls native provider SDKs (not litellm),
 
 ---
 
+## Resumable runs
+
+A restart no longer fails every in-flight run. `main.lifespan` calls `resume.recover_stale_runs()`, which re-launches a stale run (same run id, log and checkpoint) when **all** of these hold, and otherwise marks it failed exactly as before:
+
+- its `AutomationSpec` declares `resumable=True` (`spec.py` — the only place this is decided);
+- it saved at least one checkpoint (`run.checkpoint`, a JSON `{step_key: data}` object written through `checkpoint.save()` / read with `checkpoint.load()`);
+- `run.resume_count` is below `RUN_RESUME_MAX_ATTEMPTS` (default 2), so a run that keeps killing the process cannot restart forever.
+
+`RUN_RESUME_ENABLED=0` turns resuming off. The checkpoint is cleared when a run reaches a terminal status and before an in-process validation retry (a retry is a fresh attempt).
+
+**Checkpoints are written after the work, so the unit that was in flight is repeated on resume.** Only declare a flow `resumable` when repeating any unit is harmless. Currently resumable: `email_collect` (read-only funnel: discovery is reused, already-crawled businesses are skipped) and `pipeline` (completed steps are replayed from their stored result; the in-flight step is re-run only if its own job type is resumable, and an edited pipeline is not resumed). Deliberately **not** resumable: `tasker_apply`, `tw104_apply`, `linkedin_apply`, `greenhouse_apply`, `email_sender`, `google_form_fill` — a crash between "submitted" and "checkpoint written" would submit twice. Making one of them resumable needs an idempotency check against the remote site (e.g. "already applied" detection) first.
+
+Flows should store an input signature (`checkpoint.signature(...)`) with their checkpoint and ignore a mismatching one: a resumed run reads its payload from the Job row, which may have been edited meanwhile.
+
+---
+
 ## Scalability Roadmap
 
 ### Task queue
