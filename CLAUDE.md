@@ -20,6 +20,9 @@ uv run python scripts/run_canaries.py                # read-only scraper drift p
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
+
+uv run python scripts/greenhouse_country_boards.py scan            # cache live Greenhouse boards (~25 min, throttled)
+uv run python scripts/greenhouse_country_boards.py report spain    # per-country board list for greenhouse_apply
 ```
 
 ## Architecture
@@ -97,6 +100,8 @@ are **derived from one declaration**. To add a job type:
 `_CHECKS`/`_RUBRICS`/`FLOW_STEPS` are no longer edited directly — they come from the spec.
 Run `pytest tests/unit/test_spec_registry.py` to confirm the new spec is consistent and its
 flow imports.
+
+A new spec also needs eval coverage: golden cases under `evals/<job_type>/` or a justified entry in `evals/skip.yaml` — `tests/unit/test_evalset.py` fails otherwise. See [doc/evals.md](doc/evals.md).
 
 **Manifest-driven UI (Phase 2).** `GET /api/automations/manifest` (`spec.manifest()`) drives
 the browser's picker, run form, and step graph. A spec with `custom_ui=False` + declared

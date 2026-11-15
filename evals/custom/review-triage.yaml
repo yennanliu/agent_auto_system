@@ -1,0 +1,47 @@
+id: review-triage
+job_type: "custom:review-triage"
+description: >-
+  A no-tools custom automation that classifies one customer review. The review is
+  deliberately mixed (praises the product, complains about delivery), so the label
+  must be "mixed" and both topics must be captured without inventing an order id.
+payload:
+  product: "Kettlewick electric kettle (fictional)"
+  review: >-
+    The kettle itself is lovely - boils fast and the handle stays cool. But the
+    delivery took eleven days when the page promised three, and the box arrived
+    dented. I would buy the product again, just not with this courier.
+fixtures:
+  custom:
+    name: "Review Triage"
+    instructions: >-
+      Classify the customer review for the given product. Sentiment is exactly one
+      of positive, negative or mixed. List the distinct topics the customer raises
+      and whether each is praised or criticised, then propose one next step for
+      the support team. Use only what the review says.
+    output_hint: >-
+      A JSON object with keys "sentiment" (positive|negative|mixed), "topics" (list
+      of objects with "topic" and "stance" as praise|complaint), "needs_reply"
+      (boolean) and "next_step" (string).
+    temperature: 0.1
+expect:
+  contains:
+    - "delivery"
+  not_contains:
+    - "order #"
+    - "order number"
+  assertions:
+    - {path: "sentiment", equals: "mixed"}
+    - {path: "topics", type: list, min_len: 2, max_len: 4}
+    - {path: "topics[*].topic", type: str, non_empty: true}
+    - {path: "topics[*].stance", one_of: ["praise", "complaint"]}
+    - {path: "needs_reply", equals: true}
+    - {path: "next_step", type: str, non_empty: true}
+  min_judge_score: 70
+reference_output:
+  sentiment: "mixed"
+  topics:
+    - {topic: "product quality (fast boil, cool handle)", stance: "praise"}
+    - {topic: "delivery time (eleven days instead of three)", stance: "complaint"}
+    - {topic: "packaging arrived dented", stance: "complaint"}
+  needs_reply: true
+  next_step: "Apologise for the late delivery and dented box, and raise the delay with the courier."

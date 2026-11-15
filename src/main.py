@@ -11,7 +11,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from src import telemetry as _tel
 from src.auth import require_user
-from src.database import get_engine, init_db, reconcile_stale_runs
+from src.database import get_engine, init_db
+from src.logging_setup import RequestContextMiddleware, setup_logging
 from src.routers import (
     admin,
     auth,
@@ -24,6 +25,7 @@ from src.routers import (
     uploads,
 )
 
+setup_logging()  # LOG_FORMAT=json|text (default text = no-op), LOG_LEVEL
 logger = logging.getLogger(__name__)
 
 # Cookie signing + (later) key-derivation secret. A fixed dev default is used when
@@ -67,6 +69,7 @@ def _seed_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()  # again: uvicorn.run(app) configures its loggers after import
     _tel.setup(app)
     # Off the event loop — these do network I/O (client auth + score-config
     # registration) and must not block startup if Langfuse is slow/unreachable.
@@ -77,7 +80,12 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(langfuse_tracer.ensure_score_configs)  # typed score schemas (idempotent)
     init_db()
     _seed_admin()
-    stale = reconcile_stale_runs()
+    # In-flight runs from before the restart: resume the checkpointed, resumable
+    # ones; mark the rest failed (see src/automation/resume.py).
+    from src.automation.resume import recover_stale_runs
+    resumed, stale = recover_stale_runs()
+    if resumed:
+        logger.warning("Resumed %d stale run(s) from checkpoint on startup: %s", len(resumed), resumed)
     if stale:
         logger.warning("Marked %d stale run(s) as failed on startup", stale)
 
@@ -100,6 +108,8 @@ if APP_SECRET == _DEV_SECRET:
         "APP_SECRET is unset; using an insecure dev default. Set APP_SECRET in "
         "production — sessions are signed with it."
     )
+# Added before SessionMiddleware so it runs *inside* it and can read the session.
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET, https_only=False)
 
 # Auth endpoints stay open (login must be reachable without a session).

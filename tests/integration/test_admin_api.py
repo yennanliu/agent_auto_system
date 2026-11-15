@@ -2,7 +2,7 @@
 import json
 
 import pytest_asyncio
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from src.auth import hash_password
 from src.models import Job, User
@@ -202,9 +202,11 @@ async def test_disabled_automation_blocks_everyone(client):
 
 
 async def test_run_blocked_when_not_allowed(user_client, test_engine):
-    # A job 'bob' may not run (email_sender) still can't be triggered by him.
+    # A job 'bob' owns but may not run (email_sender) still can't be triggered by him.
     with Session(test_engine) as s:
-        job = Job(name="mail", job_type="email_sender", payload=json.dumps({}))
+        bob = s.exec(select(User).where(User.username == "bob")).one()
+        job = Job(name="mail", job_type="email_sender", payload=json.dumps({}),
+                  created_by=bob.id)
         s.add(job)
         s.commit()
         s.refresh(job)

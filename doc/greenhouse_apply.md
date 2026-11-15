@@ -70,3 +70,22 @@ GREENHOUSE_RESUME_PATH=/abs/path/resume.pdf   # default when the run doesn't set
 GREENHOUSE_LEDGER=data/greenhouse_applied.json
 GREENHOUSE_HEADLESS=0
 ```
+
+## Finding boards by country
+
+`scripts/greenhouse_country_boards.py` builds the "which Greenhouse companies hire engineers
+in <country>" lists (issues #74–#78, #102–#104) whose `boards:` line is pasted into a job.
+
+```bash
+uv run python scripts/greenhouse_country_boards.py scan                 # ~25 min; caches data/greenhouse_boards.json
+uv run python scripts/greenhouse_country_boards.py report spain netherlands
+uv run python scripts/greenhouse_country_boards.py report hong_kong --create-issue
+uv run python scripts/greenhouse_country_boards.py report --list        # country presets
+```
+
+`scan` checks ~13.7k candidate board names (harvested from public job-list repos) against the
+public Greenhouse jobs API; `report` filters that cache by location + engineering title, so any
+number of countries come from one scan. Keep the scan slow: the API answers **403 for every
+board** for several minutes once an IP goes too fast (40 concurrent requests tripped it after
+~9k calls). The script pauses and retries on a block; `scan --resume` continues an interrupted
+run. A country without a preset: `report --name France --match "france|paris" --location "Paris, France"`.
