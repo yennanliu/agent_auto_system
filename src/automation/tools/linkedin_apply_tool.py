@@ -17,6 +17,9 @@ Flow per run:
   2. Page through /jobs/search-results/?keywords=...&geoId=...&f_AL=true&start=N
      (`f_AL=true` is LinkedIn's own "Easy Apply" filter). The location text is
      resolved to a LinkedIn geoId first — the search UI ignores `location=`.
+     `keywords` may hold several search terms ("Forward Deployed Engineer, AI
+     Engineer、FDE" or a list) — each is searched in turn (up to `max_pages`
+     each), sharing one de-dup set and one `max_applications` budget.
   3. For each job card: read title + company; skip if already applied.
   4. Optional second gate: an LLM `relevance_fn(title, meta)` decides whether the
      job is worth applying to (natural-language task_filter). Fails open.
@@ -63,6 +66,28 @@ DEFAULT_STATE_PATH = "data/linkedin_state.json"
 # (no UA override), exactly like the login script.
 _STEALTH_ARGS = ["--disable-blink-features=AutomationControlled"]
 _STEALTH_IGNORE = ["--enable-automation"]
+
+# Separators between several search terms in one `keywords` string. "/" is
+# deliberately NOT one: it lives inside real terms ("CI/CD", "AI/ML Engineer").
+_KEYWORD_SPLIT = re.compile(r"[,，、;；|\n]+")
+MAX_SEARCH_TERMS = 8
+
+
+def split_keywords(keywords) -> list[str]:
+    """Split ``keywords`` (a string or a list of strings) into distinct search
+    terms: "Forward Deployed Engineer, AI Engineer、FDE" → three terms. Order is
+    kept, blanks and case-insensitive duplicates dropped, capped at
+    ``MAX_SEARCH_TERMS``."""
+    parts = keywords if isinstance(keywords, (list, tuple)) else [keywords or ""]
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        for term in _KEYWORD_SPLIT.split(str(part or "")):
+            term = " ".join(term.split())
+            if term and term.lower() not in seen:
+                seen.add(term.lower())
+                out.append(term)
+    return out[:MAX_SEARCH_TERMS]
 
 
 def _launch_browser(pw):
@@ -847,7 +872,7 @@ def _apply_to_job(page, job: dict, profile: dict, dry_run: bool,
 
 def run_linkedin_apply(
     *,
-    keywords: str,
+    keywords: str | list[str],
     location: str = "Taiwan",
     remote: bool = False,
     phone: str = "",
@@ -866,7 +891,9 @@ def run_linkedin_apply(
     ``max_applications`` is the number of jobs to actually apply to (prepare, in
     dry-run); the scanner auto-advances through listing pages — skipping jobs
     already applied to or filtered out — until it reaches that target or runs out
-    of new jobs (up to ``max_pages``). See the module docstring."""
+    of new jobs (up to ``max_pages``). Several search terms (see
+    ``split_keywords``) are scanned one after another, each up to ``max_pages``,
+    sharing the de-dup set and the application budget. See the module docstring."""
     from playwright.sync_api import sync_playwright
 
     log = log or _noop
@@ -887,8 +914,15 @@ def run_linkedin_apply(
         "salary": "0",
     }
 
-    base = {"keywords": keywords, "location": location, "dry_run": dry_run,
-            "applied": [], "skipped": [], "warnings": []}
+    terms = split_keywords(keywords)
+    keywords_label = ", ".join(terms)
+    base = {"keywords": keywords_label, "search_terms": terms, "location": location,
+            "dry_run": dry_run, "applied": [], "skipped": [], "warnings": []}
+    if not terms:
+        # An empty keyword search matches every job — never run (or submit) one.
+        return {**base, "keywords": str(keywords or ""), "error": (
+            f"No search terms in keywords {keywords!r}; give at least one keyword."
+        )}
 
     if not (state_path and os.path.exists(state_path)):
         return {**base, "error": (
@@ -921,7 +955,7 @@ def run_linkedin_apply(
                     "refusing to submit applications in an unknown market. Use a "
                     "country/city name LinkedIn recognises, or pass a numeric geoId."
                 )}
-            first_url = _search_url(keywords, location, 1, remote, geo_id)
+            first_url = _search_url(terms[0], location, 1, remote, geo_id)
             log(f"Opening {first_url}")
             page.goto(first_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(2000)
@@ -939,84 +973,106 @@ def run_linkedin_apply(
             filtered = 0
             limit_hit = False
             pages_scanned = 0
-            page_num = 1
+            # Seeded with every term so a term the budget never reached reads 0,
+            # not absent.
+            per_term: dict[str, int] = dict.fromkeys(terms, 0)
 
-            while len(applied) < max_applications and page_num <= max_pages:
-                jobs = _collect_page_jobs(page, keywords, location, page_num,
-                                          log, warnings, remote, geo_id)
-                if jobs is None:
-                    page_num += 1
-                    continue
-                new_jobs = [j for j in jobs if j["job_id"] and j["job_id"] not in seen]
-                if not new_jobs:
-                    log(f"No new jobs on page {page_num}; reached the end.")
+            for t_idx, term in enumerate(terms, 1):
+                if len(applied) >= max_applications or limit_hit:
                     break
-                for j in new_jobs:
-                    seen.add(j["job_id"])
-                pages_scanned += 1
+                if len(terms) > 1:
+                    log(f"🔎 Search term {t_idx}/{len(terms)}: '{term}'")
+                scanned_before = scanned
+                page_num = 1
+                prev_ids: set[str] = set()
 
-                for job in new_jobs:
-                    if len(applied) >= max_applications:
+                while len(applied) < max_applications and page_num <= max_pages:
+                    jobs = _collect_page_jobs(page, term, location, page_num,
+                                              log, warnings, remote, geo_id)
+                    if jobs is None:
+                        page_num += 1
+                        continue
+                    page_ids = {j["job_id"] for j in jobs if j["job_id"]}
+                    if not page_ids or page_ids == prev_ids:
+                        # Empty page, or LinkedIn re-serving the last page past the end.
+                        log(f"No new jobs on page {page_num} for '{term}'; reached the end.")
                         break
-                    scanned += 1
-                    jid = job["job_id"]
-                    log(f"[{len(applied)}/{max_applications} applied | scan #{scanned}] "
-                        f"{jid} — {job['title'][:60]}")
-                    try:
-                        if job["applied"]:
-                            job.update(status="skipped", reason="already applied")
-                            log(f"↷ {jid}: already applied — next")
-                            skipped.append(job)
-                            continue
+                    prev_ids = page_ids
+                    new_jobs = [j for j in jobs if j["job_id"] and j["job_id"] not in seen]
+                    if not new_jobs:
+                        # Every job here already came up (e.g. under an earlier search
+                        # term) — keep paging rather than abandon this term.
+                        log(f"Page {page_num} for '{term}': all {len(page_ids)} job(s) "
+                            "already seen — next page")
+                        page_num += 1
+                        continue
+                    for j in new_jobs:
+                        seen.add(j["job_id"])
+                    pages_scanned += 1
 
-                        # Second gate: LLM relevance. Fail open — a raising judge
-                        # must never silently drop a good job.
-                        meta = f"Company: {job['company']}" if job["company"] else ""
-                        try:
-                            keep, why = relevance_fn(job["title"], meta)
-                        except Exception as exc:  # noqa: BLE001
-                            keep, why = True, ""
-                            log(f"⚠ {jid}: relevance filter errored ({exc}); keeping (fail-open)")
-                        if not keep:
-                            reason = f"filtered out: {why}" if why else "filtered out by task_filter"
-                            job.update(status="skipped", reason=reason, filtered=True)
-                            log(f"↷ {jid}: {reason} — next")
-                            skipped.append(job)
-                            filtered += 1
-                            continue
-
-                        entry = _apply_to_job(page, job, profile, dry_run, log, warnings)
-                        if entry.get("status") == _LIMIT_STATUS:
-                            limit_hit = True
-                            msg = ("LinkedIn daily Easy Apply limit reached — stopping; "
-                                   "retry tomorrow")
-                            warnings.append(msg)
-                            log(f"⛔ {msg}")
+                    for job in new_jobs:
+                        if len(applied) >= max_applications:
                             break
-                        if entry.get("status") in ("prepared", "submitted"):
-                            applied.append(entry)
-                        else:
-                            skipped.append(entry)
-                        page.wait_for_timeout(2500)  # human-like pause between jobs
-                    except Exception as exc:  # noqa: BLE001 — one bad job never stops the run
-                        job.update(status="failed",
-                                   reason=f"{type(exc).__name__}: {exc}")
-                        log(f"✗ {jid}: {type(exc).__name__}: {exc}")
-                        skipped.append(job)
+                        scanned += 1
+                        jid = job["job_id"]
+                        log(f"[{len(applied)}/{max_applications} applied | scan #{scanned}] "
+                            f"{jid} — {job['title'][:60]}")
+                        try:
+                            if job["applied"]:
+                                job.update(status="skipped", reason="already applied")
+                                log(f"↷ {jid}: already applied — next")
+                                skipped.append(job)
+                                continue
 
-                if limit_hit:
-                    break
-                page_num += 1
+                            # Second gate: LLM relevance. Fail open — a raising judge
+                            # must never silently drop a good job.
+                            meta = f"Company: {job['company']}" if job["company"] else ""
+                            try:
+                                keep, why = relevance_fn(job["title"], meta)
+                            except Exception as exc:  # noqa: BLE001
+                                keep, why = True, ""
+                                log(f"⚠ {jid}: relevance filter errored ({exc}); keeping (fail-open)")
+                            if not keep:
+                                reason = f"filtered out: {why}" if why else "filtered out by task_filter"
+                                job.update(status="skipped", reason=reason, filtered=True)
+                                log(f"↷ {jid}: {reason} — next")
+                                skipped.append(job)
+                                filtered += 1
+                                continue
+
+                            entry = _apply_to_job(page, job, profile, dry_run, log, warnings)
+                            if entry.get("status") == _LIMIT_STATUS:
+                                limit_hit = True
+                                msg = ("LinkedIn daily Easy Apply limit reached — stopping; "
+                                       "retry tomorrow")
+                                warnings.append(msg)
+                                log(f"⛔ {msg}")
+                                break
+                            if entry.get("status") in ("prepared", "submitted"):
+                                applied.append(entry)
+                            else:
+                                skipped.append(entry)
+                            page.wait_for_timeout(2500)  # human-like pause between jobs
+                        except Exception as exc:  # noqa: BLE001 — one bad job never stops the run
+                            job.update(status="failed",
+                                       reason=f"{type(exc).__name__}: {exc}")
+                            log(f"✗ {jid}: {type(exc).__name__}: {exc}")
+                            skipped.append(job)
+
+                    if limit_hit:
+                        break
+                    page_num += 1
+                per_term[term] = scanned - scanned_before
 
             warnings_out = warnings[:50]
             if scanned == 0:
                 return {**base, "jobs_found": 0, "warnings": warnings_out,
-                        "summary": f"No Easy Apply jobs found for '{keywords}'."}
+                        "summary": f"No Easy Apply jobs found for '{keywords_label}'."}
 
             submitted_n = sum(1 for e in applied if e.get("submitted"))
             verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
             summary = (
-                f"'{keywords}': {scanned} job(s) scanned across "
+                f"'{keywords_label}': {scanned} job(s) scanned across "
                 f"{pages_scanned} page(s), {len(applied)} {verb}, "
                 f"{len(skipped)} skipped"
             )
@@ -1027,6 +1083,7 @@ def run_linkedin_apply(
                 **base,
                 "jobs_found": scanned,
                 "pages_scanned": pages_scanned,
+                "jobs_by_term": per_term,
                 "applied": applied,
                 "skipped": skipped,
                 "applied_count": len(applied),
