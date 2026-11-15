@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import func, text
 from sqlmodel import Session, select
 
+from src import rate_limit
 from src.auth import assert_can_run, require_user
 from src.automation.launcher import launch_run
 from src.automation.registry import cancel as cancel_task
@@ -37,6 +38,8 @@ async def trigger_run(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     assert_can_run(user, job.job_type)
+    # Per-user cost guard. Lives here, not in launch_run, so the scheduler is exempt.
+    rate_limit.hit_run_trigger(user.id)
 
     payload = json.loads(job.payload)
     run_id = launch_run(job_id, job.job_type, payload, user_id=user.id, trigger="manual")

@@ -27,6 +27,17 @@ def _stub_evaluate(mocker):
     )
 
 
+@pytest.fixture(autouse=True)
+def _rate_limits_off(monkeypatch):
+    """Rate limiting is off (and its counters cleared) unless a test opts in —
+    the suite logs in and triggers runs far more often than a real user."""
+    from src import rate_limit
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "0")
+    rate_limit.reset()
+    yield
+    rate_limit.reset()
+
+
 @pytest.fixture(scope="function")
 def test_engine():
     # StaticPool: all connections share the same in-memory SQLite database.

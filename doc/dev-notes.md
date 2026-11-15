@@ -16,6 +16,57 @@ The `ALTER TABLE` migrations in `init_db()` are SQLite-specific. For Postgres us
 
 ---
 
+## Rate limiting
+
+`src/rate_limit.py` — a small in-process limiter built on the `limits` library (the engine
+underneath `slowapi`; slowapi's own decorators can't key on the username in the login body or
+count only failed attempts). Over-budget requests get **429** with a `Retry-After` header and a
+readable `detail`, which the UI shows as-is.
+
+| Env var | Default | Counts | Keyed by |
+|---|---|---|---|
+| `RATE_LIMIT_ENABLED` | `1` | `0` turns every limit off | — |
+| `RATE_LIMIT_LOGIN_IP` | `10/minute` | **failed** `POST /api/auth/login` | client IP |
+| `RATE_LIMIT_LOGIN_USERNAME` | `10/5minutes` | **failed** `POST /api/auth/login`; cleared by a successful sign-in | submitted username (lower-cased) **+ client IP** |
+| `RATE_LIMIT_RUN` | `20/minute;200/hour` | `POST /api/jobs/{id}/run` | authenticated user id |
+
+Values use the `limits` syntax (`N/second|minute|hour|day`, `N/5minutes`); `;` combines several
+windows; an empty value disables that one limit; an invalid value logs a warning and falls back to
+the default. Moving-window strategy.
+
+- **Login** — successful sign-ins are never counted, so a shared office IP isn't penalised for
+  normal use, and a success clears that (username, IP) counter (never the per-IP one — logging into
+  your own account must not refill the budget for guessing others). Once a budget is exhausted the
+  endpoint answers 429 *before* checking the password (even a correct one), so a locked-out guesser
+  learns nothing.
+- **No third-party lockout** — the per-account counter is keyed on (username, client IP), not the
+  username alone; otherwise anyone could lock `admin` out by failing 10 times per window. An
+  attacker now only exhausts budgets on their own IP. Trade-off: guessing one account from many IPs
+  is bounded by the per-IP budget × number of IPs rather than a per-account cap (strong passwords /
+  SSO cover that). Clients sharing one NAT/proxy IP still share the per-IP bucket.
+- **Atomic** — `rate_limit.login_attempt()` reserves a slot under a lock (counting in-flight
+  attempts) before bcrypt runs, then records the failure / clears on success. A concurrent burst
+  gets exactly the budget, not N× it.
+- **Memory** — `limits`' `MemoryStorage` empties expired windows but keeps their keys;
+  `rate_limit._prune()` drops the empty keys once there are more than 10 000, so a username spray
+  can't grow memory without bound.
+- **Run trigger** — the check lives in the HTTP route, not in `launcher.launch_run()`, so the cron
+  scheduler is **not** rate limited. It caps how *often* a user starts runs, not how many run at
+  once.
+- **Client IP behind a proxy** — the limiter uses `request.client.host` and never reads
+  `X-Forwarded-For` itself (a client-supplied header would make the key spoofable). Behind a
+  reverse proxy / load balancer, set uvicorn's `FORWARDED_ALLOW_IPS` (or `--forwarded-allow-ips`)
+  to the proxy's address/CIDR — uvicorn then rewrites the client address from the header for
+  trusted peers only. Left unset, every client behind the proxy shares one IP bucket: coarse, but
+  not bypassable. Do not set it to `*` on a directly reachable server.
+- **Single process only** — counters are in memory: they reset on restart and are not shared
+  between workers or replicas (N workers ⇒ up to N× each budget). Move the `limits` storage to
+  Redis before running more than one worker.
+- **Not covered** — SSO callbacks (the provider does its own throttling), `POST /api/auth/password`
+  and the admin endpoints (both already require a session).
+
+---
+
 ## Harness Internals
 
 ### provider.py
