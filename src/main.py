@@ -11,6 +11,7 @@ from sqlalchemy import text
 from src import telemetry as _tel
 from src.auth import require_user
 from src.database import get_engine, init_db, reconcile_stale_runs
+from src.logging_setup import RequestContextMiddleware, setup_logging
 from src.routers import (
     admin,
     auth,
@@ -25,6 +26,7 @@ from src.routers import (
 from src.security import DEV_SECRET as _DEV_SECRET
 from src.security import SessionCookieMiddleware, enforce_secure_defaults
 
+setup_logging()  # LOG_FORMAT=json|text (default text = no-op), LOG_LEVEL
 logger = logging.getLogger(__name__)
 
 # Cookie signing + key-derivation secret (settings_store derives the Fernet key
@@ -69,6 +71,7 @@ def _seed_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()  # again: uvicorn.run(app) configures its loggers after import
     _tel.setup(app)
     # Off the event loop — these do network I/O (client auth + score-config
     # registration) and must not block startup if Langfuse is slow/unreachable.
@@ -103,6 +106,8 @@ if APP_SECRET == _DEV_SECRET:
         "APP_SECRET is unset; using an insecure dev default. Set APP_SECRET in "
         "production — sessions are signed with it."
     )
+# Added before the session middleware so it runs *inside* it and can read the session.
+app.add_middleware(RequestContextMiddleware)
 # `Secure` cookie flag: SESSION_COOKIE_SECURE=1 behind TLS; default follows the request scheme.
 app.add_middleware(SessionCookieMiddleware, secret_key=APP_SECRET)
 
