@@ -11,6 +11,7 @@ from sqlmodel import Session
 
 from src.automation.registry import register, unregister
 from src.database import get_engine
+from src.logging_setup import log_context
 from src.models import Run
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,13 @@ def launch_run(
         s.refresh(run)
         run_id = run.id
 
-    task = asyncio.create_task(_run_in_background(run_id, job_type, payload))
-    register(run_id, task)
-    logger.info("Launched run_id=%d job_id=%d (%s, trigger=%s)", run_id, job_id, job_type, trigger)
+    # A task copies the context at creation, so binding around create_task hands
+    # these ids to the run (execute_run adds run_id/job_type inside the task)
+    # without leaking them into the caller's request / scheduler context.
+    with log_context(run_id=run_id, job_id=job_id, job_type=job_type, user_id=user_id):
+        task = asyncio.create_task(_run_in_background(run_id, job_type, payload))
+        register(run_id, task)
+        logger.info(
+            "Launched run_id=%d job_id=%d (%s, trigger=%s)", run_id, job_id, job_type, trigger
+        )
     return run_id
