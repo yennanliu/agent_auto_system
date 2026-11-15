@@ -13,6 +13,9 @@ uv run pytest tests/unit tests/integration -v        # all tests
 uv run pytest tests/unit/test_flow.py::test_name -v  # single test
 uv run pytest tests/unit tests/integration -v -m "not e2e"  # skip e2e
 
+cd tests/ui && npm ci && npm test                    # UI unit tests (ui/js/**, Node test runner + jsdom)
+cd tests/ui && node --test runs.test.js              # single UI test file
+
 uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
@@ -76,6 +79,10 @@ class MyCrew:
 - Module scope is **not global**. To use a name from another module, `export` it there and
   `import` it (relative path, with the `.js` extension). A missing import is a `ReferenceError`
   only when that line runs — `tests/unit/test_ui_modules.py` catches the common cases statically.
+- Every module has unit tests in `tests/ui/<module>.test.js` (CI job `ui-test`). They load the
+  real `ui/index.html` into jsdom via `tests/ui/harness.js` (fetch mock, `FakeEventSource`), so a
+  new module needs a test file and a new element id it binds at import time must exist in
+  `index.html`. `tests/ui/coverage.test.js` fails if a module has no test that imports it.
 - Imported bindings are **read-only**: a `let` that gets reassigned must live in the module that
   reassigns it (e.g. `CURRENT_USER` in `auth.js`, `cachedRuns` in `runs.js`).
 - Inline `on*="fn()"` attributes can only see `window`. Prefer `addEventListener` / `data-*`

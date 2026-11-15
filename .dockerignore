@@ -14,6 +14,7 @@ __pycache__/
 .github/
 htmlcov/
 .coverage
+tests/ui/node_modules/
 
 # --- Local data (never bake the real DB into the image) ---
 data/
