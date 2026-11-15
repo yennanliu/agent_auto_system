@@ -23,9 +23,10 @@ def _user(engine, name, *, admin=False):
         return u.id
 
 
-def _job(engine):
+def _job(engine, owner=None):
     with Session(engine) as s:
-        j = Job(name="j", job_type="web_scraper", payload=json.dumps({"url": "https://x"}))
+        j = Job(name="j", job_type="web_scraper", payload=json.dumps({"url": "https://x"}),
+                created_by=owner)
         s.add(j)
         s.commit()
         s.refresh(j)
@@ -119,7 +120,7 @@ async def test_bulk_delete_only_removes_own(anon_client, test_engine):
 async def test_trigger_records_owner(anon_client, test_engine, mocker):
     mocker.patch("src.automation.launcher._run_in_background", new=AsyncMock())
     alice = _user(test_engine, "alice")
-    job = _job(test_engine)
+    job = _job(test_engine, owner=alice)
 
     await _login(anon_client, "alice")
     resp = await anon_client.post(f"/api/jobs/{job}/run")

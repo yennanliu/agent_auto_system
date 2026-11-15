@@ -13,7 +13,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from src.database import get_session
-from src.models import User
+from src.models import Job, Run, User
 
 # bcrypt hashes at most the first 72 bytes of a password; truncate explicitly so
 # longer inputs fail the same way on hash and verify instead of silently differing.
@@ -110,3 +110,19 @@ def assert_can_run(user: User, job_type: str) -> None:
     raise HTTPException(
         status_code=403, detail=f"You are not permitted to run '{job_type}'"
     )
+
+
+def assert_run_visible(run: Run, user: User) -> None:
+    """Non-admins may only touch their own runs; hide others as 404."""
+    if not user.is_admin and run.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+def assert_job_visible(job: Job, user: User) -> None:
+    """Non-admins may only touch jobs they created; hide others as 404.
+
+    Mirrors ``assert_run_visible``. A job with no recorded owner (created before
+    ``created_by`` existed) is admin-only — fail closed rather than expose it.
+    """
+    if not user.is_admin and job.created_by != user.id:
+        raise HTTPException(status_code=404, detail="Job not found")
