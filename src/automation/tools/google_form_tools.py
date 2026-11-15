@@ -20,6 +20,8 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation import net_guard
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -45,7 +47,11 @@ class GoogleFormInspectorTool(BaseTool):
     args_schema: type[BaseModel] = InspectInput
 
     def _run(self, url: str) -> dict:
-        html = _fetch_html(url)
+        try:
+            html = _fetch_html(url)
+        except net_guard.BlockedURLError as exc:
+            return {"form_id": "", "questions": [],
+                    "error": f"Blocked by SSRF guard: {exc}"}
         return {
             "form_id": _extract_form_id(url),
             "questions": _parse_questions(html),
@@ -128,7 +134,8 @@ class GoogleFormSubmitTool(BaseTool):
 
 def _fetch_html(url: str) -> str:
     req = urllib.request.Request(url, headers=_HEADERS)
-    return urllib.request.urlopen(req, timeout=30).read().decode("utf-8")
+    # Payload-supplied URL → SSRF guard (public hosts only, every redirect hop).
+    return net_guard.urlopen(req, timeout=30).read().decode("utf-8")
 
 
 def _extract_hidden_inputs(html: str) -> dict[str, str]:

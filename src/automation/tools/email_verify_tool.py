@@ -22,6 +22,8 @@ import socket
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation import net_guard
+
 _SYNTAX_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 _ROLE_LOCALPARTS = (
     "info", "contact", "hello", "sales", "office", "enquiries", "enquiry",
@@ -107,7 +109,11 @@ def _lookup_mx(domain: str) -> str | None:
 def _smtp_probe(mx_host: str, email: str) -> str:
     """Handshake to the MX and RCPT the address without sending. Best-effort."""
     try:
-        with smtplib.SMTP(mx_host, 25, timeout=_SMTP_TIMEOUT) as smtp:
+        # The MX comes from DNS for a domain scraped off a web page; a hostile
+        # zone can point it at 127.0.0.1 or an intranet mail relay. Probe only a
+        # public MX, and connect to the address that was checked (SSRF guard).
+        mx_addr = net_guard.resolve_public(mx_host, 25)[0]
+        with smtplib.SMTP(mx_addr, 25, timeout=_SMTP_TIMEOUT) as smtp:
             smtp.helo(_PROBE_HELO)
             smtp.mail(_PROBE_FROM)
             code, _ = smtp.rcpt(email)

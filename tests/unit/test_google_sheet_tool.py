@@ -26,7 +26,7 @@ def tool():
 
 @pytest.fixture
 def result(tool):
-    with patch("src.automation.tools.google_sheet_tool.urllib.request.urlopen",
+    with patch("src.automation.tools.google_sheet_tool.net_guard.urlopen",
                return_value=_mock_urlopen(SAMPLE_CSV)):
         return tool._run(url=EDIT_URL)
 
@@ -94,7 +94,7 @@ def test_preview_matches_first_rows(result):
 # ── Limit ─────────────────────────────────────────────────────────────────────
 
 def test_limit_one_returns_one_row(tool):
-    with patch("src.automation.tools.google_sheet_tool.urllib.request.urlopen",
+    with patch("src.automation.tools.google_sheet_tool.net_guard.urlopen",
                return_value=_mock_urlopen(SAMPLE_CSV)):
         r = tool._run(url=EDIT_URL, limit=1)
     assert r["row_count"] == 1

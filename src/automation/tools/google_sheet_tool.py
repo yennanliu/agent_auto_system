@@ -6,6 +6,8 @@ import urllib.request
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation import net_guard
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -49,7 +51,12 @@ class GoogleSheetTool(BaseTool):
         limit = min(max(1, limit), _MAX_ROWS)
 
         req  = urllib.request.Request(export_url, headers=_HEADERS)
-        resp = urllib.request.urlopen(req, timeout=30)
+        # "A direct CSV export URL" is any URL at all — guard it (SSRF).
+        try:
+            resp = net_guard.urlopen(req, timeout=30)
+        except net_guard.BlockedURLError as exc:
+            return {"url": export_url, "error": f"Blocked by SSRF guard: {exc}",
+                    "columns": [], "row_count": 0, "data": [], "preview": []}
         raw  = resp.read(_MAX_BYTES).decode("utf-8", errors="replace")
 
         reader  = csv.DictReader(io.StringIO(raw))
