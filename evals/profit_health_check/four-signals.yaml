@@ -1,0 +1,178 @@
+# Synthetic shop data. reference_output.skus / .flags are profit_calc's exact output for
+# the fixture CSVs (the offline tier re-computes and compares them) — if you edit a CSV,
+# re-derive them; do not hand-edit the numbers.
+id: four-signals
+job_type: profit_health_check
+description: 'Four synthetic SKUs, one per signal: a clear winner, a 假爆品 that sells well below cost-plus, an ad
+  that costs more than the profit it leaves, and a SKU with repeated returns (one still 處理中, so it counts as a return
+  but not a refund). The ads file has the ''##'' comment row and a trailing 折扣 block. Each flagged SKU must get
+  a recommendation.'
+payload:
+  upload_id: eval-four-signals
+fixtures:
+  upload:
+    sales.csv: |
+      訂單編號,訂單狀態,不成立原因,退貨/退款狀態,訂單出貨類型,買家帳號,訂單建立日期,商品名稱,商品SKU,數量,商品原價(NTD),賣家優惠折扣(NTD),蝦皮平台折扣(NTD),小計(NTD),買家付款金額(NTD),蝦皮手續費(NTD),運費補貼-賣家負擔(NTD),賣家實際入帳(NTD)
+      EVAL0001,已完成,,,由賣家自行出貨,b***1,2026-03-02 10:00,陶瓷馬克杯350ml,MUG-CER-350,2,390,0,0,390,780,39,0,741
+      EVAL0002,已完成,,,由賣家自行出貨,b***2,2026-03-03 10:00,陶瓷馬克杯350ml,MUG-CER-350,1,390,0,0,390,390,20,0,370
+      EVAL0003,已完成,,,由賣家自行出貨,b***3,2026-03-04 10:00,陶瓷馬克杯350ml,MUG-CER-350,3,390,0,0,390,1170,58,0,1112
+      EVAL0004,已完成,,,由賣家自行出貨,b***4,2026-03-05 10:00,陶瓷馬克杯350ml,MUG-CER-350,2,390,0,0,390,780,39,0,741
+      EVAL0005,已完成,,,由賣家自行出貨,b***5,2026-03-06 10:00,帆布托特包,TOTE-CAN-01,3,290,0,0,290,870,44,0,826
+      EVAL0006,已完成,,,由賣家自行出貨,b***6,2026-03-07 10:00,帆布托特包,TOTE-CAN-01,2,290,0,0,290,580,29,0,551
+      EVAL0007,已完成,,,由賣家自行出貨,b***7,2026-03-08 10:00,帆布托特包,TOTE-CAN-01,4,290,0,0,290,1160,58,0,1102
+      EVAL0008,已完成,,,由賣家自行出貨,b***8,2026-03-09 10:00,USB迷你夜燈,LAMP-USB-MINI,1,290,0,0,290,290,14,0,276
+      EVAL0009,已完成,,,由賣家自行出貨,b***9,2026-03-10 10:00,USB迷你夜燈,LAMP-USB-MINI,2,290,0,0,290,580,29,0,551
+      EVAL0010,已完成,,,由賣家自行出貨,b***0,2026-03-11 10:00,USB迷你夜燈,LAMP-USB-MINI,1,290,0,0,290,290,14,0,276
+      EVAL0011,已完成,,,由賣家自行出貨,b***1,2026-03-12 10:00,透明手機殼,CASE-PH-CLR,1,199,0,0,199,199,10,0,189
+      EVAL0012,已完成,,,由賣家自行出貨,b***2,2026-03-13 10:00,透明手機殼,CASE-PH-CLR,2,199,0,0,199,398,20,0,378
+      EVAL0013,已完成,,,由賣家自行出貨,b***3,2026-03-14 10:00,透明手機殼,CASE-PH-CLR,1,199,0,0,199,199,10,0,189
+      EVAL0014,已完成,,,由賣家自行出貨,b***4,2026-03-01 10:00,透明手機殼,CASE-PH-CLR,1,199,0,0,199,199,10,0,189
+    cost.csv: |
+      商品SKU,商品名稱,進貨成本(NTD),包材成本(NTD),人工/雜項(NTD),單位總成本(NTD),備註
+      MUG-CER-350,陶瓷馬克杯350ml,130,12,8,150,
+      TOTE-CAN-01,帆布托特包,245,12,8,265,
+      LAMP-USB-MINI,USB迷你夜燈,100,12,8,120,
+      CASE-PH-CLR,透明手機殼,40,12,8,60,
+    ads.csv: |
+      ## === 廣告資料 2026-03-01 ~ 2026-03-14 ===
+      區塊,商品SKU,商品名稱,廣告類型,廣告花費(NTD),曝光次數,點擊次數,CTR(%),CPC(NTD),廣告帶來訂單數,廣告銷售額(NTD),ROAS
+      廣告,MUG-CER-350,陶瓷馬克杯350ml,關鍵字廣告,150,1500,50,3.3,3.0,2,1560,10.4
+      廣告,LAMP-USB-MINI,USB迷你夜燈,關鍵字廣告,380,3800,126,3.3,3.0,2,580,1.53
+
+      ## === 折扣資料 ===
+      區塊,商品SKU,商品名稱,折扣類型,折扣金額(NTD)
+      折扣,MUG-CER-350,陶瓷馬克杯350ml,賣家優惠券,0
+    returns.csv: |
+      退貨編號,訂單編號,訂單建立時間,買家帳號,商品名稱,商品SKU,退款金額(NTD),退貨原因,退貨/退款狀態
+      RET0001,EVAL0001,2026-03-05 12:00,b***1,透明手機殼,CASE-PH-CLR,199,商品瑕疵,已退款
+      RET0002,EVAL0002,2026-03-05 12:00,b***2,透明手機殼,CASE-PH-CLR,199,商品瑕疵,已退款
+      RET0003,EVAL0003,2026-03-05 12:00,b***3,透明手機殼,CASE-PH-CLR,199,商品瑕疵,處理中
+expect:
+  contains:
+  - MUG-CER-350
+  - TOTE-CAN-01
+  - LAMP-USB-MINI
+  - CASE-PH-CLR
+  assertions:
+  - path: skus
+    type: list
+    min_len: 4
+    max_len: 4
+  - path: recommendations
+    type: list
+    min_len: 3
+  - path: summary
+    type: str
+    non_empty: true
+  - path: skus[*].sku
+    type: str
+    non_empty: true
+  - path: recommendations[*].sku
+    type: str
+    non_empty: true
+  - path: recommendations[*].action
+    type: str
+    non_empty: true
+  - path: recommendations[*].reason
+    type: str
+    non_empty: true
+  - path: action_items
+    type: list
+    min_len: 1
+  - path: validation.ok
+    equals: true
+  min_judge_score: 70
+reference_output:
+  summary: 本期四項商品合計已完成 14 筆訂單。陶瓷馬克杯是獲利主力（淨利 1,614 元、淨利率 54.45%）；帆布托特包賣出 9 件但淨利率僅 3.79%，屬於假爆品；USB 迷你夜燈的廣告花費 380 元高於其剩餘淨利
+    242 元，廣告吃掉利潤；透明手機殼 4 筆訂單就有 3 筆退貨（其中 2 筆已退款 398 元），退貨率 75%，需優先處理品質問題。
+  skus:
+  - sku: CASE-PH-CLR
+    name: 透明手機殼
+    revenue: 945.0
+    cost: 300.0
+    ad_spend: 0.0
+    refunds: 398.0
+    net_profit: 247.0
+    margin_pct: 26.14
+    units: 5
+    roas: null
+    return_count: 3
+    return_rate: 75.0
+    flags:
+    - 最賺錢
+    - 退貨異常
+  - sku: LAMP-USB-MINI
+    name: USB迷你夜燈
+    revenue: 1103.0
+    cost: 480.0
+    ad_spend: 380.0
+    refunds: 0.0
+    net_profit: 243.0
+    margin_pct: 22.03
+    units: 4
+    roas: 1.53
+    return_count: 0
+    return_rate: 0.0
+    flags:
+    - 最賺錢
+    - 廣告吃利潤
+  - sku: MUG-CER-350
+    name: 陶瓷馬克杯350ml
+    revenue: 2964.0
+    cost: 1200.0
+    ad_spend: 150.0
+    refunds: 0.0
+    net_profit: 1614.0
+    margin_pct: 54.45
+    units: 8
+    roas: 10.4
+    return_count: 0
+    return_rate: 0.0
+    flags:
+    - 最賺錢
+  - sku: TOTE-CAN-01
+    name: 帆布托特包
+    revenue: 2479.0
+    cost: 2385.0
+    ad_spend: 0.0
+    refunds: 0.0
+    net_profit: 94.0
+    margin_pct: 3.79
+    units: 9
+    roas: null
+    return_count: 0
+    return_rate: 0.0
+    flags:
+    - 假爆品
+  flags:
+    most_profitable:
+    - MUG-CER-350
+    - CASE-PH-CLR
+    - LAMP-USB-MINI
+    fake_hits:
+    - TOTE-CAN-01
+    ad_eats_profit:
+    - LAMP-USB-MINI
+    high_return_rate:
+    - CASE-PH-CLR
+  recommendations:
+  - sku: MUG-CER-350
+    action: 補貨
+    reason: 淨利率 54.45% 且 ROAS 10.4，是最賺錢商品，應確保庫存並維持廣告。
+  - sku: TOTE-CAN-01
+    action: 漲價
+    reason: 售出 9 件但淨利率僅 3.79%，單位成本 265 元幾乎吃光入帳金額，需調價或降低成本。
+  - sku: LAMP-USB-MINI
+    action: 改圖
+    reason: 廣告花費 380 元大於淨利 243 元，ROAS 僅 1.53，應暫停或重做廣告素材。
+  - sku: CASE-PH-CLR
+    action: 停賣
+    reason: 4 筆訂單中有 3 筆退貨、2 筆已退款，退貨率 75%，在找出瑕疵原因前應先下架。
+  action_items:
+  - 暫停 LAMP-USB-MINI 的關鍵字廣告，重新評估素材與出價。
+  - 檢查 CASE-PH-CLR 的瑕疵退貨原因，確認前先下架。
+  - 重新計算 TOTE-CAN-01 的定價，目標淨利率至少 10%。
+  - 為 MUG-CER-350 補貨，避免主力商品缺貨。
+  validation:
+    ok: true
+    issues: []

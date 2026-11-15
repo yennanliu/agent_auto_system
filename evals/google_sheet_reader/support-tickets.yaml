@@ -1,0 +1,66 @@
+id: support-tickets
+job_type: google_sheet_reader
+description: >-
+  A synthetic 8-row support-ticket sheet with two planted data-quality issues (a
+  blank priority, a duplicated ticket id). Insights must be computed from the rows,
+  and "data" must return every row unchanged.
+payload:
+  url: "https://docs.google.com/spreadsheets/d/EVAL_FIXTURE_TICKETS/edit"
+  limit: 50
+fixtures:
+  tools:
+    google_sheet_reader:
+      url: "https://docs.google.com/spreadsheets/d/EVAL_FIXTURE_TICKETS/export?format=csv"
+      columns: ["ticket_id", "opened", "category", "priority", "status", "hours_to_resolve"]
+      row_count: 8
+      data: &ticket_rows
+        - {ticket_id: "T-1001", opened: "2026-02-02", category: "billing", priority: "high", status: "closed", hours_to_resolve: "4"}
+        - {ticket_id: "T-1002", opened: "2026-02-02", category: "login", priority: "low", status: "closed", hours_to_resolve: "1"}
+        - {ticket_id: "T-1003", opened: "2026-02-03", category: "billing", priority: "medium", status: "closed", hours_to_resolve: "9"}
+        - {ticket_id: "T-1004", opened: "2026-02-03", category: "export", priority: "", status: "open", hours_to_resolve: ""}
+        - {ticket_id: "T-1005", opened: "2026-02-04", category: "billing", priority: "high", status: "closed", hours_to_resolve: "30"}
+        - {ticket_id: "T-1006", opened: "2026-02-05", category: "login", priority: "low", status: "closed", hours_to_resolve: "2"}
+        - {ticket_id: "T-1006", opened: "2026-02-05", category: "login", priority: "low", status: "closed", hours_to_resolve: "2"}
+        - {ticket_id: "T-1007", opened: "2026-02-06", category: "export", priority: "medium", status: "open", hours_to_resolve: ""}
+      preview:
+        - {ticket_id: "T-1001", opened: "2026-02-02", category: "billing", priority: "high", status: "closed", hours_to_resolve: "4"}
+        - {ticket_id: "T-1002", opened: "2026-02-02", category: "login", priority: "low", status: "closed", hours_to_resolve: "1"}
+        - {ticket_id: "T-1003", opened: "2026-02-03", category: "billing", priority: "medium", status: "closed", hours_to_resolve: "9"}
+        - {ticket_id: "T-1004", opened: "2026-02-03", category: "export", priority: "", status: "open", hours_to_resolve: ""}
+        - {ticket_id: "T-1005", opened: "2026-02-04", category: "billing", priority: "high", status: "closed", hours_to_resolve: "30"}
+expect:
+  contains:
+    - "T-1006"
+    - "billing"
+    - "duplicate"
+  assertions:
+    - {path: "columns", equals: ["ticket_id", "opened", "category", "priority", "status", "hours_to_resolve"]}
+    - {path: "row_count", equals: 8}
+    - {path: "summary", type: str, non_empty: true}
+    - {path: "insights", type: list, min_len: 3, max_len: 6}
+    - {path: "data", type: list, min_len: 8, max_len: 8}
+    - {path: "data[0].ticket_id", equals: "T-1001"}
+    - {path: "preview", type: list, min_len: 5, max_len: 5}
+  min_judge_score: 70
+reference_output:
+  url: "https://docs.google.com/spreadsheets/d/EVAL_FIXTURE_TICKETS/export?format=csv"
+  columns: ["ticket_id", "opened", "category", "priority", "status", "hours_to_resolve"]
+  row_count: 8
+  summary: >-
+    The sheet is a support-ticket log of 8 rows opened between 2026-02-02 and
+    2026-02-06, with each ticket's category, priority, status and hours to
+    resolve. Billing and login are the most common categories and two export
+    tickets are still open.
+  insights:
+    - "Categories: billing 3, login 3, export 2."
+    - "6 tickets are closed and 2 (both export) are still open with no resolution time."
+    - "Resolution time for closed tickets ranges from 1 to 30 hours; billing ticket T-1005 is the outlier at 30 hours."
+    - "Data quality: T-1006 appears twice as an exact duplicate row."
+    - "Data quality: T-1004 has a blank priority."
+  data: *ticket_rows
+  preview:
+    - {ticket_id: "T-1001", opened: "2026-02-02", category: "billing", priority: "high", status: "closed", hours_to_resolve: "4"}
+    - {ticket_id: "T-1002", opened: "2026-02-02", category: "login", priority: "low", status: "closed", hours_to_resolve: "1"}
+    - {ticket_id: "T-1003", opened: "2026-02-03", category: "billing", priority: "medium", status: "closed", hours_to_resolve: "9"}
+    - {ticket_id: "T-1004", opened: "2026-02-03", category: "export", priority: "", status: "open", hours_to_resolve: ""}
+    - {ticket_id: "T-1005", opened: "2026-02-04", category: "billing", priority: "high", status: "closed", hours_to_resolve: "30"}

@@ -1,0 +1,47 @@
+id: meeting-action-items
+job_type: "custom:meeting-action-items"
+description: >-
+  A no-tools custom automation that extracts action items from meeting notes. Every
+  item needs an owner and a due date that appear in the notes; the undecided topic
+  (pricing page redesign) must land in open_questions, not be invented as a task.
+payload:
+  notes: >-
+    Weekly sync, synthetic notes. Onboarding email sequence is ready; Priya will
+    send it to the beta list by Friday 2026-03-13. The CSV export bug is still
+    open; Tomasz will ship a fix by Wednesday 2026-03-11 and Dana will write the
+    release note the day after, 2026-03-12. We discussed redesigning the pricing
+    page but could not agree on whether to show annual prices first; no owner yet.
+fixtures:
+  custom:
+    name: "Meeting Action Items"
+    instructions: >-
+      Read the meeting notes and extract every action item that has a clear owner.
+      Do not invent owners, dates or tasks that are not in the notes. Topics that
+      were discussed without a decision or owner go under open_questions.
+    output_hint: >-
+      A JSON object with keys "action_items" (list of objects with "owner",
+      "task", "due" as YYYY-MM-DD) and "open_questions" (list of strings).
+    temperature: 0.2
+expect:
+  contains:
+    - "Priya"
+    - "Tomasz"
+    - "Dana"
+    - "2026-03-13"
+    - "2026-03-11"
+    - "2026-03-12"
+    - "pricing"
+  assertions:
+    - {path: "action_items", type: list, min_len: 3, max_len: 3}
+    - {path: "action_items[*].owner", one_of: ["Priya", "Tomasz", "Dana"]}
+    - {path: "action_items[*].task", type: str, non_empty: true}
+    - {path: "action_items[*].due", one_of: ["2026-03-11", "2026-03-12", "2026-03-13"]}
+    - {path: "open_questions", type: list, min_len: 1, max_len: 2}
+  min_judge_score: 70
+reference_output:
+  action_items:
+    - {owner: "Priya", task: "Send the onboarding email sequence to the beta list", due: "2026-03-13"}
+    - {owner: "Tomasz", task: "Ship a fix for the CSV export bug", due: "2026-03-11"}
+    - {owner: "Dana", task: "Write the release note for the CSV export fix", due: "2026-03-12"}
+  open_questions:
+    - "Pricing page redesign: should annual prices be shown first? No owner assigned yet."

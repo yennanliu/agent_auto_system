@@ -169,9 +169,16 @@ The Activity list (`GET /api/runs`) and every run-level action
 (`GET/DELETE /api/runs/{id}`, `…/cancel`, `…/stream`, bulk `DELETE /api/runs`)
 filter to the caller's own runs for non-admins; **admins see all** runs, each
 tagged with its `owner` username in the UI. A non-admin requesting another
-user's run by ID gets **404** (existence is not leaked). `/api/stats`
-(Analytics) stays global for now — scope it next if regular users shouldn't
-see aggregate activity.
+user's run by ID gets **404** (existence is not leaked). The run exports
+(`…/report.pdf`, `…/leads.csv`) and `…/steps` apply the same check.
+
+Jobs are scoped the same way on `Job.created_by` (`auth.assert_job_visible`):
+`GET /api/jobs` and `/api/schedules` list a non-admin's own jobs, and every
+`/api/jobs/{id}` route (read, patch, delete, run, overview) returns **404** for
+someone else's job. A job with no recorded owner is admin-only. `/api/stats`
+and `/api/overview*` aggregate over the caller's own runs for non-admins.
+`tests/integration/test_authz_consistency.py` walks the route table and fails
+if a new `{job_id}`/`{run_id}` route is not covered.
 
 ## Implementation phases (each independently shippable)
 

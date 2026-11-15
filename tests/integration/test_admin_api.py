@@ -2,7 +2,7 @@
 import json
 
 import pytest_asyncio
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from src.auth import hash_password
 from src.models import Job, User
@@ -202,12 +202,41 @@ async def test_disabled_automation_blocks_everyone(client):
 
 
 async def test_run_blocked_when_not_allowed(user_client, test_engine):
-    # A job 'bob' may not run (email_sender) still can't be triggered by him.
+    # A job 'bob' owns but may not run (email_sender) still can't be triggered by him.
     with Session(test_engine) as s:
-        job = Job(name="mail", job_type="email_sender", payload=json.dumps({}))
+        bob = s.exec(select(User).where(User.username == "bob")).one()
+        job = Job(name="mail", job_type="email_sender", payload=json.dumps({}),
+                  created_by=bob.id)
         s.add(job)
         s.commit()
         s.refresh(job)
         job_id = job.id
     resp = await user_client.post(f"/api/jobs/{job_id}/run")
     assert resp.status_code == 403
+
+
+# ── Scraper drift canaries (E7) ───────────────────────────────────────────────
+
+async def test_canaries_endpoint_is_admin_only(user_client):
+    assert (await user_client.get("/api/admin/canaries")).status_code == 403
+
+
+async def test_canaries_endpoint_lists_latest_status(client, test_engine):
+    from src.automation import canary
+
+    with Session(test_engine) as s:
+        canary.record(s, "tw104_apply", canary.Outcome(canary.OK, "fine"))
+        canary.record(s, "tw104_apply", canary.Outcome(canary.FAILED, "cards gone"))
+
+    resp = await client.get("/api/admin/canaries")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["enabled"] is False  # nightly trigger is opt-in
+    by_type = {a["job_type"]: a for a in body["automations"]}
+    tw = by_type["tw104_apply"]
+    assert tw["latest"]["status"] == "failed" and tw["latest"]["alert"] == "failing"
+    assert tw["alerting"] is True and tw["last_ok_at"]
+    assert by_type["linkedin_apply"]["canary"]["session"] == "linkedin"
+    assert by_type["linkedin_apply"]["latest"] is None
+    assert by_type["x_scraper"]["canary"] is None and by_type["x_scraper"]["skip_reason"]
+    assert "web_scraper" not in by_type  # not a browser automation

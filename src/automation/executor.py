@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session
 
-from src.automation import spec
+from src.automation import checkpoint, spec
 from src.automation.harness import langfuse_tracer
 from src.automation.harness.costs import estimate_cost
 from src.automation.harness.evaluator import evaluate
@@ -21,6 +21,7 @@ from src.automation.harness.validator import validate
 from src.automation.pipeline import execute_pipeline
 from src.automation.progress import append_log
 from src.database import get_engine
+from src.logging_setup import log_context
 from src.models import Run
 from src.telemetry import record_run as _record_run
 
@@ -35,6 +36,7 @@ def _update_run(run_id: int, status: str, result: dict | None = None, **metrics)
             run.result = json.dumps(result)
         if status in ("success", "failed"):
             run.finished_at = datetime.now(UTC)
+            run.checkpoint = None  # terminal: nothing left to resume
         for k, v in metrics.items():
             setattr(run, k, v)
         s.add(run)
@@ -175,6 +177,15 @@ async def _run_custom(run_id: int, job_type: str, payload: dict,
 
 
 async def execute_run(run_id: int, job_type: str, payload: dict):
+    # Bound here — inside the run's own asyncio task — so every record emitted
+    # during the run (flows, tools, libraries; threads via asyncio.to_thread)
+    # carries these ids and concurrent runs never see each other's. job_id /
+    # user_id are bound by launcher.launch_run and inherited by the task.
+    with log_context(run_id=run_id, job_type=job_type):
+        await _execute_run(run_id, job_type, payload)
+
+
+async def _execute_run(run_id: int, job_type: str, payload: dict):
     logger.info("Starting run_id=%d job_type=%s", run_id, job_type)
     _update_run(run_id, "running")
     _t0 = time.monotonic()
@@ -215,6 +226,9 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
     for attempt in range(max_retries + 1):
         if attempt > 0:
             append_log(run_id, f"Retrying (attempt {attempt + 1}/{max_retries + 1})...")
+            # A retry is a fresh attempt, exactly as before checkpoints existed:
+            # replaying the rejected attempt's checkpoint would just reproduce it.
+            checkpoint.clear(run_id)
 
         current_payload = dict(payload)
         if attempt > 0 and vr is not None:
@@ -273,7 +287,9 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
         except asyncio.CancelledError:
             raise  # DB status already updated by the cancel endpoint
         except Exception as exc:
-            if attempt < max_retries:
+            # UnsafeToContinue: a retry clears the checkpoint and starts over,
+            # which would repeat exactly the side effect it is guarding against.
+            if attempt < max_retries and not isinstance(exc, checkpoint.UnsafeToContinue):
                 append_log(run_id, f"Error (will retry): {str(exc)[:200]}")
                 logger.warning("run_id=%d attempt=%d raised %s, retrying", run_id, attempt, exc)
                 continue
@@ -292,3 +308,4 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
                         provider=effective_provider, tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost)
             _update_run(run_id, "failed", {"error": str(exc)}, **metrics)
             await _trace_run("failed", {"error": str(exc)})
+            return  # terminal (also for a non-retryable error before the last attempt)

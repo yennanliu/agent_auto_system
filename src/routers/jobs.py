@@ -7,6 +7,8 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from src.auth import assert_can_run, require_user
+from src.auth import assert_job_visible as _assert_job_visible
+from src.auth import assert_run_visible as _assert_run_visible
 from src.automation.cron_utils import is_valid_cron, next_fire, normalize_cron
 from src.automation.flow_steps import (
     infer_step_states,
@@ -44,8 +46,14 @@ def _validated_schedule(schedule: str | None) -> str | None:
 
 
 @router.get("/jobs")
-def list_jobs(session: Session = Depends(get_session)):
-    return session.exec(select(Job).order_by(Job.created_at.desc())).all()
+def list_jobs(
+    session: Session = Depends(get_session),
+    user: User = Depends(require_user),
+):
+    stmt = select(Job).order_by(Job.created_at.desc())
+    if not user.is_admin:
+        stmt = stmt.where(Job.created_by == user.id)  # users see only their own jobs
+    return session.exec(stmt).all()
 
 
 @router.post("/jobs", status_code=201)
@@ -70,10 +78,15 @@ def create_job(
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: int, session: Session = Depends(get_session)):
+def get_job(
+    job_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_user),
+):
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _assert_job_visible(job, user)
     return job
 
 
@@ -87,6 +100,7 @@ def update_job(
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _assert_job_visible(job, user)
     assert_can_run(user, job.job_type)
     fields = data.model_fields_set
     if "name" in fields and data.name is not None:
@@ -100,20 +114,30 @@ def update_job(
 
 
 @router.delete("/jobs/{job_id}", status_code=204)
-def delete_job(job_id: int, session: Session = Depends(get_session)):
+def delete_job(
+    job_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_user),
+):
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _assert_job_visible(job, user)
     session.delete(job)
     session.commit()
 
 
 @router.get("/schedules")
-def list_schedules(session: Session = Depends(get_session)):
-    """All jobs with a cron schedule, plus next fire time and last-run summary."""
-    jobs = session.exec(
-        select(Job).where(Job.schedule.is_not(None)).order_by(Job.created_at.desc())
-    ).all()
+def list_schedules(
+    session: Session = Depends(get_session),
+    user: User = Depends(require_user),
+):
+    """Jobs with a cron schedule (a non-admin's own; all for admins), plus next
+    fire time and last-run summary."""
+    stmt = select(Job).where(Job.schedule.is_not(None)).order_by(Job.created_at.desc())
+    if not user.is_admin:
+        stmt = stmt.where(Job.created_by == user.id)
+    jobs = session.exec(stmt).all()
     if not jobs:
         return []
 
@@ -200,13 +224,16 @@ def _build_grid(job_type: str, runs_desc: list[Run], job_names: dict[int, str]) 
 
 
 @router.get("/overview")
-def overview_index(session: Session = Depends(get_session)):
+def overview_index(
+    session: Session = Depends(get_session),
+    user: User = Depends(require_user),
+):
     """Automation types that have at least one run, with run counts + last status.
 
     Drives the Task Overview left-hand list: one entry per automation (job_type),
     so all runs of the same automation can be compared together on one grid.
     """
-    rows = session.exec(
+    stmt = (
         select(
             Job.job_type,
             func.count(Run.id),
@@ -214,7 +241,10 @@ def overview_index(session: Session = Depends(get_session)):
         )
         .join(Run, Run.job_id == Job.id)
         .group_by(Job.job_type)
-    ).all()
+    )
+    if not user.is_admin:
+        stmt = stmt.where(Run.user_id == user.id)  # same scoping as GET /runs
+    rows = session.exec(stmt).all()
     out = [
         {"job_type": jt, "run_count": n, "last_run_at": last}
         for jt, n, last in rows
@@ -228,6 +258,7 @@ def automation_overview(
     job_type: str,
     limit: int = 40,
     session: Session = Depends(get_session),
+    user: User = Depends(require_user),
 ):
     """Airflow-style grid for ALL runs of one automation type (across every job of
     that type), so runs can be compared side by side. Columns = runs, rows = steps.
@@ -238,10 +269,11 @@ def automation_overview(
 
     runs: list[Run] = []
     if job_names:
+        stmt = select(Run).where(Run.job_id.in_(list(job_names)))
+        if not user.is_admin:
+            stmt = stmt.where(Run.user_id == user.id)  # same scoping as GET /runs
         runs = list(session.exec(
-            select(Run)
-            .where(Run.job_id.in_(list(job_names)))
-            .order_by(Run.id.desc())  # monotonic recency; NULL-safe across SQLite/Postgres
+            stmt.order_by(Run.id.desc())  # monotonic recency; NULL-safe across SQLite/Postgres
             .limit(limit)
         ).all())
 
@@ -253,12 +285,14 @@ def automation_overview(
 def run_steps(
     run_id: int,
     session: Session = Depends(get_session),
+    user: User = Depends(require_user),
 ):
     """Per-step breakdown of a single run: each step's name, status, and the log
     entries emitted during it. Powers the Task Overview drill-down (click a cell)."""
     run = session.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    _assert_run_visible(run, user)
     job = session.get(Job, run.job_id)
     job_type = job.job_type if job else "unknown"
     try:
@@ -278,11 +312,13 @@ def job_overview(
     job_id: int,
     limit: int = 30,
     session: Session = Depends(get_session),
+    user: User = Depends(require_user),
 ):
     """Airflow-style grid data for a single job: recent runs × per-step status."""
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _assert_job_visible(job, user)
     limit = max(1, min(limit, 100))
 
     runs = list(session.exec(

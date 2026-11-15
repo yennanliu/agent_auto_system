@@ -127,7 +127,7 @@ All LLM-backed jobs accept optional `llm_provider`, `llm_model`, and `max_retrie
 
 ### Adding a new job type
 
-Touch these 6 files (see `CLAUDE.md`): `executor.py` (`_FLOW_MAP`) · `flows/<name>_flow.py` · `crews/<name>_crew/` · `routers/system.py` (`_CATALOG`) · `ui/app.js` (+ `ui/index.html`) · `settings_store.py` (`ALL_AUTOMATIONS` — required, or the type is invisible in the UI and blocked server-side).
+Touch these 6 files (see `CLAUDE.md`): `executor.py` (`_FLOW_MAP`) · `flows/<name>_flow.py` · `crews/<name>_crew/` · `routers/system.py` (`_CATALOG`) · `ui/js/` (+ `ui/index.html`) · `settings_store.py` (`ALL_AUTOMATIONS` — required, or the type is invisible in the UI and blocked server-side).
 
 ---
 
@@ -303,6 +303,7 @@ Or with compose (wires volumes + optional Prometheus sidecar): `docker compose u
 | `TASKER_USERNAME` / `TASKER_PASSWORD` / `TASKER_STORAGE_STATE` | for `tasker_apply` | Session creds (run `scripts/tasker_login.py` once) |
 | `NITTER_INSTANCES` | no | Overrides the X scraper's nitter list |
 | `OTEL_ENABLED` / `OTEL_SERVICE_NAME` | no | OpenTelemetry export (set by compose) |
+| `LOG_FORMAT` / `LOG_LEVEL` | no | `LOG_FORMAT=json` emits one JSON log line per record with `run_id` / `job_id` / `job_type` / `user_id` / `request_id`; default `text` leaves output unchanged ([details](doc/dev-notes.md#structured-logging)) |
 
 **Persisted volumes:** `/app/data` (SQLite), `/app/uploads` (uploaded CSVs), `/app/reports` (PDFs).
 
@@ -364,7 +365,7 @@ agent_auto_system/
 │                                #   gmail, maps_search, email_extract, email_verify
 ├── scripts/                     # shopee_login.py, tasker_login.py (persist sessions)
 ├── tests/  (unit/ + integration/, 380 tests)
-├── ui/     index.html · app.js · styles.css
+├── ui/     index.html · styles.css · js/ (ES modules, no build step; entry: js/main.js)
 └── doc/    design · dev-notes · docker · auth-and-admin · profit-health · email_collect · …
 ```
 

@@ -60,6 +60,76 @@ Langfuse LLM observability. CrewAI 1.x calls native provider SDKs (not litellm),
 
 ---
 
+## Resumable runs
+
+A restart no longer fails every in-flight run. `main.lifespan` calls `resume.recover_stale_runs()`, which re-launches a stale run (same run id, log and checkpoint) when **all** of these hold, and otherwise marks it failed exactly as before:
+
+- its `AutomationSpec` declares `resumable=True` (`spec.py` — the only place this is decided);
+- it saved at least one checkpoint (`run.checkpoint`, a JSON `{step_key: data}` object written through `checkpoint.save()` / read with `checkpoint.load()`);
+- `run.resume_count` is below `RUN_RESUME_MAX_ATTEMPTS` (default 2), so a run that keeps killing the process cannot restart forever.
+
+`RUN_RESUME_ENABLED=0` turns resuming off. The checkpoint is cleared when a run reaches a terminal status and before an in-process validation retry (a retry is a fresh attempt).
+
+**Checkpoints are written after the work, so the unit that was in flight is repeated on resume.** Only declare a flow `resumable` when repeating any unit is harmless. Currently resumable: `email_collect` (read-only funnel: discovery is reused, already-crawled businesses are skipped) and `pipeline` (completed steps are replayed from their stored result; the in-flight step is re-run only if its own job type is resumable, and an edited pipeline is not resumed). Deliberately **not** resumable: `tasker_apply`, `tw104_apply`, `linkedin_apply`, `greenhouse_apply`, `email_sender`, `google_form_fill` — a crash between "submitted" and "checkpoint written" would submit twice. Making one of them resumable needs an idempotency check against the remote site (e.g. "already applied" detection) first.
+
+Flows should store an input signature (`checkpoint.signature(...)`) with their checkpoint and ignore a mismatching one: a resumed run reads its payload from the Job row, which may have been edited meanwhile.
+
+**Lost markers fail closed.** `checkpoint.save()` never raises, so callers guarding a side effect check its return value. In a pipeline, a step that is not safe to repeat is not started if its `started` marker could not be saved, and a completed one is never re-executed because its inputs changed on resume (an upstream step whose `done` marker was lost re-ran with different output) — both fail the run with `checkpoint.UnsafeToContinue`, which the executor does not retry. `resume._refusal` also refuses up front when a completed non-repeatable step follows a step with no `done` marker.
+
+**Single instance only.** Resume assumes one app process owns the database: on startup *every* pending/running run is treated as an orphan of the previous process. With several replicas sharing one DB, a replica that starts (or restarts) would resume — or fail — runs that are still executing on another replica, running them twice. Until runs carry an owner/heartbeat lease, run a single app instance per database. `RUN_RESUME_ENABLED=0` does not make multi-replica safe: startup then fails those runs instead (`reconcile_stale_runs` has the same single-instance assumption).
+
+---
+
+## Structured logging
+
+`src/logging_setup.py` (stdlib `logging` only, no extra dependency). Configured from env in
+`src.main` — at import and again in the lifespan, because `uvicorn.run(app)` (desktop entry)
+applies uvicorn's own logging config after the import.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LOG_FORMAT` | `text` | `text`: logging is left exactly as uvicorn sets it up (unchanged dev output). `json`: one JSON object per line on stderr for **every** logger — app, uvicorn (error + access) and third-party libraries. |
+| `LOG_LEVEL` | unset | Root level. Unset = untouched in text mode, `INFO` in json mode. In text mode, setting it also installs a plain root handler so app `INFO` lines become visible. |
+
+Sample line (json mode, emitted inside a run):
+
+```json
+{"ts": "2026-11-13T02:19:14.201+00:00", "level": "INFO", "logger": "src.automation.executor", "message": "Starting run_id=42 job_type=web_scraper", "request_id": "430a5ce549e7490e8a3950adaada852c", "user_id": 1, "run_id": 42, "job_id": 7, "job_type": "web_scraper"}
+```
+
+**Correlation fields** live in one `ContextVar` and are stamped onto records by a handler-level
+`ContextFilter` (so library records get them too). Unbound fields are omitted.
+
+- `request_id`, `user_id` — bound per HTTP request by `RequestContextMiddleware` (pure ASGI,
+  inside `SessionMiddleware`). A well-formed incoming `X-Request-ID` is honoured, otherwise one
+  is generated; either way it is echoed on the response. `user_id` is the session's user id.
+- `run_id`, `job_id`, `job_type`, `user_id` (the run's owner) — bound by `launcher.launch_run`
+  around `asyncio.create_task` (a task copies the context at creation) and by
+  `executor.execute_run` inside the task. A run triggered over HTTP keeps the triggering
+  `request_id`; scheduled runs have none. Concurrent runs each have their own context.
+
+**Threads.** The context follows `await`, `asyncio.create_task` and `asyncio.to_thread` (how the
+executor runs `flow.kickoff`, the evaluator and Langfuse), and CrewAI 1.x copies it into its own
+worker threads (flow methods, async tasks, parallel tool calls) — covered by a test that kicks
+off a real `Flow`. It does **not** reach a thread started with a bare `threading.Thread`,
+`ThreadPoolExecutor.submit` or `loop.run_in_executor` (CrewAI's async `ainvoke` tool path does
+this; the app uses sync `kickoff`). Records from such threads are still JSON, just without the
+ids — wrap the target in `contextvars.copy_context().run` if you add one.
+
+**Limits / secrets.**
+- Only the ids above can be bound (`bind_log_context` rejects anything else) — payloads, API
+  keys, passwords and cookies never enter the context. `extra=` values under sensitive-looking
+  keys (`password`, `token`, `api_key`, `authorization`, `cookie`, `payload`, …) are redacted and
+  access-log lines drop the query string (OAuth `code`/`state`). Message *text* is not scrubbed:
+  never format a secret into a log message.
+- Only `logging` records are JSON. Raw `print()` / CrewAI `verbose=True` console output and
+  interpreter tracebacks written straight to stderr are not (crews run with `verbose=False`).
+- The per-run progress log shown in the UI (`progress.append_log` → DB) is separate and unchanged.
+- The Docker image and compose file keep the `text` default; set `LOG_FORMAT=json` in the
+  environment where a collector (CloudWatch, Loki, …) ingests the output.
+
+---
+
 ## Scalability Roadmap
 
 ### Task queue

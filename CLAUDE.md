@@ -13,11 +13,19 @@ uv run pytest tests/unit tests/integration -v        # all tests
 uv run pytest tests/unit/test_flow.py::test_name -v  # single test
 uv run pytest tests/unit tests/integration -v -m "not e2e"  # skip e2e
 
+cd tests/ui && npm ci && npm test                    # UI unit tests (ui/js/**, Node test runner + jsdom)
+cd tests/ui && node --test runs.test.js              # single UI test file
+
 uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
+uv run python scripts/run_canaries.py                # read-only scraper drift probes (cron/CI; exit 1 on drift)
+
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
+
+uv run python scripts/greenhouse_country_boards.py scan            # cache live Greenhouse boards (~25 min, throttled)
+uv run python scripts/greenhouse_country_boards.py report spain    # per-country board list for greenhouse_apply
 ```
 
 ## Architecture
@@ -37,7 +45,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Launcher | `src/automation/launcher.py` | `launch_run()` — the single create-Run → task → register path shared by the HTTP trigger and the scheduler |
 | Concurrency | `src/automation/concurrency.py` | Per-class run caps enforced in `launcher._run_in_background`: browser automations (`AutomationSpec.browser`) share `MAX_CONCURRENT_BROWSER_RUNS` slots (default 2), everything else `MAX_CONCURRENT_LLM_RUNS` (default 8). A run waiting for a slot has status `queued`; `ACTIVE_STATUSES` = pending/queued/running. The scheduler skips a fire while the job's previous run is still active |
 | Scheduler | `src/automation/scheduler.py` | `CronScheduler` (started in `main.lifespan`); `_sync_and_collect()` is the pure, unit-tested due-detection core. `cron_utils.py` wraps croniter (macros, validation, next-fire). Disable with `SCHEDULER_ENABLED=0` |
-| Overview | `src/automation/flow_steps.py` | Canonical flow-step definitions + `infer_step_states()`; source of truth for the `/jobs/{id}/overview` grid (mirrors `ui/app.js` `FLOW_STEPS`) |
+| Overview | `src/automation/flow_steps.py` | Canonical flow-step definitions + `infer_step_states()`; source of truth for the `/jobs/{id}/overview` grid (mirrors `ui/js/catalog.js` `FLOW_STEPS`) |
 | Executor | `src/automation/executor.py` | `_FLOW_MAP` dispatch, retry loop + cross-model fallback, validate → evaluate → Langfuse trace, `_update_run()` |
 | Harness | `src/automation/harness/` | `provider.py` (LLM + `fallback_sequence`), `validator.py` (quality gate), `evaluator.py` (independent LLM-as-judge), `costs.py` (pricing), `langfuse_tracer.py` (per-run trace, no-op unless keyed) |
 | Flows | `src/automation/flows/*_flow.py` | `crewai.Flow[StateModel]`; each calls `harness.provider.resolve()` at a job-specific `temperature` |
@@ -48,7 +56,8 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
 | Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
-| UI | `ui/app.js` | `LLM_MODELS` dict drives the provider→model dropdown |
+| Canaries | `src/automation/canary.py`, `scripts/run_canaries.py` | Read-only scraper drift probes, declared per automation as `AutomationSpec.canary` (or `canary_skip` + reason). Outcomes `ok`/`failed`/`session_expired`/`skipped_no_session`/`error` land in `CanaryResult`; `decide_alert()` pages on the flip to failing → log + `CANARY_ALERT_WEBHOOK`. Nightly via the scheduler only with `CANARY_ENABLED=1` (no effect when `SCHEDULER_ENABLED=0` — cron `scripts/run_canaries.py` instead). Throttle/bot-wall statuses (403/408/425/429/999) are `error`, not drift. `GET /api/admin/canaries`. **Must stay read-only**: no tool/flow imports, non-GET requests aborted, probes see only `ReadOnlyPage` |
+| UI | `ui/index.html`, `ui/js/*.js` | Native ES modules, **no build step**; `main.js` is the entry point (see *UI modules* below). `catalog.js` `LLM_MODELS` drives the provider→model dropdown |
 
 ## Key Invariants
 
@@ -67,6 +76,34 @@ class MyCrew:
 **DB migrations** — add new columns in `database.init_db()` as `ALTER TABLE ADD COLUMN` wrapped in try/except. Runs on startup, idempotent.
 
 **Stats** — `get_stats()` does a single SQL pass; keep it that way.
+
+**UI modules** — the browser UI is plain ES modules under `ui/js/`, loaded by
+`<script type="module" src="/ui/js/main.js">`; there is no bundler. Rules that follow from that:
+
+- Module scope is **not global**. To use a name from another module, `export` it there and
+  `import` it (relative path, with the `.js` extension). A missing import is a `ReferenceError`
+  only when that line runs — `tests/unit/test_ui_modules.py` catches the common cases statically.
+- Every module has unit tests in `tests/ui/<module>.test.js` (CI job `ui-test`). They load the
+  real `ui/index.html` into jsdom via `tests/ui/harness.js` (fetch mock, `FakeEventSource`), so a
+  new module needs a test file and a new element id it binds at import time must exist in
+  `index.html`. `tests/ui/coverage.test.js` fails if a module has no test that imports it.
+- Imported bindings are **read-only**: a `let` that gets reassigned must live in the module that
+  reassigns it (e.g. `CURRENT_USER` in `auth.js`, `cachedRuns` in `runs.js`).
+- Inline `on*="fn()"` attributes can only see `window`. Prefer `addEventListener` / `data-*`
+  delegation; if you must use one, publish the function in the `Object.assign(window, {…})`
+  bridge in `main.js` (the only place that touches `window`).
+- Module top-level code may read `const`/`let` only from the cycle-free leaves (`net.js`,
+  `dom.js`, `catalog.js`, `helpers.js`); the page modules import each other in cycles, which is
+  fine as long as cross-module names are dereferenced inside functions/handlers.
+
+| Module | Area |
+|---|---|
+| `main.js` | entry: loads every module, `window` bridge, boot (`/api/auth/me`) |
+| `net.js` · `dom.js` · `catalog.js` · `helpers.js` · `highlight.js` · `confirm.js` | leaves: raw `fetch`, shared DOM refs, job-type catalog + `LLM_MODELS` + manifest, `escHtml`/`showToast`, code highlighting, confirm dialog |
+| `navigation.js` · `auth.js` · `admin.js` | routing + landing, login/SSO/401 handling, Admin page |
+| `run-modal.js` · `forms/*.js` · `jobs.js` | New Run modal + job-type cards + generic fields, bespoke per-type forms, submit / schedule / trigger / re-run |
+| `runs.js` · `progress.js` · `steps.js` | history table + pagination + filters + delete/abort, progress panel + SSE, step graph |
+| `overview.js` · `schedules.js` · `system.js` · `performance.js` | the Overview, Schedules, System/Automations and Analytics pages |
 
 **Automation registry (SSOT)** — every job type is declared once as an `AutomationSpec` in `src/automation/spec.py`. The allowlist (`settings_store.ALL_AUTOMATIONS`), dispatch (`executor._FLOW_MAP`), validator (`_CHECKS`), rubrics (`_RUBRICS`), and step graph (`flow_steps.FLOW_STEPS`) are all **derived** from it — do not hand-edit those tables. `test_spec_registry.py` fails loud if a spec is inconsistent or its flow can't import. The allowlist still gates both UI visibility (`enabled_automations`) and server-side running (`assert_can_run` → `is_automation_enabled`).
 
@@ -89,12 +126,15 @@ are **derived from one declaration**. To add a job type:
 3. `src/automation/crews/<name>_crew/` — YAML configs + `crew.py`.
 4. `src/routers/system.py` — add a row to `_AGENT_DEFS` (structural facts only; role/goal/
    backstory are read from your `agents.yaml` automatically).
-5. `ui/app.js` (+ `ui/index.html` fields) — add to the UI form. *(Phase 2 of the RFC will
+5. `ui/js/` (+ `ui/index.html` fields) — add to the UI form: bespoke fields in `forms/<name>.js`,
+   payload building in the `runForm` submit handler in `jobs.js`. *(Phase 2 of the RFC will
    derive this from a manifest; until then the form is still hand-written.)*
 
 `_CHECKS`/`_RUBRICS`/`FLOW_STEPS` are no longer edited directly — they come from the spec.
 Run `pytest tests/unit/test_spec_registry.py` to confirm the new spec is consistent and its
 flow imports.
+
+A new spec also needs eval coverage: golden cases under `evals/<job_type>/` or a justified entry in `evals/skip.yaml` — `tests/unit/test_evalset.py` fails otherwise. See [doc/evals.md](doc/evals.md).
 
 **Manifest-driven UI (Phase 2).** `GET /api/automations/manifest` (`spec.manifest()`) drives
 the browser's picker, run form, and step graph. A spec with `custom_ui=False` + declared

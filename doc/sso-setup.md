@@ -12,7 +12,7 @@ credentials are configured** — no credentials means no button (by design).
   existing account (so a password user can also sign in via SSO).
 
 Implementation: `src/oauth.py` (client registration + account resolution),
-`src/routers/oauth.py` (redirect + callback), UI in `ui/app.js` / `ui/index.html`.
+`src/routers/oauth.py` (redirect + callback), UI in `ui/js/auth.js` / `ui/index.html`.
 
 ---
 
