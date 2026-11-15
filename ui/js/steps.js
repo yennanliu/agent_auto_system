@@ -110,7 +110,8 @@ function renderPipelineStepGraph(logs, finalStatus) {
     const durHtml = dur ? `<div class="step-metric">${dur}</div>` : '';
     parts.push(`<div class="step-node sn-${state}"><div class="step-dot">${icons[state] || (i + 1)}</div><div class="step-label">${escHtml(label)}</div>${durHtml}</div>`);
     if (i < totalSteps - 1) {
-      const connCls = info?.endTs !== null ? 'sc-done' : (info ? 'sc-partial' : '');
+      // A step with no start log has no `info`: its connector is not done (`undefined !== null`).
+      const connCls = !info ? '' : (info.endTs !== null ? 'sc-done' : 'sc-partial');
       parts.push(`<div class="step-conn ${connCls}"></div>`);
     }
   }

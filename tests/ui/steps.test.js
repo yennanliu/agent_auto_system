@@ -175,11 +175,7 @@ describe('renderStepGraph — pipeline', () => {
     assert.equal(nodes[0].label, '<img src=x onerror=alert(1)>');
   });
 
-  test('connectors after not-yet-started steps are not drawn as done', {
-    todo: 'steps.js:113 — `info?.endTs !== null` is true when `info` is undefined, so every '
-      + 'connector after a pending (unstarted) pipeline step gets sc-done; the `info ? … : \'\'` '
-      + 'branch is unreachable. Pre-existing in app.js.',
-  }, () => {
+  test('connectors after not-yet-started steps are not drawn as done', () => {
     const logs = [start('09:00:00', 1, 4, 'a')];
     const { nodes, conns } = parse(renderStepGraph('pipeline', logs, 'running'));
     assert.deepEqual(nodes.map((n) => n.state), ['running', 'pending', 'pending', 'pending']);

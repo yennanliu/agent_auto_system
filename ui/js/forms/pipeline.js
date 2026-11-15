@@ -112,9 +112,12 @@ export function addPipelineStep(jobType = 'x_scraper') {
   });
 
   card.querySelector('.pipeline-remove-step').addEventListener('click', () => {
-    // Remove preceding arrow if any
+    // Remove the arrow joining this card to its neighbour: the preceding one, or —
+    // for the first card, which has none — the one after it, so no arrow leads the list.
     const prev = card.previousElementSibling;
-    if (prev?.getAttribute('data-arrow') !== null) prev.remove();
+    const next = card.nextElementSibling;
+    if (prev?.hasAttribute('data-arrow')) prev.remove();
+    else if (next?.hasAttribute('data-arrow')) next.remove();
     card.remove();
     renumberPipelineSteps();
   });

@@ -122,9 +122,7 @@ describe('removing a step', () => {
     assert.equal(arrows(), 0);
   });
 
-  test('removing the first step removes it and renumbers the rest', {
-    todo: 'pipeline.js:117 — `prev?.getAttribute(...) !== null` is true when prev is null, so prev.remove() throws and the first step can never be removed',
-  }, () => {
+  test('removing the first step removes it and renumbers the rest', () => {
     pl.addPipelineStep('web_scraper');
     pl.addPipelineStep('email_sender');
     click(cards()[0].querySelector('.pipeline-remove-step'));
