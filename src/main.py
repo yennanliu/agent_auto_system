@@ -152,7 +152,9 @@ if Path("ui").exists():
 
 @app.get("/")
 def root():
-    return FileResponse("ui/index.html")
+    # Same revalidation as /ui: a stale cached index.html would still reference the
+    # pre-split /ui/app.js (now gone) or an outdated module entry point.
+    return FileResponse("ui/index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/health")

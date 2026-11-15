@@ -127,3 +127,11 @@ async def test_ui_modules_served_as_revalidated_javascript(anon_client):
     assert "javascript" in resp.headers["content-type"]
     # no-cache = always revalidate, so a client never mixes old and new modules.
     assert resp.headers["cache-control"] == "no-cache"
+
+
+async def test_index_html_served_revalidated(anon_client):
+    # A stale cached index.html would request the deleted /ui/app.js.
+    resp = await anon_client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-cache"
+    assert '<script type="module" src="/ui/js/main.js">' in resp.text
