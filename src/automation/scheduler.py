@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from datetime import UTC, datetime
 
 from sqlmodel import Session, select
@@ -32,6 +33,8 @@ from src.models import Job
 logger = logging.getLogger(__name__)
 
 SCHEDULER_INTERVAL = int(os.getenv("SCHEDULER_INTERVAL", "30"))  # seconds between ticks
+# How long stop() waits for an in-flight canary sweep before giving up on it.
+CANARY_STOP_TIMEOUT = 5.0
 
 
 class CronScheduler:
@@ -39,6 +42,11 @@ class CronScheduler:
         self.interval = max(5, interval)
         self._next_due: dict[int, datetime] = {}
         self._task: asyncio.Task | None = None
+        self._canary_task: asyncio.Task | None = None
+        # Cooperative stop for the canary sweep: it runs in a worker thread
+        # (to_thread can't be cancelled), so stop() sets this and the sweep
+        # checks it between probes.
+        self._canary_stop = threading.Event()
         self._stopped = asyncio.Event()
 
     # ── pure core (unit-tested without a DB or event loop) ────────────────────
@@ -78,6 +86,7 @@ class CronScheduler:
     async def tick(self, now: datetime | None = None) -> list[int]:
         """One scheduling pass. Returns the run_ids launched (for tests/logging)."""
         now = now or datetime.now(UTC)
+        self._maybe_run_canaries(now)
         try:
             jobs = await asyncio.to_thread(self._load_scheduled_jobs)
         except Exception:
@@ -108,6 +117,19 @@ class CronScheduler:
                 logger.exception("Scheduler: failed to launch job_id=%d", job.id)
         return launched
 
+    def _maybe_run_canaries(self, now: datetime) -> None:
+        """Opt-in nightly scraper canaries (CANARY_ENABLED=1) — see canary.py.
+        Runs off-loop (blocking Playwright) and never overlaps a previous run."""
+        try:
+            from src.automation import canary
+            if canary.schedule.due(now) and (self._canary_task is None or self._canary_task.done()):
+                logger.info("Scheduler: starting scraper canaries")
+                self._canary_stop.clear()
+                self._canary_task = asyncio.create_task(
+                    asyncio.to_thread(canary.run_all_safe, stop=self._canary_stop))
+        except Exception:
+            logger.exception("Scheduler: canary trigger failed")
+
     async def _run_loop(self) -> None:
         logger.info("Cron scheduler started (interval=%ds)", self.interval)
         while not self._stopped.is_set():
@@ -129,6 +151,7 @@ class CronScheduler:
 
     async def stop(self) -> None:
         self._stopped.set()
+        self._canary_stop.set()
         if self._task is not None:
             self._task.cancel()
             try:
@@ -136,6 +159,20 @@ class CronScheduler:
             except (asyncio.CancelledError, Exception):
                 pass
             self._task = None
+        await self._stop_canaries()
+
+    async def _stop_canaries(self) -> None:
+        """Give an in-flight canary sweep a short grace period to notice the stop
+        signal, then stop waiting for it. A probe already running in its worker
+        thread can't be interrupted; it finishes in the background and the sweep
+        ends there instead of probing the remaining sites."""
+        task, self._canary_task = self._canary_task, None
+        if task is None or task.done():
+            return
+        _, pending = await asyncio.wait({task}, timeout=CANARY_STOP_TIMEOUT)
+        if pending:
+            logger.warning("Scheduler: canary probe still running at shutdown; not waiting for it")
+            task.cancel()
 
 
 # Module-level singleton used by the app lifespan.

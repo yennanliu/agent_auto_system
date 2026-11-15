@@ -1,0 +1,80 @@
+id: product-changelog
+job_type: web_scraper
+description: >-
+  A synthetic product changelog page. The summary must stay grounded in the page
+  (version numbers, the breaking change) and "content" must carry the page text.
+payload:
+  url: "https://example.com/harborlight/changelog"
+fixtures:
+  tools:
+    web_scraper:
+      url: "https://example.com/harborlight/changelog"
+      title: "Harborlight Changelog"
+      meta_description: "Release notes for Harborlight, a fictional uptime monitor."
+      headings: ["Harborlight Changelog", "Version 3.2.0", "Version 3.1.4", "Upgrade notes"]
+      text: >-
+        Harborlight Changelog. Version 3.2.0, released 2026-03-04. Added multi-region
+        probes: checks can now run from up to five regions and alert only when a
+        majority fail. Added a maintenance-window calendar so planned downtime no
+        longer pages the on-call engineer. Breaking change: the legacy v1 webhook
+        payload has been removed; integrations must move to the v2 payload, which
+        nests check results under the "checks" key. Version 3.1.4, released
+        2026-01-19. Fixed a bug where TLS expiry warnings were sent 30 days late for
+        wildcard certificates. Reduced dashboard load time by about 40 percent by
+        paginating the incident list. Upgrade notes: back up your configuration
+        before upgrading, then run the migrate command once per workspace. Full
+        documentation is at example.com/harborlight/docs.
+      word_count: 118
+      links:
+        - "https://example.com/harborlight/docs"
+        - "https://example.com/harborlight/webhooks-v2"
+expect:
+  contains:
+    - "Harborlight Changelog"
+    - "3.2.0"
+    - "3.1.4"
+    - "multi-region"
+    - "v1 webhook"
+  not_contains:
+    - "I cannot"
+    - "unable to access"
+  assertions:
+    - {path: "url", equals: "https://example.com/harborlight/changelog"}
+    - {path: "title", equals: "Harborlight Changelog"}
+    - {path: "summary", type: str, non_empty: true}
+    - {path: "key_points", type: list, min_len: 4, max_len: 6}
+    - {path: "headings", type: list, min_len: 3}
+    - {path: "word_count", type: int, min: 1}
+    - {path: "content", type: str, min_len: 400}
+  min_judge_score: 70
+reference_output:
+  url: "https://example.com/harborlight/changelog"
+  title: "Harborlight Changelog"
+  summary: >-
+    The page lists release notes for Harborlight, an uptime monitor. Version 3.2.0
+    adds multi-region probes and a maintenance-window calendar and removes the
+    legacy v1 webhook payload, while 3.1.4 fixes late TLS expiry warnings and
+    speeds up the dashboard.
+  key_points:
+    - "Version 3.2.0 was released on 2026-03-04 and adds multi-region probes from up to five regions."
+    - "A maintenance-window calendar stops planned downtime from paging the on-call engineer."
+    - "Breaking change: the legacy v1 webhook payload is removed; integrations must use the v2 payload."
+    - "Version 3.1.4 (2026-01-19) fixed TLS expiry warnings arriving 30 days late for wildcard certificates."
+    - "Dashboard load time dropped by about 40 percent thanks to a paginated incident list."
+  headings: ["Harborlight Changelog", "Version 3.2.0", "Version 3.1.4", "Upgrade notes"]
+  word_count: 118
+  links:
+    - "https://example.com/harborlight/docs"
+    - "https://example.com/harborlight/webhooks-v2"
+  content: >-
+    Harborlight Changelog. Version 3.2.0, released 2026-03-04. Added multi-region
+    probes: checks can now run from up to five regions and alert only when a
+    majority fail. Added a maintenance-window calendar so planned downtime no
+    longer pages the on-call engineer. Breaking change: the legacy v1 webhook
+    payload has been removed; integrations must move to the v2 payload, which
+    nests check results under the "checks" key. Version 3.1.4, released
+    2026-01-19. Fixed a bug where TLS expiry warnings were sent 30 days late for
+    wildcard certificates. Reduced dashboard load time by about 40 percent by
+    paginating the incident list. Upgrade notes: back up your configuration
+    before upgrading, then run the migrate command once per workspace. Full
+    documentation is at example.com/harborlight/docs.

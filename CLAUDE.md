@@ -19,6 +19,8 @@ cd tests/ui && node --test runs.test.js              # single UI test file
 uv run python scripts/smoke_test.py                  # e2e smoke test vs a running server
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
+uv run python scripts/run_canaries.py                # read-only scraper drift probes (cron/CI; exit 1 on drift)
+
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
 
@@ -53,6 +55,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
 | Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
+| Canaries | `src/automation/canary.py`, `scripts/run_canaries.py` | Read-only scraper drift probes, declared per automation as `AutomationSpec.canary` (or `canary_skip` + reason). Outcomes `ok`/`failed`/`session_expired`/`skipped_no_session`/`error` land in `CanaryResult`; `decide_alert()` pages on the flip to failing → log + `CANARY_ALERT_WEBHOOK`. Nightly via the scheduler only with `CANARY_ENABLED=1` (no effect when `SCHEDULER_ENABLED=0` — cron `scripts/run_canaries.py` instead). Throttle/bot-wall statuses (403/408/425/429/999) are `error`, not drift. `GET /api/admin/canaries`. **Must stay read-only**: no tool/flow imports, non-GET requests aborted, probes see only `ReadOnlyPage` |
 | UI | `ui/index.html`, `ui/js/*.js` | Native ES modules, **no build step**; `main.js` is the entry point (see *UI modules* below). `catalog.js` `LLM_MODELS` drives the provider→model dropdown |
 
 ## Key Invariants
@@ -129,6 +132,8 @@ are **derived from one declaration**. To add a job type:
 `_CHECKS`/`_RUBRICS`/`FLOW_STEPS` are no longer edited directly — they come from the spec.
 Run `pytest tests/unit/test_spec_registry.py` to confirm the new spec is consistent and its
 flow imports.
+
+A new spec also needs eval coverage: golden cases under `evals/<job_type>/` or a justified entry in `evals/skip.yaml` — `tests/unit/test_evalset.py` fails otherwise. See [doc/evals.md](doc/evals.md).
 
 **Manifest-driven UI (Phase 2).** `GET /api/automations/manifest` (`spec.manifest()`) drives
 the browser's picker, run form, and step graph. A spec with `custom_ui=False` + declared

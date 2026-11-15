@@ -11,6 +11,8 @@ from sqlalchemy import func, text
 from sqlmodel import Session, select
 
 from src.auth import assert_can_run, require_user
+from src.auth import assert_job_visible as _assert_job_visible
+from src.auth import assert_run_visible as _assert_run_visible
 from src.automation.launcher import launch_run
 from src.automation.registry import cancel as cancel_task
 from src.automation.report_render import REPORTS_ROOT
@@ -19,12 +21,6 @@ from src.models import Job, Run, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _assert_run_visible(run: Run, user: User) -> None:
-    """Non-admins may only touch their own runs; hide others as 404."""
-    if not user.is_admin and run.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Run not found")
 
 
 @router.post("/jobs/{job_id}/run", status_code=202)
@@ -36,6 +32,7 @@ async def trigger_run(
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    _assert_job_visible(job, user)
     assert_can_run(user, job.job_type)
 
     payload = json.loads(job.payload)
@@ -192,8 +189,18 @@ def get_run(
 
 
 @router.get("/runs/{run_id}/report.pdf")
-def get_run_report(run_id: int):
+def get_run_report(
+    run_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_user),
+):
     """Serve the generated PDF report for a run (profit_health_check)."""
+    # Ownership is checked on the Run row before the file is touched: the PDF is
+    # keyed by run id alone, so a logged-in session is not enough.
+    run = session.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    _assert_run_visible(run, user)
     path = REPORTS_ROOT / f"{run_id}.pdf"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="No PDF report for this run")
@@ -343,20 +350,28 @@ def bulk_delete_runs(
 
 
 @router.get("/stats")
-def get_stats(days: int = 7):
+def get_stats(days: int = 7, user: User = Depends(require_user)):
     engine = get_engine()
+    # Non-admins get stats over their own runs only (same scoping as GET /runs).
+    # `own`/`own_r` are constant SQL fragments (never user input); the user id is
+    # always passed as the bound `:uid` parameter.
+    own = "" if user.is_admin else " AND user_id = :uid"
+    own_r = "" if user.is_admin else " AND r.user_id = :uid"
+    uid = {} if user.is_admin else {"uid": user.id}
     today = datetime.now(UTC).date()
     # Selectable trend window; clamp to a small allowlist to keep the query cheap.
     if days not in (7, 14, 30):
         days = 7
 
     with engine.connect() as conn:
-        total_runs = conn.execute(text("SELECT COUNT(*) FROM run")).scalar() or 0
+        total_runs = conn.execute(
+            text(f"SELECT COUNT(*) FROM run WHERE 1=1{own}"), uid
+        ).scalar() or 0
         if not total_runs:
             return _empty_stats(days)
 
         # Overall counts, token totals, and average duration
-        row = conn.execute(text("""
+        row = conn.execute(text(f"""
             SELECT
                 SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
                 SUM(CASE WHEN status='failed'  THEN 1 ELSE 0 END),
@@ -369,7 +384,8 @@ def get_stats(days: int = 7):
                 AVG(eval_score),
                 AVG(eval_confidence)
             FROM run
-        """)).fetchone()
+            WHERE 1=1{own}
+        """), uid).fetchone()
 
         n_success, n_failed, n_active = row[0] or 0, row[1] or 0, row[2] or 0
         total_tokens_in  = row[3] or 0
@@ -382,7 +398,7 @@ def get_stats(days: int = 7):
         # Eval trust (how the scores were produced) + retry reliability.
         # A trustworthy quality number is one graded by an independent LLM judge;
         # heuristic fallbacks and self-graded runs (flagged in eval_notes) do not count.
-        trust = conn.execute(text("""
+        trust = conn.execute(text(f"""
             SELECT
                 SUM(CASE WHEN eval_score IS NOT NULL THEN 1 ELSE 0 END),
                 SUM(CASE WHEN eval_score IS NOT NULL AND eval_method='llm' THEN 1 ELSE 0 END),
@@ -392,7 +408,8 @@ def get_stats(days: int = 7):
                 SUM(CASE WHEN COALESCE(retry_count, 0) > 0 THEN 1 ELSE 0 END),
                 AVG(COALESCE(retry_count, 0))
             FROM run
-        """)).fetchone()
+            WHERE 1=1{own}
+        """), uid).fetchone()
 
         eval_scored      = trust[0] or 0
         eval_llm         = trust[1] or 0
@@ -402,13 +419,14 @@ def get_stats(days: int = 7):
         avg_retries      = round(trust[5], 2) if trust[5] is not None else 0
 
         # Cross-model fallback + validation gate reliability (Tier 2 columns).
-        rel = conn.execute(text("""
+        rel = conn.execute(text(f"""
             SELECT
                 SUM(CASE WHEN fallback_used=1 THEN 1 ELSE 0 END),
                 SUM(CASE WHEN validation_passed IS NOT NULL THEN 1 ELSE 0 END),
                 SUM(CASE WHEN validation_passed=0 THEN 1 ELSE 0 END)
             FROM run
-        """)).fetchone()
+            WHERE 1=1{own}
+        """), uid).fetchone()
         fallback_runs    = rel[0] or 0
         validated_runs   = rel[1] or 0
         validation_fails = rel[2] or 0
@@ -418,8 +436,8 @@ def get_stats(days: int = 7):
         # Python — one roundtrip and one sort instead of a count + two sorts.
         durations = sorted(
             row[0] for row in conn.execute(text(
-                "SELECT duration_secs FROM run WHERE duration_secs IS NOT NULL"
-            ))
+                f"SELECT duration_secs FROM run WHERE duration_secs IS NOT NULL{own}"
+            ), uid)
         )
         n_dur = len(durations)
 
@@ -433,7 +451,7 @@ def get_stats(days: int = 7):
         p95_dur = _percentile(0.95)
 
         # By type: counts + weighted average duration per job_type
-        type_rows = conn.execute(text("""
+        type_rows = conn.execute(text(f"""
             SELECT
                 COALESCE(j.job_type, 'unknown') AS jtype,
                 r.status,
@@ -445,8 +463,9 @@ def get_stats(days: int = 7):
                 SUM(CASE WHEN COALESCE(r.retry_count, 0) > 0 THEN 1 ELSE 0 END) AS n_retried
             FROM run r
             LEFT JOIN job j ON r.job_id = j.id
+            WHERE 1=1{own_r}
             GROUP BY jtype, r.status
-        """)).fetchall()
+        """), uid).fetchall()
 
         by_type: dict = {}
         for jtype, status, cnt, sum_dur, cnt_dur, n_retried in type_rows:
@@ -465,7 +484,7 @@ def get_stats(days: int = 7):
             bt["avg_duration"] = round(sd / cd, 1) if cd else 0
 
         # By provider
-        prov_rows = conn.execute(text("""
+        prov_rows = conn.execute(text(f"""
             SELECT
                 COALESCE(llm_provider, 'unknown') AS provider,
                 COUNT(*) AS runs,
@@ -473,8 +492,9 @@ def get_stats(days: int = 7):
                 SUM(COALESCE(tokens_out, 0)),
                 SUM(COALESCE(cost_usd,   0.0))
             FROM run
+            WHERE 1=1{own}
             GROUP BY COALESCE(llm_provider, 'unknown')
-        """)).fetchall()
+        """), uid).fetchall()
 
         by_provider: dict = {}
         for provider, runs, ti, to_, cost in prov_rows:
@@ -483,10 +503,10 @@ def get_stats(days: int = 7):
                 "cost_usd": round(cost or 0.0, 6), "models": [],
             }
 
-        model_rows = conn.execute(text("""
+        model_rows = conn.execute(text(f"""
             SELECT DISTINCT COALESCE(llm_provider, 'unknown'), llm_model
-            FROM run WHERE llm_model IS NOT NULL
-        """)).fetchall()
+            FROM run WHERE llm_model IS NOT NULL{own}
+        """), uid).fetchall()
         for provider, model in model_rows:
             if provider in by_provider:
                 by_provider[provider]["models"].append(model)
@@ -494,7 +514,7 @@ def get_stats(days: int = 7):
             bp["models"].sort()
 
         # Per-model detailed breakdown
-        model_detail_rows = conn.execute(text("""
+        model_detail_rows = conn.execute(text(f"""
             SELECT
                 COALESCE(llm_provider, 'unknown') AS provider,
                 COALESCE(llm_model, 'unknown') AS model,
@@ -512,10 +532,10 @@ def get_stats(days: int = 7):
                 SUM(CASE WHEN COALESCE(retry_count, 0) > 0 THEN 1 ELSE 0 END) AS n_retried,
                 SUM(CASE WHEN fallback_used=1 THEN 1 ELSE 0 END) AS n_fallback
             FROM run
-            WHERE llm_model IS NOT NULL
+            WHERE llm_model IS NOT NULL{own}
             GROUP BY provider, model
             ORDER BY cost DESC
-        """)).fetchall()
+        """), uid).fetchall()
 
         by_model: dict = {}
         for (prov, model, runs, n_success, ti, tot, cost, avg_dur, avg_score,
@@ -550,7 +570,7 @@ def get_stats(days: int = 7):
         # started_at is stored as an ISO string, so a date-string bound compares
         # correctly (and dodges the Python 3.12 sqlite date-adapter deprecation).
         since_date = (today - timedelta(days=days - 1)).isoformat()
-        trend_rows = conn.execute(text("""
+        trend_rows = conn.execute(text(f"""
             SELECT
                 DATE(started_at) AS day,
                 COUNT(*) AS total,
@@ -560,9 +580,9 @@ def get_stats(days: int = 7):
                 SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)),
                 AVG(eval_score)
             FROM run
-            WHERE started_at >= :since
+            WHERE started_at >= :since{own}
             GROUP BY DATE(started_at)
-        """), {"since": since_date}).fetchall()
+        """), {"since": since_date, **uid}).fetchall()
 
         trend_map = {
             row[0]: {

@@ -88,6 +88,8 @@ RUN uv sync --frozen
 COPY tests/ ./tests/
 COPY shopee/sample_data/ ./shopee/sample_data/
 COPY scripts/greenhouse_country_boards.py ./scripts/
+# Golden eval cases — read by tests/unit/test_evalset.py (offline eval tier).
+COPY evals/ ./evals/
 
 # Default command: run the suite, skipping e2e (needs a real browser + API keys)
 CMD ["pytest", "tests/unit", "tests/integration", "-v", "--tb=short", "-m", "not e2e"]
