@@ -40,6 +40,9 @@ def init_db():
             "ALTER TABLE run ADD COLUMN eval_notes VARCHAR",
             "ALTER TABLE run ADD COLUMN eval_method VARCHAR",
             "ALTER TABLE run ADD COLUMN user_id INTEGER",
+            # Resumable runs: per-run step checkpoints + bounded resume counter
+            "ALTER TABLE run ADD COLUMN checkpoint VARCHAR",
+            "ALTER TABLE run ADD COLUMN resume_count INTEGER DEFAULT 0",
             "ALTER TABLE job ADD COLUMN schedule VARCHAR",
             "ALTER TABLE job ADD COLUMN created_by INTEGER",
             # SSO / OAuth login (nullable — existing password accounts keep working)
@@ -72,18 +75,22 @@ def init_db():
             pass
 
 
-def reconcile_stale_runs() -> int:
-    """Mark any runs stuck in pending/running as failed (e.g. after server restart)."""
-    from sqlalchemy import text
+def reconcile_stale_runs(exclude_ids=()) -> int:
+    """Mark any runs stuck in pending/running as failed (e.g. after server restart).
+
+    ``exclude_ids`` are runs about to be resumed from a checkpoint instead
+    (chosen by ``src.automation.resume``); they are left untouched.
+    """
+    from sqlalchemy import bindparam, text
     error = '{"error": "Server restarted while run was in progress"}'
+    sql = "UPDATE run SET status='failed', result=:result WHERE status IN ('running', 'pending')"
+    params: dict = {"result": error}
+    stmt = text(sql)
+    if exclude_ids:
+        stmt = text(sql + " AND id NOT IN :keep").bindparams(bindparam("keep", expanding=True))
+        params["keep"] = list(exclude_ids)
     with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                "UPDATE run SET status='failed', result=:result "
-                "WHERE status IN ('running', 'pending')"
-            ),
-            {"result": error},
-        )
+        result = conn.execute(stmt, params)
         conn.commit()
         return result.rowcount
 

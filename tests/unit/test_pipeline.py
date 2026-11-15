@@ -5,6 +5,15 @@ import pytest
 
 from src.automation.pipeline import _interpolate
 
+
+@pytest.fixture(autouse=True)
+def _checkpoint_store_ok(mocker):
+    """These tests exercise step chaining without a DB. The pipeline fails closed
+    when a non-repeatable step's checkpoint marker can't be saved, so stand in a
+    store that accepts writes (checkpointing is covered in test_resumable_runs)."""
+    mocker.patch("src.automation.checkpoint.save", return_value=True)
+    mocker.patch("src.automation.checkpoint.load", return_value={})
+
 # ── _interpolate ──────────────────────────────────────────────────────────────
 
 def test_interpolate_passthrough_no_templates():

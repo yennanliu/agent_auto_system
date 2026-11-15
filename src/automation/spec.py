@@ -74,6 +74,12 @@ class AutomationSpec:
     start_log: str = ""
     temperature: float = 0.7
     browser: bool = False  # needs Playwright / a saved browser session
+    # Resumable runs: after a restart, an in-flight run of this type that saved a
+    # checkpoint is re-launched instead of being marked failed (resume.py). Only
+    # set this when every unit of work the flow can be interrupted in is SAFE TO
+    # REPEAT — a crash between "work done" and "checkpoint written" re-does it.
+    # Flows with outward side effects (auto-apply, email send) must stay False.
+    resumable: bool = False
     # Manifest-driven UI (Phase 2). When custom_ui is False, the browser renders
     # the run form from `fields` and derives the run name from `name_template`
     # (a Python str.format template over the payload, falling back to `name`).
@@ -154,6 +160,13 @@ def job_types() -> list[str]:
     """Every registered job type — the allowlist (ALL_AUTOMATIONS)."""
     ensure_plugins_loaded()
     return list(REGISTRY)
+
+
+def is_resumable(job_type: str) -> bool:
+    """Whether a stale run of this job type may be resumed from its checkpoint."""
+    ensure_plugins_loaded()
+    s = REGISTRY.get(job_type)
+    return bool(s and s.resumable)
 
 
 def flow_map() -> dict[str, tuple[str, str, str]]:
@@ -511,6 +524,9 @@ register(AutomationSpec(
     job_type="email_collect", desc='Find businesses & collect their emails', custom_ui=True, name="Email Collector", icon="📧",
     flow_module="src.automation.flows.email_collect_flow", flow_class="EmailCollectFlow",
     start_log="Starting lead-collection funnel...", temperature=0.4, browser=True,
+    # Read-only funnel (search → fetch → verify): repeating a unit after a crash
+    # sends nothing and changes nothing outside this run, so resuming is safe.
+    resumable=True,
     steps=(("Start", "Starting"), ("Validate", "Payload validated"),
            ("Discover", "Discovering businesses"), ("Extract", "Extracting email"),
            ("Collect", "Collected"), ("Enrich", "Enriching"),
@@ -525,6 +541,11 @@ register(AutomationSpec(
 register(AutomationSpec(
     job_type="pipeline", desc='Chain automations in sequence', custom_ui=True, name="Pipeline", icon="🔗",
     rubric="Each declared step ran and produced non-empty, on-topic output.",
+    # Completed steps are replayed from their checkpoint. The step that was in
+    # flight is only re-run if its own job type is resumable — otherwise the run
+    # is failed as before (see resume._refusal), so a send/apply step can never
+    # be repeated by a resume.
+    resumable=True,
     validate=lambda r: (bool(r.get("steps")), "pipeline completed no steps"),
 ))
 
