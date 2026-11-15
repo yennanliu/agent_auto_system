@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from src.auth import assert_can_run, require_user
 from src.auth import assert_job_visible as _assert_job_visible
 from src.auth import assert_run_visible as _assert_run_visible
+from src.automation.concurrency import ACTIVE_STATUSES
 from src.automation.launcher import launch_run
 from src.automation.registry import cancel as cancel_task
 from src.automation.report_render import REPORTS_ROOT
@@ -52,7 +53,7 @@ async def cancel_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     _assert_run_visible(run, user)
-    if run.status not in ("pending", "running"):
+    if run.status not in ACTIVE_STATUSES:
         raise HTTPException(status_code=409, detail="Run is not active")
 
     was_cancelled = cancel_task(run_id)
@@ -169,7 +170,7 @@ def delete_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     _assert_run_visible(run, user)
-    if run.status in ("pending", "running"):
+    if run.status in ACTIVE_STATUSES:
         raise HTTPException(status_code=409, detail="Cannot delete a run that is in progress")
     session.delete(run)
     session.commit()
@@ -329,13 +330,13 @@ def bulk_delete_runs(
     user: User = Depends(require_user),
 ):
     if delete_all:
-        stmt = select(Run).where(Run.status.not_in(["pending", "running"]))
+        stmt = select(Run).where(Run.status.not_in(ACTIVE_STATUSES))
     elif ids:
         id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
         if not id_list:
             return {"deleted": 0}
         stmt = select(Run).where(Run.id.in_(id_list)).where(
-            Run.status.not_in(["pending", "running"])
+            Run.status.not_in(ACTIVE_STATUSES)
         )
     else:
         return {"deleted": 0}
@@ -375,7 +376,7 @@ def get_stats(days: int = 7, user: User = Depends(require_user)):
             SELECT
                 SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
                 SUM(CASE WHEN status='failed'  THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status IN ('pending','running') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status IN ('pending','queued','running') THEN 1 ELSE 0 END),
                 SUM(COALESCE(tokens_in,  0)),
                 SUM(COALESCE(tokens_out, 0)),
                 SUM(COALESCE(cost_usd,   0.0)),
@@ -470,7 +471,7 @@ def get_stats(days: int = 7, user: User = Depends(require_user)):
         by_type: dict = {}
         for jtype, status, cnt, sum_dur, cnt_dur, n_retried in type_rows:
             bt = by_type.setdefault(jtype, {
-                "total": 0, "success": 0, "failed": 0, "pending": 0, "running": 0,
+                "total": 0, "success": 0, "failed": 0, "pending": 0, "queued": 0, "running": 0,
                 "retried": 0, "_sum_dur": 0.0, "_cnt_dur": 0,
             })
             bt["total"] += cnt

@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
+from sqlmodel import select
+
 from src.models import Job, Run
 
 
@@ -305,3 +307,45 @@ async def test_leads_csv_empty_leads(client, db_session):
     assert resp.status_code == 200
     # Header row only, no data rows.
     assert len(resp.content.decode("utf-8-sig").strip().splitlines()) == 1
+
+
+# ── `queued` (waiting for a concurrency slot) is an active status ─────────────────
+
+async def test_queued_run_can_be_cancelled_but_not_deleted(client, db_session, seed_job, mocker):
+    run = Run(job_id=seed_job.id, status="queued")
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    mocker.patch("src.routers.runs.cancel_task", return_value=True)
+
+    assert (await client.delete(f"/api/runs/{run.id}")).status_code == 409
+    assert (await client.delete("/api/runs?delete_all=true")).json()["deleted"] == 0
+
+    resp = await client.post(f"/api/runs/{run.id}/cancel")
+    assert resp.json() == {"cancelled": True, "run_id": run.id}
+    db_session.refresh(run)
+    assert run.status == "failed"
+    assert json.loads(run.result)["error"] == "Cancelled by user"
+
+
+async def test_stats_count_queued_as_active(client, db_session, seed_job):
+    for status in ("queued", "queued", "running", "success"):
+        db_session.add(Run(job_id=seed_job.id, status=status))
+    db_session.commit()
+
+    data = (await client.get("/api/stats")).json()
+    assert data["active"] == 3
+    assert data["by_type"]["google_form_fill"]["queued"] == 2
+
+
+def test_reconcile_stale_runs_fails_queued_runs(test_engine, db_session, seed_job, mocker):
+    import src.database as _db
+
+    mocker.patch.object(_db, "engine", test_engine)
+    for status in ("queued", "pending", "running", "success"):
+        db_session.add(Run(job_id=seed_job.id, status=status))
+    db_session.commit()
+
+    assert _db.reconcile_stale_runs() == 3
+    statuses = sorted(r.status for r in db_session.exec(select(Run)).all())
+    assert statuses == ["failed", "failed", "failed", "success"]

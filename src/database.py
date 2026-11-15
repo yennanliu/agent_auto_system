@@ -76,14 +76,14 @@ def init_db():
 
 
 def reconcile_stale_runs(exclude_ids=()) -> int:
-    """Mark any runs stuck in pending/running as failed (e.g. after server restart).
+    """Mark any runs stuck in pending/queued/running as failed (e.g. after server restart).
 
     ``exclude_ids`` are runs about to be resumed from a checkpoint instead
     (chosen by ``src.automation.resume``); they are left untouched.
     """
     from sqlalchemy import bindparam, text
     error = '{"error": "Server restarted while run was in progress"}'
-    sql = "UPDATE run SET status='failed', result=:result WHERE status IN ('running', 'pending')"
+    sql = "UPDATE run SET status='failed', result=:result WHERE status IN ('running', 'pending', 'queued')"
     params: dict = {"result": error}
     stmt = text(sql)
     if exclude_ids:

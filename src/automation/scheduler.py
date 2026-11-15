@@ -25,10 +25,11 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
+from src.automation.concurrency import ACTIVE_STATUSES
 from src.automation.cron_utils import is_valid_cron, next_fire
 from src.automation.launcher import launch_run
 from src.database import get_engine
-from src.models import Job
+from src.models import Job, Run
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,18 @@ class CronScheduler:
         with Session(get_engine()) as s:
             return list(s.exec(select(Job).where(Job.schedule.is_not(None))).all())
 
+    def _active_job_ids(self, job_ids: list[int]) -> set[int]:
+        """Which of ``job_ids`` still have an unfinished (pending/queued/running) run."""
+        if not job_ids:
+            return set()
+        with Session(get_engine()) as s:
+            return set(s.exec(
+                select(Run.job_id)
+                .where(Run.job_id.in_(job_ids))
+                .where(Run.status.in_(ACTIVE_STATUSES))
+                .distinct()
+            ).all())
+
     async def tick(self, now: datetime | None = None) -> list[int]:
         """One scheduling pass. Returns the run_ids launched (for tests/logging)."""
         now = now or datetime.now(UTC)
@@ -94,7 +107,24 @@ class CronScheduler:
             return []
 
         launched: list[int] = []
-        for job in self._sync_and_collect(jobs, now):
+        due = self._sync_and_collect(jobs, now)
+        try:
+            busy = await asyncio.to_thread(self._active_job_ids, [j.id for j in due])
+        except Exception:
+            # Fail closed: without the active-run check we can't guarantee no
+            # overlap, so drop this pass's fires (they are not backfilled — same
+            # as a skipped overlapping fire) rather than launching blind.
+            logger.exception("Scheduler: failed to check active runs; skipping %d due job(s)", len(due))
+            return []
+        for job in due:
+            # No overlap: if this job's previous run is still active, drop this
+            # fire (it is not backfilled) rather than stacking runs up.
+            if job.id in busy:
+                logger.warning(
+                    "Scheduler: skipping job_id=%d (%s) — previous run still active",
+                    job.id, job.schedule,
+                )
+                continue
             # Respect the global allowlist — a disabled automation must not run,
             # even on a schedule. Checked lazily to avoid an import cycle.
             from src.settings_store import is_automation_enabled
