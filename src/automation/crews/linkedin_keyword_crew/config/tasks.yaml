@@ -1,0 +1,31 @@
+expand_keywords_task:
+  description: >
+    A job seeker searches LinkedIn job titles with these keyword(s):
+    ---
+    {keywords}
+    ---
+    Location: {location}
+    Their relevance filter (context only, may be empty): {task_filter}
+
+    Suggest up to {max_extra} ADDITIONAL LinkedIn search terms that find the same
+    kind of job, e.g. for "Forward Deployed Engineer": "FDE", "AI Engineer",
+    "Solutions Engineer".
+
+    Requirements:
+    - Each term is a short job title or common abbreviation (1–4 words) a
+      recruiter would actually put in a LinkedIn job title.
+    - If a given keyword has a common abbreviation or acronym (e.g. "FDE" for
+      "Forward Deployed Engineer", "SRE" for "Site Reliability Engineer"), include it
+      first — an abbreviation is NOT a repeat. Otherwise do not repeat the given
+      keyword(s).
+    - Stay in the same role family and seniority. Prefer titles that also fit the
+      relevance filter above.
+    - Never suggest a term that usually means a different job (e.g. "Field Engineer"
+      is hardware field service, not forward-deployed software work), nor generic
+      terms that match almost any job (e.g. "Engineer", "Developer", "Manager").
+    - Use the language job titles are posted in for that location (usually English).
+    - Output exactly one JSON object: {{"keywords": ["<term>", ...]}}.
+      Do not output any other text, heading, or Markdown.
+  expected_output: >
+    A strict JSON object, e.g. {{"keywords": ["FDE", "AI Engineer", "Solutions Engineer"]}}.
+  agent: keyword_expander
