@@ -396,9 +396,10 @@ register(AutomationSpec(
         "no jobs processed",
     ),
     rubric=("Jobs were found and an accurate applied[] list reflects real applications "
-            "(a submission counts only when the site confirmed /job/apply/done/); jobs "
-            "skipped as already-applied or 'filtered out' with a reason are correct "
-            "behavior, not failures."),
+            "(a submission counts only when the site confirmed /job/apply/done/ or the job "
+            "page now reads 已應徵); jobs skipped as already-applied, 'filtered out' with a "
+            "reason, or needs_answers (required 公司提問 screening questions left for the "
+            "user) are correct behavior, not failures."),
 ))
 
 register(AutomationSpec(
