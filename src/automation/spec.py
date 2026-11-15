@@ -509,6 +509,14 @@ register(AutomationSpec(
             "(a submission counts only when LinkedIn confirmed the 'application was sent' "
             "banner); jobs skipped as already-applied or 'filtered out' with a reason are "
             "correct behavior, not failures."),
+    # TODO(verify live): the /jobs/search-results/ "AI search" UI may hydrate
+    # its card list over POST (server-driven UI / RSC actions), which the
+    # read-only guard aborts — the probe would then report `failed` every night.
+    # Nothing in the tool's code shows which requests carry the cards (it just
+    # waits on the rendered DOM), so the guard is NOT loosened on a guess. Check
+    # with `uv run python scripts/run_canaries.py --only linkedin_apply`: a
+    # failure detail listing "read-only guard blocked … POST www.linkedin.com"
+    # means an allowlist for those read endpoints (this probe only) is needed.
     canary=Canary(
         kind="browser", session="linkedin", headed=True,
         url="https://www.linkedin.com/jobs/search-results/?keywords=software+engineer&f_AL=true",

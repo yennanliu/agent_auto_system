@@ -18,7 +18,8 @@ Usage:
     uv run python scripts/run_canaries.py --json --no-alert
 
 Exit code: 1 if any probe came back `failed` (site drift), else 0. Expired or
-missing login sessions and probe errors are reported but do not fail the command.
+missing login sessions and probe errors — including throttling / bot walls
+(HTTP 403/408/425/429/999) — are reported but do not fail the command.
 """
 import argparse
 import json

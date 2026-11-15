@@ -3,6 +3,7 @@
 No live site is touched — pages, HTTP and the webhook are all fakes.
 """
 import ast
+import asyncio
 import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -154,6 +155,41 @@ def test_http_probe_classification():
     assert canary.probe(c, fetch=lambda _u: (200, "redesigned")).status == FAILED
     assert canary.probe(c, fetch=lambda _u: (404, "")).status == FAILED
     assert canary.probe(c, fetch=lambda _u: (503, "")).status == ERROR
+
+
+@pytest.mark.parametrize("code", [403, 408, 425, 429, 999])
+def test_throttled_or_blocked_http_is_error_not_drift(code):
+    c = Canary(kind="http", url="https://x.test/form", expect=("MARKER",))
+    out = canary.probe(c, fetch=lambda _u: (code, "Too Many Requests"))
+    assert out.status == ERROR and str(code) in out.detail
+    # ...and the seed endpoint of a two-step probe is classified the same way.
+    seeded = Canary(kind="browser", seed_url="https://api.test/jobs", seed_path="jobs.0.id",
+                    url="https://x.test/{seed}", expect=("a",))
+    assert canary.probe(seeded, fetch=lambda _u: (code, "")).status == ERROR
+    # A single throttled night raises no alert, unlike a `failed` probe.
+    assert decide_alert([OK, OK, OK], out.status) is None
+    assert decide_alert([OK, OK, OK], FAILED) == "failing"
+
+
+@pytest.mark.parametrize("code", [403, 429, 999])
+def test_throttled_browser_page_is_error_not_drift(code):
+    page = FakePage({})
+    blank = LivePage(canary.ReadOnlyPage(page), lambda _ms: None, [], code)
+    out = canary.evaluate_page(BROWSER, blank, session_spec(False))
+    assert out.status == ERROR and str(code) in out.detail
+    # A 200 page with the same missing selectors is still drift.
+    assert canary.evaluate_page(BROWSER, live(page)).status == FAILED
+
+
+def test_throttled_run_records_error_without_alert(test_engine, mocker, monkeypatch):
+    mocker.patch("src.settings_store.is_automation_enabled", return_value=True)
+    sent = mocker.patch("src.automation.canary.send_alerts")
+    one = {"google_form_fill": spec.canaries()["google_form_fill"]}
+    monkeypatch.setattr(spec, "canaries", lambda: one)
+    throttled = lambda c: canary.probe(c, fetch=lambda _u: (429, ""))  # noqa: E731
+    res = canary.run_all(engine=test_engine, probe_fn=throttled)
+    assert res[0]["status"] == ERROR and res[0]["alert"] is None
+    assert sent.call_args.args[0] == []
 
 
 def test_seed_is_substituted_into_the_url():
@@ -353,6 +389,23 @@ def test_run_all_skips_disabled_unless_asked(test_engine, mocker):
     assert [r["job_type"] for r in only] == ["greenhouse_apply"]
 
 
+def test_run_all_honours_the_stop_signal(test_engine, mocker):
+    import threading
+
+    mocker.patch("src.settings_store.is_automation_enabled", return_value=True)
+    mocker.patch("src.automation.canary.send_alerts")
+    stop = threading.Event()
+    probed = []
+
+    def probe_then_stop(c):
+        probed.append(c)
+        stop.set()  # shutdown requested while the first probe runs
+        return Outcome(OK)
+
+    res = canary.run_all(engine=test_engine, probe_fn=probe_then_stop, stop=stop)
+    assert len(probed) == 1 and len(res) == 1 < len(spec.canaries())
+
+
 def test_history_is_pruned(db_session, monkeypatch):
     monkeypatch.setattr(canary, "_KEEP", 3)
     for _ in range(6):
@@ -454,3 +507,60 @@ async def test_scheduler_tick_launches_canaries_when_due(test_engine, mocker, mo
     await sch.tick(now=T0 + timedelta(minutes=2))
     await sch._canary_task
     ran.assert_called_once()
+
+
+async def test_scheduler_stop_signals_the_canary_sweep(mocker, monkeypatch):
+    import threading
+    import time
+
+    from src.automation import scheduler as sched_mod
+
+    seen = {}
+
+    def sweep(stop=None):
+        seen["stop"] = stop
+        stop.wait(10)  # a cooperative sweep returns as soon as stop is set
+
+    mocker.patch("src.automation.canary.run_all_safe", side_effect=sweep)
+    monkeypatch.setattr(canary.schedule, "due", lambda _now: True)
+    sch = sched_mod.CronScheduler()
+    sch._maybe_run_canaries(T0)
+    task = sch._canary_task
+    while "stop" not in seen:
+        await asyncio.sleep(0.01)
+
+    started = time.monotonic()
+    await sch.stop()
+    assert seen["stop"] is sch._canary_stop and sch._canary_stop.is_set()
+    assert task.done() and sch._canary_task is None
+    assert time.monotonic() - started < 2
+    assert isinstance(seen["stop"], threading.Event)
+
+
+async def test_scheduler_stop_does_not_hang_on_a_stuck_probe(mocker, monkeypatch):
+    import threading
+    import time
+
+    from src.automation import scheduler as sched_mod
+
+    release = threading.Event()
+    entered = threading.Event()
+
+    def stuck(stop=None):
+        entered.set()
+        release.wait(10)  # ignores stop, like a probe blocked in page.goto
+
+    mocker.patch("src.automation.canary.run_all_safe", side_effect=stuck)
+    monkeypatch.setattr(canary.schedule, "due", lambda _now: True)
+    monkeypatch.setattr(sched_mod, "CANARY_STOP_TIMEOUT", 0.2)
+    sch = sched_mod.CronScheduler()
+    sch._maybe_run_canaries(T0)
+    while not entered.is_set():
+        await asyncio.sleep(0.01)
+    try:
+        started = time.monotonic()
+        await sch.stop()
+        assert time.monotonic() - started < 2
+        assert sch._canary_stop.is_set() and sch._canary_task is None
+    finally:
+        release.set()

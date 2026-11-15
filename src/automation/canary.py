@@ -24,7 +24,8 @@ Outcomes
 ``ok`` · ``failed`` (page loaded, expected selectors/markers gone → the site
 changed) · ``session_expired`` (the saved login no longer authenticates — a
 re-login chore, never paged as drift) · ``skipped_no_session`` (no saved login on
-this machine) · ``error`` (the probe itself could not run: network, no browser).
+this machine) · ``error`` (the probe itself could not run: network, no browser, or the site
+throttled / blocked us — HTTP 403/408/425/429/999 — which is not drift).
 
 Alerts go to the log and, when ``CANARY_ALERT_WEBHOOK`` is set, to that URL as a
 JSON POST. There is no notification system in the app yet — this is deliberately
@@ -35,6 +36,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Sequence
@@ -64,6 +66,12 @@ ERROR = "error"
 _CONCLUSIVE = frozenset({OK, FAILED, ERROR})
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# HTTP statuses that mean "throttled / bot-walled / try later", not "the page
+# changed": classified ``error`` (never an immediate ``failing`` page) so a rate
+# limit can't masquerade as drift. Sustained blocking still surfaces through the
+# ``failure_rate`` alert. 999 is LinkedIn's bot wall.
+TRANSIENT_STATUSES = frozenset({403, 408, 425, 429, 999})
 
 WINDOW = 7          # probes considered for the failure rate (a week of nightlies)
 THRESHOLD = 0.5     # share of failed/error probes in the window that raises an alert
@@ -131,6 +139,7 @@ class LivePage:
     page: ReadOnlyPage
     wait: Callable[[int], None]
     blocked: list[str] = field(default_factory=list)
+    status: int | None = None  # HTTP status of the main document, when known
 
 
 def guard_route(route, blocked: list[str]) -> None:
@@ -172,8 +181,9 @@ def _open_page(canary: Canary, url: str, state_path: str | None):  # pragma: no 
             ctx = browser.new_context(**options)
             ctx.route("**/*", lambda route: guard_route(route, blocked))
             page = ctx.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            yield LivePage(ReadOnlyPage(page), page.wait_for_timeout, blocked)
+            resp = page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            yield LivePage(ReadOnlyPage(page), page.wait_for_timeout, blocked,
+                           resp.status if resp is not None else None)
         finally:
             browser.close()
 
@@ -213,6 +223,11 @@ def evaluate_page(canary: Canary, live: LivePage, session_spec: bs.SessionSpec |
         live.wait(500)
         waited += 500
 
+    if missing and live.status in TRANSIENT_STATUSES:
+        # A throttle / bot-wall page has none of the listing — that's not drift.
+        return Outcome(ERROR, f"{live.page.url} returned HTTP {live.status} (throttled or "
+                              "blocked); selectors not checked")
+
     if session_spec is not None:
         try:
             logged_in = bool(session_spec.is_logged_in(live.page))
@@ -248,6 +263,8 @@ def _dig(data, path: str):
 def _bad_status(what: str, code: int) -> Outcome | None:
     if code >= 500:
         return Outcome(ERROR, f"{what} returned HTTP {code}")
+    if code in TRANSIENT_STATUSES:
+        return Outcome(ERROR, f"{what} returned HTTP {code} (throttled or blocked)")
     if code != 200:
         return Outcome(FAILED, f"{what} returned HTTP {code}")
     return None
@@ -405,11 +422,14 @@ def send_alerts(alerts: list[dict], post: Callable[..., object] | None = None) -
 
 def run_all(only: Iterable[str] | None = None, *, engine=None, notify: bool = True,
             include_disabled: bool = False,
-            probe_fn: Callable[[Canary], Outcome] = probe) -> list[dict]:
+            probe_fn: Callable[[Canary], Outcome] = probe,
+            stop: threading.Event | None = None) -> list[dict]:
     """Probe every declared canary, record the results and deliver alerts.
 
     Automations switched off in Admin → Automations are skipped unless named in
     ``only`` or ``include_disabled`` is set. Returns one dict per probe run.
+    ``stop`` is checked between probes so the scheduler can end a sweep early on
+    shutdown (a probe already in flight runs to completion).
     """
     from src.database import get_engine
     from src.settings_store import is_automation_enabled
@@ -423,6 +443,9 @@ def run_all(only: Iterable[str] | None = None, *, engine=None, notify: bool = Tr
                     continue
             elif not include_disabled and not is_automation_enabled(job_type):
                 continue
+            if stop is not None and stop.is_set():
+                logger.info("canary sweep stopped early (shutdown) after %d probe(s)", len(results))
+                break
             outcome = probe_fn(canary)
             row = record(session, job_type, outcome)
             logger.info("canary %s: %s (%d ms) — %s", job_type, row.status, row.duration_ms, row.detail)
@@ -440,10 +463,10 @@ def _row_dict(row: CanaryResult) -> dict:
     }
 
 
-def run_all_safe() -> None:
+def run_all_safe(stop: threading.Event | None = None) -> None:
     """Scheduler entry point: a canary run must never take the scheduler down."""
     try:
-        run_all()
+        run_all(stop=stop)
     except Exception:
         logger.exception("Canary run failed")
 
