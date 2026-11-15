@@ -914,10 +914,15 @@ def run_linkedin_apply(
         "salary": "0",
     }
 
-    terms = split_keywords(keywords) or [str(keywords or "").strip()]
+    terms = split_keywords(keywords)
     keywords_label = ", ".join(terms)
     base = {"keywords": keywords_label, "search_terms": terms, "location": location,
             "dry_run": dry_run, "applied": [], "skipped": [], "warnings": []}
+    if not terms:
+        # An empty keyword search matches every job — never run (or submit) one.
+        return {**base, "keywords": str(keywords or ""), "error": (
+            f"No search terms in keywords {keywords!r}; give at least one keyword."
+        )}
 
     if not (state_path and os.path.exists(state_path)):
         return {**base, "error": (
@@ -968,7 +973,9 @@ def run_linkedin_apply(
             filtered = 0
             limit_hit = False
             pages_scanned = 0
-            per_term: dict[str, int] = {}
+            # Seeded with every term so a term the budget never reached reads 0,
+            # not absent.
+            per_term: dict[str, int] = dict.fromkeys(terms, 0)
 
             for t_idx, term in enumerate(terms, 1):
                 if len(applied) >= max_applications or limit_hit:

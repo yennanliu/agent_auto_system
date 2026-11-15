@@ -2,6 +2,7 @@
 import contextlib
 
 import playwright.sync_api
+import pytest
 
 from src.automation.flows import linkedin_apply_flow as flow_mod
 from src.automation.tools import linkedin_apply_tool as t
@@ -139,3 +140,28 @@ def test_single_term_still_stops_on_repeated_last_page(monkeypatch, tmp_path):
     assert applied == ["1"]
     assert calls == [("Backend", 1), ("Backend", 2)]
     assert out["keywords"] == "Backend"
+
+
+def test_empty_terms_refused_before_any_browser(monkeypatch, tmp_path):
+    state, calls, applied = _fake_browser(monkeypatch, tmp_path, {})
+    monkeypatch.setattr(t, "_launch_browser",
+                        lambda _pw: (_ for _ in ()).throw(AssertionError("no browser")))
+    out = t.run_linkedin_apply(keywords=" , ; ", dry_run=False, state_path=state)
+    assert "No search terms" in out["error"]
+    assert out["applied"] == [] and calls == [] and applied == []
+
+
+def test_flow_rejects_separator_only_keywords(monkeypatch):
+    monkeypatch.setattr(flow_mod, "append_log", lambda *_a, **_k: None)
+    with pytest.raises(ValueError, match="No search terms"):
+        _flow(keywords=" , ; ").validate_payload()
+
+
+def test_jobs_by_term_lists_terms_the_budget_never_reached(monkeypatch, tmp_path):
+    state, calls, applied = _fake_browser(monkeypatch, tmp_path, {
+        "A": [["1", "2"]], "B": [["3"]],
+    })
+    out = t.run_linkedin_apply(keywords="A, B", max_applications=2, state_path=state)
+    assert applied == ["1", "2"]
+    assert out["jobs_by_term"] == {"A": 2, "B": 0}
+    assert all(term != "B" for term, _ in calls)

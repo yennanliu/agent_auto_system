@@ -90,6 +90,11 @@ class LinkedInApplyFlow(FlowMixin, Flow[LinkedInApplyState]):
     @start()
     def validate_payload(self):
         self._check_required("keywords")
+        if not split_keywords(self.state.keywords):
+            # e.g. " , ; " — non-empty, but no search term survives the split.
+            # Never fall through to an unrestricted search (or let expansion
+            # invent terms for an empty request).
+            raise ValueError(f"No search terms in keywords {self.state.keywords!r}")
         append_log(
             self.state.run_id,
             f"Payload validated — keywords '{self.state.keywords}', "
