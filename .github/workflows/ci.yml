@@ -31,11 +31,27 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check src/ tests/ scripts/
 
+      # Coverage of src/ is collected across BOTH test steps (--cov-append) and
+      # gated once on the union below. --cov-fail-under=0 keeps each step from
+      # applying the gate to its own partial number.
       - name: Run unit tests
-        run: uv run pytest tests/unit -v --tb=short
+        run: uv run pytest tests/unit -v --tb=short --cov=src --cov-report= --cov-fail-under=0
 
       - name: Run integration tests
-        run: uv run pytest tests/integration -v --tb=short
+        run: uv run pytest tests/integration -v --tb=short --cov=src --cov-append --cov-report= --cov-fail-under=0
+
+      # Threshold lives in pyproject.toml ([tool.coverage.report] fail_under).
+      - name: Coverage gate (unit + integration)
+        run: uv run coverage report --skip-covered
+
+      # Ratchet: a PR may raise fail_under but never lower or remove it.
+      - name: Coverage ratchet (gate may only go up)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          uv run python scripts/coverage_ratchet.py --base-ref "origin/${BASE_REF}"
 
   # ────────────────────────────────────────────────────────────────────────────
   # Job 2 — Docker build + run the test suite INSIDE the container
