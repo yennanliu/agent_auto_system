@@ -65,7 +65,7 @@ agent_auto_system/
 │       └── test_form_fill.py     # requires --e2e flag
 └── ui/
     ├── index.html                # Landing page + history UI
-    └── app.js                    # API calls + DOM rendering
+    └── js/                       # ES modules (entry: main.js): API calls + DOM rendering
 ```
 
 ---

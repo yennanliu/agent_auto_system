@@ -3,7 +3,7 @@
 Each job type maps to an ordered list of (label, trigger) pairs. ``trigger`` is a
 substring searched for in a run's progress log; the last step whose trigger is
 present is the furthest the run reached. This mirrors the client-side
-``FLOW_STEPS`` / ``inferStepStates`` in ``ui/app.js`` but lives here so the
+``FLOW_STEPS`` (``ui/js/catalog.js``) / ``inferStepStates`` (``ui/js/steps.js``) but lives here so the
 ``/jobs/{id}/overview`` endpoint (and its tests) is the source of truth.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from src.automation.spec import step_map
 # Canonical per-job-type step graph, derived from the automation registry (SSOT).
 # job_type → ordered [(label, trigger)]. ``trigger`` is a substring searched for
 # in a run's progress log. Kept identical to the client-side FLOW_STEPS in
-# ui/app.js (Phase 2 will serve both from a manifest). See src/automation/spec.py.
+# ui/js/catalog.js (Phase 2 will serve both from a manifest). See src/automation/spec.py.
 FLOW_STEPS: dict[str, list[tuple[str, str]]] = step_map()
 
 

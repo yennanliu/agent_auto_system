@@ -1,0 +1,13 @@
+{
+  "name": "agent-auto-system-ui-tests",
+  "private": true,
+  "description": "Unit tests for the ES-module web UI (ui/js/**). No build step: Node's built-in test runner + jsdom.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test --test-reporter=spec *.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}

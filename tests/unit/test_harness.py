@@ -283,7 +283,7 @@ def test_ui_model_dropdown_matches_backend_catalog():
     from pathlib import Path
 
     from src.automation.harness.provider import PROVIDER_MODELS
-    js = (Path(__file__).resolve().parents[2] / "ui" / "app.js").read_text()
+    js = (Path(__file__).resolve().parents[2] / "ui" / "js" / "catalog.js").read_text()
     block = js[js.index("const LLM_MODELS = {"):]
     block = block[:block.index("};")]
     for provider, models in PROVIDER_MODELS.items():

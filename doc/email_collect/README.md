@@ -57,7 +57,7 @@ Textbook new job type — the 5-file touch (see `CLAUDE.md`):
    - **Qualifier agent** — LLM decides "is this an SMB that fits my ICP?" and
      drafts a one-line personalization hook
 4. `routers/system.py` → `_CATALOG`
-5. `ui/app.js` → form (query, region, industry, count)
+5. `ui/js/forms/email-collect.js` (+ submit handler in `ui/js/jobs.js`) → form (query, region, industry, count)
 
 New tools under the tools layer: `maps_search`, `web_email_extract` (Playwright),
 `email_verify` (dnspython + smtplib). Output → a `leads` table (or the run
