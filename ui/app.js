@@ -2183,7 +2183,12 @@ async function triggerRun(jobType, jobName, payload) {
     const job = await jobResp.json();
 
     const runResp = await fetch(`/api/jobs/${job.id}/run`, { method: 'POST' });
-    if (!runResp.ok) throw new Error((await runResp.json().catch(() => ({}))).detail || 'Failed to trigger run');
+    if (!runResp.ok) {
+      const detail = (await runResp.json().catch(() => ({}))).detail;
+      // The job was created only to run now (e.g. 429 rate limit) — don't leave it orphaned.
+      await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' }).catch(() => {});
+      throw new Error(detail || 'Failed to trigger run');
+    }
     const { run_id } = await runResp.json();
 
     showProgress(jobName, jobType);

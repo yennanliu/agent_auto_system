@@ -1,7 +1,9 @@
-"""Rate limiting on login (per IP / per username) and run trigger (per user).
+"""Rate limiting on login (per IP / per username+IP) and run trigger (per user).
 
 The suite-wide autouse fixture turns limiting off; these tests turn it back on.
 """
+import asyncio
+import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -63,14 +65,68 @@ async def test_successful_logins_are_not_counted(anon_client, seed_admin, limits
         assert (await _login(anon_client, password="password123")).status_code == 200
 
 
-async def test_login_username_limit_spans_ips(anon_client, seed_admin, limits_on, monkeypatch):
+async def test_login_username_limit_per_ip(anon_client, seed_admin, limits_on, monkeypatch):
     monkeypatch.setenv("RATE_LIMIT_LOGIN_IP", "100/minute")
     monkeypatch.setenv("RATE_LIMIT_LOGIN_USERNAME", "2/minute")
-    async with _client("10.0.0.1") as a, _client("10.0.0.2") as b, _client("10.0.0.3") as c:
+    async with _client("10.0.0.1") as a:
         assert (await _login(a)).status_code == 401
-        assert (await _login(b, username="TESTER ")).status_code == 401  # same account
-        assert (await _login(c)).status_code == 429
-        assert (await _login(c, username="someone-else")).status_code == 401
+        assert (await _login(a, username="TESTER ")).status_code == 401  # same account
+        assert (await _login(a)).status_code == 429
+        assert (await _login(a, username="someone-else")).status_code == 401
+
+
+async def test_attacker_cannot_lock_out_real_user(anon_client, seed_admin, limits_on, monkeypatch):
+    """Failing on purpose for a known username only burns the attacker's own budget."""
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_IP", "100/minute")
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_USERNAME", "2/minute")
+    async with _client("6.6.6.6") as attacker, _client("10.0.0.7") as victim:
+        for _ in range(5):
+            await _login(attacker, username="tester")
+        assert (await _login(attacker, username="tester")).status_code == 429
+        assert (await _login(victim, password="password123")).status_code == 200
+
+
+async def test_success_clears_account_counter(anon_client, seed_admin, limits_on, monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_IP", "100/minute")
+    monkeypatch.setenv("RATE_LIMIT_LOGIN_USERNAME", "2/minute")
+    assert (await _login(anon_client)).status_code == 401
+    assert (await _login(anon_client, password="password123")).status_code == 200
+    # Budget is back to full: two more typos before 429.
+    assert (await _login(anon_client)).status_code == 401
+    assert (await _login(anon_client)).status_code == 401
+    assert (await _login(anon_client)).status_code == 429
+
+
+async def test_success_does_not_refill_ip_budget(anon_client, seed_admin, limits_on):
+    """Logging into your own account mustn't reset the budget for guessing others."""
+    for _ in range(2):
+        assert (await _login(anon_client, username="victim")).status_code == 401
+    assert (await _login(anon_client, password="password123")).status_code == 200
+    assert (await _login(anon_client, username="victim")).status_code == 401
+    assert (await _login(anon_client, username="victim")).status_code == 429
+
+
+async def test_concurrent_logins_cannot_overshoot(anon_client, seed_admin, limits_on, mocker):
+    """Slots are reserved before bcrypt: a burst of N gets exactly the budget, no more."""
+    def slow_verify(*_a):
+        time.sleep(0.2)
+        return False
+
+    mocker.patch("src.routers.auth.verify_password", side_effect=slow_verify)
+    resps = await asyncio.gather(*(_login(anon_client) for _ in range(8)))
+    codes = sorted(r.status_code for r in resps)
+    assert codes == [401] * 3 + [429] * 5
+
+
+def test_prune_drops_expired_keys(monkeypatch):
+    monkeypatch.setattr(rate_limit, "_PRUNE_AT", 3)
+    events = rate_limit._storage.events
+    for i in range(5):
+        events[f"stale-{i}"] = []
+    events["live"] = ["entry"]
+    rate_limit._prune()
+    assert not any(k.startswith("stale-") for k in events)
+    assert "live" in events
 
 
 async def test_login_limit_disabled_switch(anon_client, seed_admin, limits_on, monkeypatch):

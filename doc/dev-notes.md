@@ -27,7 +27,7 @@ readable `detail`, which the UI shows as-is.
 |---|---|---|---|
 | `RATE_LIMIT_ENABLED` | `1` | `0` turns every limit off | — |
 | `RATE_LIMIT_LOGIN_IP` | `10/minute` | **failed** `POST /api/auth/login` | client IP |
-| `RATE_LIMIT_LOGIN_USERNAME` | `10/5minutes` | **failed** `POST /api/auth/login` | submitted username (lower-cased) |
+| `RATE_LIMIT_LOGIN_USERNAME` | `10/5minutes` | **failed** `POST /api/auth/login`; cleared by a successful sign-in | submitted username (lower-cased) **+ client IP** |
 | `RATE_LIMIT_RUN` | `20/minute;200/hour` | `POST /api/jobs/{id}/run` | authenticated user id |
 
 Values use the `limits` syntax (`N/second|minute|hour|day`, `N/5minutes`); `;` combines several
@@ -35,10 +35,21 @@ windows; an empty value disables that one limit; an invalid value logs a warning
 the default. Moving-window strategy.
 
 - **Login** — successful sign-ins are never counted, so a shared office IP isn't penalised for
-  normal use. Once a budget is exhausted the endpoint answers 429 *before* checking the password
-  (even a correct one), so a locked-out guesser learns nothing. Trade-off: someone can lock a known
-  username out for the window by failing on purpose — the usual price of a per-account limit; raise
-  or empty `RATE_LIMIT_LOGIN_USERNAME` if that matters more than distributed guessing.
+  normal use, and a success clears that (username, IP) counter (never the per-IP one — logging into
+  your own account must not refill the budget for guessing others). Once a budget is exhausted the
+  endpoint answers 429 *before* checking the password (even a correct one), so a locked-out guesser
+  learns nothing.
+- **No third-party lockout** — the per-account counter is keyed on (username, client IP), not the
+  username alone; otherwise anyone could lock `admin` out by failing 10 times per window. An
+  attacker now only exhausts budgets on their own IP. Trade-off: guessing one account from many IPs
+  is bounded by the per-IP budget × number of IPs rather than a per-account cap (strong passwords /
+  SSO cover that). Clients sharing one NAT/proxy IP still share the per-IP bucket.
+- **Atomic** — `rate_limit.login_attempt()` reserves a slot under a lock (counting in-flight
+  attempts) before bcrypt runs, then records the failure / clears on success. A concurrent burst
+  gets exactly the budget, not N× it.
+- **Memory** — `limits`' `MemoryStorage` empties expired windows but keeps their keys;
+  `rate_limit._prune()` drops the empty keys once there are more than 10 000, so a username spray
+  can't grow memory without bound.
 - **Run trigger** — the check lives in the HTTP route, not in `launcher.launch_run()`, so the cron
   scheduler is **not** rate limited. It caps how *often* a user starts runs, not how many run at
   once.

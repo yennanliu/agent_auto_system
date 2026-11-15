@@ -51,15 +51,17 @@ def _public(user: User) -> dict:
 def login(
     data: LoginRequest, request: Request, session: Session = Depends(get_session)
 ):
-    # Brute-force guard: 429 while this IP / username is over its failed-attempt budget.
-    rate_limit.check_login(request, data.username)
-    user = session.exec(select(User).where(User.username == data.username)).first()
-    # SSO-only accounts have no password_hash and can't log in with a password.
-    if not user or not user.password_hash or not verify_password(
-        data.password, user.password_hash
-    ):
-        rate_limit.record_login_failure(request, data.username)
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+    # Brute-force guard: 429 while this IP, or this username from this IP, is over
+    # its failed-attempt budget. Reserves a slot before bcrypt, so it's atomic.
+    with rate_limit.login_attempt(request, data.username) as attempt:
+        user = session.exec(select(User).where(User.username == data.username)).first()
+        # SSO-only accounts have no password_hash and can't log in with a password.
+        if not user or not user.password_hash or not verify_password(
+            data.password, user.password_hash
+        ):
+            attempt.failed()
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        attempt.succeeded()
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
