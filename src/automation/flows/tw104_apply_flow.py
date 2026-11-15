@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.automation.crews.tw104_area_crew.crew import TW104AreaCrew
 from src.automation.crews.tw104_relevance_crew.crew import TW104RelevanceCrew
 from src.automation.flows.base import FlowMixin
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import add_usage, extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.tw104_apply_tool import run_tw104_apply
 from src.automation.tools.tw104_area import CANONICAL_NAMES, resolve_area
@@ -115,9 +115,7 @@ class TW104ApplyFlow(FlowMixin, Flow[TW104ApplyState]):
             return llm_box["llm"]
 
         def _acc_usage(result) -> None:
-            u = extract_usage(result)
-            usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
-            usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+            add_usage(usage_acc, extract_usage(result))
 
         # ── Area: name/typo/English → 104 code(s). Static table first; the LLM
         # only runs for tokens the table misses (rare), so common inputs are free.

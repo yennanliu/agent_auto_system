@@ -189,6 +189,7 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
         append_log(run_id, f"Using {effective_provider} / {effective_model}")
 
     tokens_in = tokens_out = 0
+    tokens_cached = tokens_cache_write = 0  # parts of tokens_in billed at cache rates
     cost = 0.0
     vr = None
     ev = None  # set before every _trace_run call site; init keeps the closure safe
@@ -202,6 +203,7 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
             provider=effective_provider, model=effective_model,
             payload=payload, result=result,
             tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
+            tokens_cached=tokens_cached, tokens_cache_write=tokens_cache_write,
             duration_secs=time.monotonic() - _t0,
             eval_score=ev.score if ev else None,
             eval_confidence=ev.confidence if ev else None,
@@ -232,6 +234,10 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
 
             tokens_in  += usage.get("prompt_tokens", 0)
             tokens_out += usage.get("completion_tokens", 0)
+            tokens_cached      += usage.get("cached_prompt_tokens", 0)
+            tokens_cache_write += usage.get("cache_creation_tokens", 0)
+            if tokens_cached or tokens_cache_write:
+                append_log(run_id, f"Prompt cache: {tokens_cached} tokens read, {tokens_cache_write} written")
 
             append_log(run_id, "Validating result...")
             vr = validate(job_type, result)
@@ -244,7 +250,7 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
             ev = await asyncio.to_thread(evaluate, job_type, result, effective_provider, effective_model)
             append_log(run_id, f"Evaluation complete — score {ev.score}/100, confidence {ev.confidence} ({ev.method})")
 
-            cost    = estimate_cost(effective_model, tokens_in, tokens_out)
+            cost    = estimate_cost(effective_model, tokens_in, tokens_out, tokens_cached, tokens_cache_write)
             metrics = dict(llm_provider=effective_provider, llm_model=effective_model,
                            served_model=serve["served_model"],
                            fallback_used=serve["fallback_used"],
@@ -277,7 +283,7 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
                 append_log(run_id, f"Error (will retry): {str(exc)[:200]}")
                 logger.warning("run_id=%d attempt=%d raised %s, retrying", run_id, attempt, exc)
                 continue
-            cost    = estimate_cost(effective_model, tokens_in, tokens_out)
+            cost    = estimate_cost(effective_model, tokens_in, tokens_out, tokens_cached, tokens_cache_write)
             ev      = evaluate(job_type, {"error": str(exc)})  # heuristic; no LLM call for errors
             metrics = dict(llm_provider=effective_provider, llm_model=effective_model,
                            tokens_in=tokens_in, tokens_out=tokens_out,

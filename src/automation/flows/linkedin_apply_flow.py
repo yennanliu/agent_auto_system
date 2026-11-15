@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.automation.crews.linkedin_keyword_crew.crew import LinkedInKeywordCrew
 from src.automation.crews.linkedin_relevance_crew.crew import LinkedInRelevanceCrew
 from src.automation.flows.base import FlowMixin
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import add_usage, extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.linkedin_apply_tool import (
     MAX_SEARCH_TERMS,
@@ -129,9 +129,7 @@ class LinkedInApplyFlow(FlowMixin, Flow[LinkedInApplyState]):
             return llm_box["llm"]
 
         def _acc_usage(result) -> None:
-            u = extract_usage(result)
-            usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
-            usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+            add_usage(usage_acc, extract_usage(result))
 
         # ── Search terms: the user's own (split on , 、 ; newline) + optional LLM expansion ──
         terms = split_keywords(self.state.keywords)

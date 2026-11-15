@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.automation.crews.tasker_apply_crew.crew import TaskerProposalCrew
 from src.automation.crews.tasker_relevance_crew.crew import TaskerRelevanceCrew
 from src.automation.flows.base import FlowMixin
-from src.automation.flows.utils import extract_usage
+from src.automation.flows.utils import add_usage, extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.tasker_apply_tool import (
     _DEFAULT_TEMPLATE,
@@ -108,9 +108,7 @@ class TaskerApplyFlow(FlowMixin, Flow[TaskerApplyState]):
                     "proposal_template": template,
                     "previous_error": self.state.previous_error,
                 })
-                u = extract_usage(result)
-                usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
-                usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+                add_usage(usage_acc, extract_usage(result))
                 text = result.raw if hasattr(result, "raw") else str(result)
                 return (text or "").strip() or template
             except Exception as exc:  # noqa: BLE001 — never fail a case on text-gen
@@ -143,9 +141,7 @@ class TaskerApplyFlow(FlowMixin, Flow[TaskerApplyState]):
                         "case_title": title,
                         "case_description": description,
                     })
-                    u = extract_usage(result)
-                    usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
-                    usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+                    add_usage(usage_acc, extract_usage(result))
                     text = (result.raw if hasattr(result, "raw") else str(result)) or ""
                     verdict = _parse_verdict(text)
                     if verdict is None:

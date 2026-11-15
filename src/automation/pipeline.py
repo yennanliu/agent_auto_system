@@ -63,6 +63,7 @@ async def execute_pipeline(
     or {{steps.N.result.field_name}} template variables.
     """
     from src.automation.executor import _run_flow  # late import to break circular dep
+    from src.automation.flows.utils import add_usage
 
     n = len(steps)
     if n == 0:
@@ -80,8 +81,7 @@ async def execute_pipeline(
         result, usage, _serve = await _run_flow(
             run_id, step_type, step_payload, effective_provider, effective_model
         )
-        total_usage["prompt_tokens"]     += usage.get("prompt_tokens", 0)
-        total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+        add_usage(total_usage, usage)
         results.append(result)
         append_log(run_id, f"[Step {i + 1}/{n}] Completed {step_type}")
 
