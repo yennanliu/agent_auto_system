@@ -277,7 +277,9 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
         except asyncio.CancelledError:
             raise  # DB status already updated by the cancel endpoint
         except Exception as exc:
-            if attempt < max_retries:
+            # UnsafeToContinue: a retry clears the checkpoint and starts over,
+            # which would repeat exactly the side effect it is guarding against.
+            if attempt < max_retries and not isinstance(exc, checkpoint.UnsafeToContinue):
                 append_log(run_id, f"Error (will retry): {str(exc)[:200]}")
                 logger.warning("run_id=%d attempt=%d raised %s, retrying", run_id, attempt, exc)
                 continue
@@ -296,3 +298,4 @@ async def execute_run(run_id: int, job_type: str, payload: dict):
                         provider=effective_provider, tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost)
             _update_run(run_id, "failed", {"error": str(exc)}, **metrics)
             await _trace_run("failed", {"error": str(exc)})
+            return  # terminal (also for a non-retryable error before the last attempt)

@@ -22,11 +22,13 @@ from sqlalchemy import text
 
 from src.automation import checkpoint, spec
 from src.automation.launcher import relaunch_run
+from src.automation.pipeline import repeat_safe
 from src.automation.progress import append_log
 
 logger = logging.getLogger(__name__)
 
 _STARTED_RE = re.compile(r"^pipeline:(\d+):started$")
+_DONE_RE = re.compile(r"^pipeline:(\d+):done$")
 
 
 def max_resume_attempts() -> int:
@@ -74,10 +76,26 @@ def _refusal(job_type: str, ckpt: dict, resume_count: int, payload: dict) -> str
             if not m or f"pipeline:{m.group(1)}:done" in ckpt:
                 continue
             step_type = data.get("job_type", "") if isinstance(data, dict) else ""
-            if not spec.is_resumable(step_type) or step_type == "pipeline":
+            if not repeat_safe(step_type):
                 return (f"Server restarted while run was in progress (not resumed: "
                         f"step {int(m.group(1)) + 1} '{step_type}' was in flight and "
                         f"is not safe to repeat)")
+        # A step whose `done` marker was lost re-runs on resume and may produce
+        # different output. If a later step that is not safe to repeat already
+        # completed, its inputs would then change and it would run again — so a
+        # gap before a completed non-repeatable step makes the run non-resumable.
+        steps = payload.get("steps") or []
+        done = {int(m.group(1)) for k in ckpt if (m := _DONE_RE.match(k))}
+        for j in sorted(done):
+            step_type = steps[j].get("job_type", "") if j < len(steps) and \
+                isinstance(steps[j], dict) else ""
+            if repeat_safe(step_type):
+                continue
+            gap = next((i for i in range(j) if i not in done), None)
+            if gap is not None:
+                return (f"Server restarted while run was in progress (not resumed: "
+                        f"step {gap + 1}'s completion checkpoint was lost and step "
+                        f"{j + 1} '{step_type}', which is not safe to repeat, already ran)")
     return None
 
 

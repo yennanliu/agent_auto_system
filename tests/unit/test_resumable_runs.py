@@ -288,14 +288,29 @@ async def test_pipeline_resume_skips_completed_steps(db):
 @pytest.mark.asyncio
 async def test_pipeline_reruns_step_whose_payload_changed(db):
     from src.automation.pipeline import execute_pipeline
-    steps = [{"job_type": "web_scraper", "payload": {"url": "https://a.com"}}]
+    steps = [{"job_type": "email_collect", "payload": {"query": "cafe"}}]
     rid = _run(db, _job(db, "pipeline", {"steps": steps}))
     flow = AsyncMock(return_value=({"summary": "S"}, {}, {}))
     with patch("src.automation.executor._run_flow", new=flow):
         await execute_pipeline(rid, steps, "gemini", "m")
-        edited = [{"job_type": "web_scraper", "payload": {"url": "https://b.com"}}]
+        edited = [{"job_type": "email_collect", "payload": {"query": "bakery"}}]
         await execute_pipeline(rid, edited, "gemini", "m")
     assert flow.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_pipeline_refuses_to_rerun_completed_non_repeatable_step(db):
+    """A completed step that is not safe to repeat is never re-run because its inputs changed."""
+    from src.automation.pipeline import execute_pipeline
+    steps = [{"job_type": "email_sender", "payload": {"to": "a@x.com"}}]
+    rid = _run(db, _job(db, "pipeline", {"steps": steps}))
+    flow = AsyncMock(return_value=({"sent": 1}, {}, {}))
+    with patch("src.automation.executor._run_flow", new=flow):
+        await execute_pipeline(rid, steps, "gemini", "m")
+        edited = [{"job_type": "email_sender", "payload": {"to": "b@x.com"}}]
+        with pytest.raises(checkpoint.UnsafeToContinue):
+            await execute_pipeline(rid, edited, "gemini", "m")
+    assert flow.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -311,6 +326,100 @@ async def test_pipeline_step_completion_drops_nested_flow_checkpoints(db):
     with patch("src.automation.executor._run_flow", new=fake_flow):
         await execute_pipeline(rid, steps, "gemini", "m")
     assert all(k.startswith("pipeline:") for k in checkpoint.load(rid))
+
+
+@pytest.mark.asyncio
+async def test_pipeline_does_not_start_side_effect_step_without_started_marker(db, mocker):
+    """started-marker write fails → the send step must not run (fail closed)."""
+    from src.automation.pipeline import execute_pipeline
+    rid = _run(db, _job(db, "pipeline", {"steps": _PIPE}))
+    real_save = checkpoint.save
+    mocker.patch("src.automation.checkpoint.save", side_effect=lambda run_id, key, *a, **k:
+                 False if key == "pipeline:1:started" else real_save(run_id, key, *a, **k))
+    flow = AsyncMock(return_value=({"leads": [{"email": "a@x.com"}]}, {}, {}))
+    with patch("src.automation.executor._run_flow", new=flow):
+        with pytest.raises(checkpoint.UnsafeToContinue, match="step 2|Step 2"):
+            await execute_pipeline(rid, _PIPE, "gemini", "m")
+    assert [c.args[1] for c in flow.await_args_list] == ["email_collect"]  # sender never ran
+
+
+@pytest.mark.asyncio
+async def test_pipeline_started_marker_loss_is_tolerated_for_repeat_safe_step(db, mocker):
+    from src.automation.pipeline import execute_pipeline
+    steps = [{"job_type": "email_collect", "payload": {"query": "cafe"}}]
+    rid = _run(db, _job(db, "pipeline", {"steps": steps}))
+    real_save = checkpoint.save
+    mocker.patch("src.automation.checkpoint.save", side_effect=lambda run_id, key, *a, **k:
+                 False if key.endswith(":started") else real_save(run_id, key, *a, **k))
+    flow = AsyncMock(return_value=({"leads": []}, {}, {}))
+    with patch("src.automation.executor._run_flow", new=flow):
+        await execute_pipeline(rid, steps, "gemini", "m")
+    assert flow.await_count == 1
+
+
+def test_executor_does_not_retry_unsafe_to_continue(db, mocker):
+    """A retry clears the checkpoint and starts over — it must not be used here."""
+    import asyncio
+
+    from src.automation.executor import execute_run
+    rid = _run(db, _job(db, "pipeline", {"steps": _PIPE}), "pending")
+    pipe = mocker.patch("src.automation.executor.execute_pipeline",
+                        side_effect=checkpoint.UnsafeToContinue("marker lost"))
+    asyncio.run(execute_run(rid, "pipeline", {"steps": _PIPE, "max_retries": 2}))
+    assert pipe.call_count == 1
+    r = _get(db, rid)
+    assert r.status == "failed" and "marker lost" in r.result
+
+
+_SEND_PIPE = [
+    {"job_type": "email_collect", "payload": {"query": "cafe"}},
+    {"job_type": "email_sender", "payload": {"body": "{{steps.0.result.summary}}"}},
+    {"job_type": "email_collect", "payload": {"query": "bakery"}},
+]
+
+
+async def _run_with_lost_done_marker(db, mocker) -> int:
+    """Step 1's done marker is lost; step 2 (email_sender) completes; crash in step 3."""
+    from src.automation.pipeline import execute_pipeline
+    rid = _run(db, _job(db, "pipeline", {"steps": _SEND_PIPE}))
+    real_save = checkpoint.save
+    lose = mocker.patch("src.automation.checkpoint.save", side_effect=lambda run_id, key, *a, **k:
+                        False if key == "pipeline:0:done" else real_save(run_id, key, *a, **k))
+    first = AsyncMock(side_effect=[({"summary": "S1"}, {}, {}), ({"sent": 1}, {}, {}),
+                                   RuntimeError("process died")])
+    with patch("src.automation.executor._run_flow", new=first):
+        with pytest.raises(RuntimeError):
+            await execute_pipeline(rid, _SEND_PIPE, "gemini", "m")
+    mocker.stop(lose)
+    saved = checkpoint.load(rid)
+    assert "pipeline:0:done" not in saved and "pipeline:1:done" in saved
+    return rid
+
+
+@pytest.mark.asyncio
+async def test_resume_refused_when_done_marker_lost_before_completed_send_step(db, mocker, relaunch):
+    from src.automation.resume import recover_stale_runs
+    rid = await _run_with_lost_done_marker(db, mocker)
+    assert recover_stale_runs() == ([], 1)
+    relaunch.assert_not_called()
+    r = _get(db, rid)
+    assert r.status == "failed"
+    assert "step 1's completion checkpoint was lost" in r.result
+    assert "'email_sender'" in r.result
+
+
+@pytest.mark.asyncio
+async def test_pipeline_never_reruns_completed_send_step_on_signature_change(db, mocker):
+    """Even if a resume gets past _refusal, the pipeline itself refuses."""
+    from src.automation.pipeline import execute_pipeline
+    rid = await _run_with_lost_done_marker(db, mocker)
+    # Step 1 re-runs (no done marker) and now produces different output.
+    second = AsyncMock(side_effect=[({"summary": "S1-changed"}, {}, {}), ({"sent": 1}, {}, {}),
+                                    ({"digest": "D"}, {}, {})])
+    with patch("src.automation.executor._run_flow", new=second):
+        with pytest.raises(checkpoint.UnsafeToContinue, match="'email_sender' already completed"):
+            await execute_pipeline(rid, _SEND_PIPE, "gemini", "m")
+    assert [c.args[1] for c in second.await_args_list] == ["email_collect"]  # sender NOT re-run
 
 
 # ── email_collect ─────────────────────────────────────────────────────────────
@@ -342,6 +451,7 @@ def test_email_collect_resumes_without_redoing_completed_work(db, mocker):
     rid = _run(db, _job(db))
     inputs = {"query": "cafe", "region": "TW", "run_id": rid}
 
+    mocker.patch("src.automation.flows.email_collect_flow._CRAWL_SAVE_EVERY", 1)
     # First process dies while crawling the 2nd of 3 businesses.
     maps, extract, _ = _patch_email_collect(mocker, crash_on="https://b.com")
     with pytest.raises(Exception):
@@ -398,3 +508,28 @@ def test_executor_retry_starts_from_a_clean_checkpoint(db, mocker):
     assert seen == [{}, {}]
     r = _get(db, rid)
     assert r.status == "success" and r.checkpoint is None
+
+
+def test_email_collect_throttles_crawl_checkpoints(db, mocker):
+    """The leads list is not rewritten after every business; the final state is saved."""
+    from src.automation.flows.email_collect_flow import EmailCollectFlow
+    rid = _run(db, _job(db))
+    mocker.patch("src.automation.flows.email_collect_flow._CRAWL_SAVE_EVERY", 2)
+    _patch_email_collect(mocker)
+    save = mocker.spy(checkpoint, "save")
+    EmailCollectFlow().kickoff(inputs={"query": "cafe", "run_id": rid})
+    crawl_saves = [c.args[2]["done"] for c in save.call_args_list
+                   if c.args[1] == "email_collect:crawl"]
+    assert crawl_saves == [2, 3]
+
+
+def test_checkpoint_locks_are_per_run():
+    a, b = checkpoint._run_lock(1), checkpoint._run_lock(2)
+    assert a is not b and checkpoint._run_lock(1) is a
+    with a:
+        assert b.acquire(blocking=False)  # another run is never blocked
+        b.release()
+    del a, b
+    import gc
+    gc.collect()
+    assert 1 not in checkpoint._LOCKS and 2 not in checkpoint._LOCKS

@@ -74,6 +74,10 @@ A restart no longer fails every in-flight run. `main.lifespan` calls `resume.rec
 
 Flows should store an input signature (`checkpoint.signature(...)`) with their checkpoint and ignore a mismatching one: a resumed run reads its payload from the Job row, which may have been edited meanwhile.
 
+**Lost markers fail closed.** `checkpoint.save()` never raises, so callers guarding a side effect check its return value. In a pipeline, a step that is not safe to repeat is not started if its `started` marker could not be saved, and a completed one is never re-executed because its inputs changed on resume (an upstream step whose `done` marker was lost re-ran with different output) — both fail the run with `checkpoint.UnsafeToContinue`, which the executor does not retry. `resume._refusal` also refuses up front when a completed non-repeatable step follows a step with no `done` marker.
+
+**Single instance only.** Resume assumes one app process owns the database: on startup *every* pending/running run is treated as an orphan of the previous process. With several replicas sharing one DB, a replica that starts (or restarts) would resume — or fail — runs that are still executing on another replica, running them twice. Until runs carry an owner/heartbeat lease, run a single app instance per database. `RUN_RESUME_ENABLED=0` does not make multi-replica safe: startup then fails those runs instead (`reconcile_stale_runs` has the same single-instance assumption).
+
 ---
 
 ## Scalability Roadmap

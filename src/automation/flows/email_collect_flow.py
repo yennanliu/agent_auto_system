@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.parse
 from itertools import zip_longest
 
@@ -52,6 +53,12 @@ _DEFAULT_OFFER = "an AI agent / automation consulting proposal for small busines
 # unit redone after a crash costs time, never a duplicate outward action.
 _CKPT_DISCOVERY = "email_collect:discovery"   # businesses + warnings (stage 1)
 _CKPT_CRAWL = "email_collect:crawl"           # per-business progress (stages 2-3)
+# The crawl checkpoint rewrites the whole leads list, so saving after every
+# business is quadratic in the run size. Save every N businesses or every T
+# seconds (whichever comes first), and always once the crawl finishes. A crash
+# repeats at most that much read-only crawling.
+_CRAWL_SAVE_EVERY = 5
+_CRAWL_SAVE_SECS = 20.0
 
 
 class EmailCollectState(BaseModel):
@@ -137,17 +144,26 @@ class EmailCollectFlow(FlowMixin, Flow[EmailCollectState]):
                        f"Resumed: {done}/{len(businesses)} business(es) already "
                        f"crawled ({len(leads)} lead(s) kept), continuing from "
                        f"#{done + 1}")
+        def _save_crawl(n_done: int) -> None:
+            checkpoint.save(self.state.run_id, _CKPT_CRAWL, {
+                "sig": sig, "done": n_done, "leads": leads,
+                "seen_emails": sorted(seen_emails), "with_website": with_website,
+            })
+
+        saved_at, saved_t = done, time.monotonic()
         for i, biz in enumerate(businesses, 1):
             if i <= done:
                 continue
             if self._crawl_business(i, len(businesses), biz, rid, leads, seen_emails):
                 with_website += 1
-            # Written only after the business is fully processed: one interrupted
+            # Written only after a business is fully processed: one interrupted
             # mid-crawl is simply crawled again, from a consistent snapshot.
-            checkpoint.save(self.state.run_id, _CKPT_CRAWL, {
-                "sig": sig, "done": i, "leads": leads,
-                "seen_emails": sorted(seen_emails), "with_website": with_website,
-            })
+            if (i - saved_at >= _CRAWL_SAVE_EVERY
+                    or time.monotonic() - saved_t >= _CRAWL_SAVE_SECS):
+                _save_crawl(i)
+                saved_at, saved_t = i, time.monotonic()
+        if saved_at < len(businesses):
+            _save_crawl(len(businesses))
 
         leads.sort(key=lambda x: _CONF_RANK.get(x["confidence"], 9))
         append_log(self.state.run_id,

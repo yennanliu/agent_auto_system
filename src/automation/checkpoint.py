@@ -16,20 +16,47 @@ Rules for callers:
   whose signature does not match (:func:`signature`). A resumed run reads its
   payload from the Job row, which may have been edited since the run started.
 * Checkpointing is best-effort: :func:`save` and :func:`load` never raise into
-  the flow. A lost checkpoint only costs redone work, never a failed run.
+  the flow. For *safe-to-repeat* work a lost checkpoint only costs redone work.
+  Callers guarding a side-effecting unit must check :func:`save`'s return value
+  and fail closed (see ``pipeline.execute_pipeline``): a marker that was never
+  written cannot stop a resume from repeating that unit.
 """
 import hashlib
 import json
 import logging
 import threading
+import weakref
 
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-# save() is read-modify-write; serialise writers in this process (flows run in
-# worker threads). One run only ever has one writer, so this is uncontended.
-_LOCK = threading.Lock()
+# save() is read-modify-write on one run's row, so writers to the SAME run are
+# serialised (flows run in worker threads, and a pipeline step's flow and the
+# pipeline itself can both write). Locks are per run so concurrent runs never
+# wait on each other. The registry holds them weakly: a lock disappears as soon
+# as no thread is using it, so finished runs leave nothing behind.
+_LOCKS: "weakref.WeakValueDictionary[int, threading.Lock]" = weakref.WeakValueDictionary()
+_LOCKS_GUARD = threading.Lock()
+
+
+def _run_lock(run_id: int) -> threading.Lock:
+    with _LOCKS_GUARD:
+        lock = _LOCKS.get(run_id)
+        if lock is None:
+            lock = threading.Lock()
+            _LOCKS[run_id] = lock
+        return lock
+
+
+class UnsafeToContinue(RuntimeError):
+    """Continuing would risk repeating a side-effecting unit of work.
+
+    Raised when a checkpoint marker that guards such a unit could not be
+    persisted, or when a resumed run would have to re-execute a unit that
+    already completed. The executor fails the run with this message and does
+    **not** retry it (a retry starts over and would repeat the unit too).
+    """
 
 
 def _engine():
@@ -80,7 +107,7 @@ def save(run_id: int, step_key: str, data, *, keep_prefix: str | None = None) ->
     if not run_id:
         return False
     try:
-        with _LOCK, _engine().connect() as conn:
+        with _run_lock(run_id), _engine().connect() as conn:
             row = conn.execute(
                 text("SELECT checkpoint FROM run WHERE id = :id"), {"id": run_id}
             ).first()
@@ -106,7 +133,7 @@ def clear(run_id: int) -> None:
     if not run_id:
         return
     try:
-        with _LOCK, _engine().connect() as conn:
+        with _run_lock(run_id), _engine().connect() as conn:
             conn.execute(text("UPDATE run SET checkpoint = NULL WHERE id = :id"), {"id": run_id})
             conn.commit()
     except Exception as exc:  # noqa: BLE001
