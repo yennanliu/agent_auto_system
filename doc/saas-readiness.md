@@ -165,10 +165,9 @@ The stack is explicitly single-instance (see `aws-ecs-fargate-deployment.md`, wh
 
 **TODO**
 - [ ] Postgres as the default for any hosted deployment; keep SQLite only for local dev.
-- [ ] **Alembic** for migrations. Today migrations are hand-rolled `ALTER TABLE … ADD COLUMN`
-      wrapped in `try/except: pass` inside `init_db()` (`database.py:22-55`), plus a
-      SQLite-only `julianday()` backfill (`database.py:60`) that breaks on Postgres. No
-      versioning, no rollback — untenable once you can't just delete the DB.
+- [x] **Alembic** for migrations — `init_db()` runs `alembic upgrade head` on startup;
+      pre-Alembic databases are verified against the baseline and stamped
+      (`src/migrations/`, see dev-notes.md → *Database migrations*).
 - [ ] Redis-backed job queue + separate worker process; persist/resume or explicitly
       re-queue in-flight runs on restart.
 - [ ] Single-owner scheduler (distributed lock or dedicated deployment).

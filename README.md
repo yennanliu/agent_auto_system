@@ -345,7 +345,7 @@ CI (`.github/workflows/ci.yml`): (1) `ruff` + `pytest` on the host, (2) Docker `
 agent_auto_system/
 ├── src/
 │   ├── main.py                  # lifespan: init_db + reconcile_stale_runs
-│   ├── database.py              # engine, init_db (idempotent migrations)
+│   ├── database.py              # engine, init_db (alembic upgrade head)
 │   ├── models.py                # User · Setting · Job (+schedule) · Run (+harness/eval cols)
 │   ├── auth.py                  # login, RBAC (assert_can_run)
 │   ├── settings_store.py        # ALL_AUTOMATIONS, enabled set, encrypted keys, eval judge

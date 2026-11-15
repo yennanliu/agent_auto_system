@@ -130,9 +130,10 @@ DB" — their data is the product's value. Today migrations are hand-rolled
 No version tracking, no rollback, no down-migrations.
 
 **TODO**
-- [ ] **Alembic** with real, ordered, reversible migrations that run automatically on
-      container start (`alembic upgrade head` before uvicorn). This is *more* critical
-      here than in SaaS — you don't control the upgrade cadence or the data.
+- [x] **Alembic** with real, ordered, reversible migrations that run automatically on
+      start (`init_db()` → `alembic upgrade head`; see dev-notes.md → *Database
+      migrations*). This is *more* critical here than in SaaS — you don't control the
+      upgrade cadence or the data.
 - [ ] **App version** surfaced in `/health` and the UI footer (there's no version marker
       in `src/` today; `pyproject.toml` is `0.1.0`). Customers and your support need to
       know what they're running.

@@ -21,6 +21,15 @@ hiddenimports = []
 #     so Path(__file__).parent/"config" resolves inside the frozen bundle.
 datas += collect_data_files("src", includes=["**/*.yaml", "**/*.yml"])
 
+# (1b) Alembic migrations. Alembic loads env.py and versions/*.py from the
+#      filesystem by path (not via import), so they must exist on disk in the bundle
+#      next to where src/migrations/__init__.py resolves Path(__file__).parent.
+#      A module imported ONLY by a revision file is invisible to the analysis —
+#      add it to hiddenimports below.
+datas += collect_data_files(
+    "src", includes=["migrations/env.py", "migrations/versions/*.py"], include_py_files=True
+)
+
 # (2) Dynamic-import-heavy packages. Wrapped so a missing optional package (e.g.
 #     litellm on crewai 1.x) doesn't abort the whole build.
 _COLLECT = [
@@ -37,6 +46,7 @@ _COLLECT = [
     "openai",
     "sqlmodel",
     "authlib",
+    "alembic",
 ]
 for _pkg in _COLLECT:
     try:
