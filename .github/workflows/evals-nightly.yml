@@ -40,10 +40,10 @@ jobs:
     name: Live eval regression
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Provider API keys are NOT set at job level: they are passed only to the steps
+    # that need them (the key check and the live run), so third-party actions never
+    # see them. Actions are pinned by full commit SHA.
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # Optional repository variables; a manual run's inputs win.
       EVAL_RUN_PROVIDER: ${{ inputs.provider || vars.EVAL_RUN_PROVIDER }}
       EVAL_RUN_MODEL: ${{ inputs.model || vars.EVAL_RUN_MODEL }}
@@ -54,6 +54,10 @@ jobs:
     steps:
       - name: Check for provider API keys
         id: keys
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ -n "$OPENAI_API_KEY$GEMINI_API_KEY$ANTHROPIC_API_KEY" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
@@ -63,10 +67,10 @@ jobs:
             echo "Live eval tier skipped: no provider API key secret is configured." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.keys.outputs.present == 'true'
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
         if: steps.keys.outputs.present == 'true'
         with:
           python-version: "3.12"
@@ -77,6 +81,10 @@ jobs:
 
       - name: Run live evals
         if: steps.keys.outputs.present == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           args=(--live --report-dir eval-report)
           if [ -n "$EVAL_ONLY" ]; then args+=(--only "$EVAL_ONLY"); fi
@@ -89,7 +97,7 @@ jobs:
 
       - name: Upload report artifact
         if: always() && steps.keys.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eval-report
           path: eval-report/

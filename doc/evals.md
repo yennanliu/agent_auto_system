@@ -109,6 +109,11 @@ with. A case with no entry is reported as `new` and cannot regress — only its
 baseline is committed. A baseline recorded with a different run model or judge is not
 compared (`skipped: …` in the report).
 
+> **First recording.** The committed `evals/baseline.json` is empty (`"scores": {}`). Record
+> it with `--update-baseline` only **after PR #88 (new default models) merges** — a baseline
+> taken with the old default run model would not match the nightly job's model once #88
+> lands, and every comparison would be skipped as a model mismatch.
+
 To record or refresh it:
 
 ```bash
