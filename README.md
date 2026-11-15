@@ -149,8 +149,8 @@ The harness (`src/automation/harness/`) sits between the executor and CrewAI. It
 
 | Provider | Default (fast) | Also available | Env var |
 |---|---|---|---|
-| `openai` | `gpt-4o-mini` | `gpt-4o`, `gpt-6-luna`, `gpt-6-sol` | `OPENAI_API_KEY` |
-| `anthropic` | `claude-haiku-4-5-20251001` | `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
+| `openai` | `gpt-6-luna` | `gpt-4o-mini`, `gpt-4o`, `gpt-6-sol` | `OPENAI_API_KEY` |
+| `anthropic` | `claude-haiku-5-5` | `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, `claude-sonnet-5-5`, `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
 | `gemini` | `gemini/gemini-2.5-flash` | `gemini/gemini-3.5-flash`, `gemini/gemini-3.1-flash-lite`, `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash-lite`, `gemini/gemini-3.5-flash-lite`, `gemini/gemini-3.8-flash`, `gemini/gemini-4-argon`, `gemini/gemini-4-carbon` | `GEMINI_API_KEY` |
 
 ### 2 — Validation + retry with error context

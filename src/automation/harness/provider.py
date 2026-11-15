@@ -26,10 +26,16 @@ def _is_retriable(exc: Exception) -> bool:
 # Model order matters: fallback_sequence() tries the requested model first, then the
 # rest of its provider's list in this order. Newer models are appended after the
 # existing ones so existing jobs keep their first fallbacks (lists are not price-ordered).
+#
+# "default" is what a job gets when it names no model (API/scheduled jobs; the run
+# form preselects the same id). It is the provider's current cheap tier *where that
+# is no more expensive than the model it replaces* — Gemini stays on 2.5 Flash
+# because every newer Gemini Flash costs several times more (see costs.py). The
+# default deliberately does not have to be models[0]: list order is fallback order.
 _CATALOG: dict = {
     "openai": {
         "models": ["gpt-4o-mini", "gpt-4o", "gpt-6-luna", "gpt-6-sol"],
-        "default": "gpt-4o-mini",
+        "default": "gpt-6-luna",
         "env": "OPENAI_API_KEY",
     },
     "anthropic": {
@@ -40,7 +46,7 @@ _CATALOG: dict = {
             "claude-sonnet-5-5",
             "claude-opus-5-5",
         ],
-        "default": "claude-haiku-4-5-20251001",
+        "default": "claude-haiku-5-5",
         "env": "ANTHROPIC_API_KEY",
     },
     "gemini": {
