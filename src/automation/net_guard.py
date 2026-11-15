@@ -22,31 +22,43 @@ Rules (default-secure):
   hop for free — a redirect is just another connection;
 * Playwright navigation cannot be pinned (Chromium resolves for itself), so
   :func:`safe_goto` validates before navigating, :func:`guard_page` aborts
-  disallowed requests, and the final URL / server address is checked before the
-  page content is read. See "Residual gaps" in ``doc/ssrf-guard.md``.
+  disallowed requests and WebSockets and checks the peer address of every
+  response (tainting the page on a non-public one), and the final URL / server
+  address is checked before the page content is read. See "Residual gaps" in
+  ``doc/ssrf-guard.md``.
 
 Escape hatches for self-hosters who really do scrape their intranet (read from
-the environment on every call):
+the environment on every call, and consulted *before* any DNS lookup):
 
 * ``SSRF_ALLOW_PRIVATE=1`` — turn the address check off (scheme check stays);
 * ``SSRF_ALLOW_HOSTS=wiki.corp,*.internal.example,10.20.0.0/16,192.168.1.5`` —
   hostnames (exact or ``*.suffix``), IPs or CIDRs that are allowed even though
   they are not public.
 
-Desktop mode (``DESKTOP_MODE=1``) deliberately gets **no** exemption: the
+Behind an egress proxy (``HTTP(S)_PROXY``, honouring ``NO_PROXY``) the proxy
+resolves names, often on a network where the server itself has no DNS. There a
+name that does not resolve locally is handed to the proxy instead of being
+refused; literal non-public IPs, obviously-internal names (``localhost``,
+``*.internal``, metadata hostnames, dotless names, ...) and names that *do*
+resolve locally to a non-public address are still refused.
+
+Desktop mode (``DESKTOP_MODE=1``) gets **no** exemption for loopback / LAN: the
 packaged backend auto-authenticates every loopback request as the admin, so an
 agent tricked into fetching ``http://127.0.0.1:<port>/api/...`` would be acting
-with full admin rights. A desktop user who wants intranet scraping sets the same
-env vars as anyone else.
+with full admin rights. The one exception is ``198.18.0.0/15`` (benchmarking),
+which desktop proxy tools (Clash / Surge "fake-IP" mode) resolve *every* name
+into; without it a desktop user behind such a tool could fetch nothing.
 """
 
 from __future__ import annotations
 
+import asyncio
 import http.client
 import ipaddress
 import os
 import re
 import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -54,6 +66,7 @@ import urllib.request
 __all__ = [
     "BlockedURLError", "address_block_reason", "reject_reason", "check_url",
     "resolve_public", "build_opener", "urlopen", "guard_page", "safe_goto",
+    "assert_page_clean",
 ]
 
 MAX_REDIRECTS = 5
@@ -102,6 +115,81 @@ def _host_allowlisted(host: str, names: list[str]) -> bool:
         elif host == pat:
             return True
     return False
+
+
+def _desktop_mode() -> bool:
+    # Same test as src/auth.py; electron/lib/backend-config.js sets it to "1".
+    return os.getenv("DESKTOP_MODE") == "1"
+
+
+def _ip_in(addr: str, nets: list) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return False
+    return any(ip.version == n.version and ip in n for n in nets)
+
+
+def _opted_out(host: str) -> bool:
+    """True when the env escape hatches allow `host` without looking it up."""
+    if _allow_private():
+        return True
+    names, nets = _allowlist()
+    host = host.strip("[]")
+    return _host_allowlisted(host, names) or _ip_in(host, nets)
+
+
+# Names that only ever mean "something on the inside". Checked when the target
+# goes through a proxy, where we may not be able to resolve it ourselves.
+_INTERNAL_NAMES = frozenset({
+    "localhost", "metadata", "metadata.goog", "metadata.google.internal",
+    "instance-data", "kubernetes", "kubernetes.default",
+})
+_INTERNAL_SUFFIXES = (
+    ".localhost", ".local", ".localdomain", ".internal", ".intranet", ".lan",
+    ".home", ".home.arpa", ".corp", ".svc", ".cluster.local",
+)
+
+
+def _internal_name_reason(host: str) -> str:
+    h = host.lower().rstrip(".")
+    if h in _INTERNAL_NAMES or h.endswith(_INTERNAL_SUFFIXES):
+        return f"an internal host name ({h})"
+    if "." not in h and ":" not in h:
+        return f"a single-label (intranet) host name ({h})"
+    return ""
+
+
+def _env_proxied(scheme: str, host: str) -> bool:
+    """Would urllib send a request for scheme://host through a proxy?
+
+    Mirrors `urllib.request.ProxyHandler()`: env / system proxies, `NO_PROXY`.
+    """
+    try:
+        if not urllib.request.getproxies().get(scheme):
+            return False
+        return not urllib.request.proxy_bypass(host)
+    except Exception:  # noqa: BLE001 — odd platform config: assume direct
+        return False
+
+
+def _proxy_addrs() -> set[str]:
+    """Addresses of the configured proxies (a proxied peer is the proxy)."""
+    out: set[str] = set()
+    try:
+        proxies = urllib.request.getproxies()
+    except Exception:  # noqa: BLE001
+        return out
+    for key, val in proxies.items():
+        if key == "no" or not val:
+            continue
+        try:
+            host = urllib.parse.urlsplit(val if "://" in val else f"http://{val}").hostname
+            if host:
+                out.update(_resolve(host, 0))
+        except (OSError, UnicodeError, ValueError):
+            continue
+    return out
 
 
 # ── address classification ───────────────────────────────────────────────────
@@ -163,6 +251,23 @@ def address_block_reason(addr: str) -> str:
     return ""
 
 
+# Clash / Surge "fake-IP" DNS answers every name from this range.
+_FAKE_IP_NET = ipaddress.ip_network("198.18.0.0/15")
+
+
+def _addr_reason(addr: str) -> str:
+    """`address_block_reason`, minus what the env / desktop mode allows."""
+    reason = address_block_reason(addr)
+    if not reason:
+        return ""
+    _names, nets = _allowlist()
+    if _ip_in(addr, nets):
+        return ""
+    if _desktop_mode() and _ip_in(addr, [_FAKE_IP_NET]):
+        return ""
+    return reason
+
+
 # ── resolution ───────────────────────────────────────────────────────────────
 
 _LEGACY_V4_RE = re.compile(r"^[0-9a-fx.]+$", re.I)
@@ -197,7 +302,7 @@ def _resolve(host: str, port: int) -> list[str]:
     return addrs
 
 
-def resolve_public(host: str, port: int = 0) -> list[str]:
+def resolve_public(host: str, port: int = 0, *, proxied: bool = False) -> list[str]:
     """Resolve `host` and return its addresses — only if all of them are allowed.
 
     Raises :class:`BlockedURLError` when the host does not resolve or when *any*
@@ -205,30 +310,46 @@ def resolve_public(host: str, port: int = 0) -> list[str]:
     refused outright: which one gets used is the attacker's choice, not ours).
     Callers that connect should connect to one of the returned addresses rather
     than to `host`, so the check and the connection share one DNS answer.
+
+    The env opt-outs are consulted first. With ``proxied=True`` (the request
+    goes through a proxy that does its own DNS) an obviously-internal name is
+    refused without a lookup, and a name that does not resolve locally is *not*
+    an error — ``[]`` is returned and the proxy gets to resolve it.
     """
     if not host:
         raise BlockedURLError("no host")
-    try:
-        addrs = _resolve(host, port)
-    except (OSError, UnicodeError) as exc:
-        raise BlockedURLError(f"host {host!r} does not resolve ({type(exc).__name__})") from exc
-    if _allow_private():
-        return addrs
-    names, nets = _allowlist()
-    if _host_allowlisted(host.strip("[]"), names):
-        return addrs
-    for addr in addrs:
-        reason = address_block_reason(addr)
-        if not reason:
-            continue
+    bare = host.strip("[]")
+    if _opted_out(bare):
+        if proxied:
+            return []
         try:
-            ip = ipaddress.ip_address(addr.split("%", 1)[0])
-        except ValueError:
-            ip = None
-        if ip is not None and any(ip.version == n.version and ip in n for n in nets):
-            continue
-        raise BlockedURLError(f"host {host!r} resolves to the {reason}")
+            return _resolve(bare, port)
+        except (OSError, UnicodeError) as exc:
+            raise BlockedURLError(
+                f"host {host!r} does not resolve ({type(exc).__name__})") from exc
+    if proxied:
+        why = _internal_name_reason(bare)
+        if why and not _is_ip_literal(bare):
+            raise BlockedURLError(f"host {host!r} is {why}")
+    try:
+        addrs = _resolve(bare, port)
+    except (OSError, UnicodeError) as exc:
+        if proxied:
+            return []
+        raise BlockedURLError(f"host {host!r} does not resolve ({type(exc).__name__})") from exc
+    for addr in addrs:
+        reason = _addr_reason(addr)
+        if reason:
+            raise BlockedURLError(f"host {host!r} resolves to the {reason}")
     return addrs
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.split("%", 1)[0])
+        return True
+    except ValueError:
+        return False
 
 
 def _split(url: str) -> tuple[str, str, int]:
@@ -252,10 +373,19 @@ def _split(url: str) -> tuple[str, str, int]:
     return scheme, parts.hostname, port or (443 if scheme == "https" else 80)
 
 
-def check_url(url: str) -> list[str]:
-    """Validate `url`; return the resolved addresses or raise BlockedURLError."""
-    _scheme, host, port = _split(url)
-    return resolve_public(host, port)
+def check_url(url: str, *, proxied: bool | None = None) -> list[str]:
+    """Validate `url`; return the resolved addresses or raise BlockedURLError.
+
+    An opted-out host (``SSRF_ALLOW_PRIVATE`` / ``SSRF_ALLOW_HOSTS``) is accepted
+    without a DNS lookup (``[]``). `proxied` defaults to "would urllib use a
+    proxy for this URL" (env / system proxy settings, ``NO_PROXY``).
+    """
+    scheme, host, port = _split(url)
+    if _opted_out(host):
+        return []
+    if proxied is None:
+        proxied = _env_proxied(scheme, host)
+    return resolve_public(host, port, proxied=proxied)
 
 
 def reject_reason(url: str) -> str:
@@ -308,8 +438,9 @@ class _GuardedHTTPHandler(urllib.request.HTTPHandler):
     def http_open(self, req):
         if _via_proxy(req):
             # The proxy does the DNS lookup, so there is nothing to pin: check
-            # the target by resolving it ourselves and let the proxy connect.
-            check_url(req.full_url)
+            # what we can locally (literal IPs, internal names, names that
+            # resolve inward) and let the proxy resolve the rest.
+            check_url(req.full_url, proxied=True)
             return self.do_open(http.client.HTTPConnection, req)
         return self.do_open(_PinnedHTTPConnection, req)
 
@@ -320,7 +451,7 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
         if getattr(self, "_context", None) is not None:
             kwargs["context"] = self._context
         if _via_proxy(req):
-            check_url(req.full_url)
+            check_url(req.full_url, proxied=True)
             return self.do_open(http.client.HTTPSConnection, req, **kwargs)
         return self.do_open(_PinnedHTTPSConnection, req, **kwargs)
 
@@ -382,7 +513,14 @@ def urlopen(url, data=None, timeout: float = 30, *, context=None):
 
 # ── Playwright ───────────────────────────────────────────────────────────────
 
-def _request_block_reason(url: str, cache: dict[str, str]) -> str:
+# How long an *allowed* per-host verdict is reused inside one page. Kept short so
+# a page cannot pass the check once and then rebind its own name inward for the
+# rest of its life; blocked verdicts are kept for the page lifetime.
+_VERDICT_TTL = 5.0
+_WS_SCHEMES = {"ws": "http", "wss": "https"}
+
+
+def _request_block_reason(url: str, cache: dict[str, tuple[str, float]]) -> str:
     scheme = url.split(":", 1)[0].lower()
     if scheme in _BROWSER_LOCAL_SCHEMES:
         return ""
@@ -391,46 +529,166 @@ def _request_block_reason(url: str, cache: dict[str, str]) -> str:
     except BlockedURLError as exc:
         return str(exc)
     key = f"{host}:{port}"
-    if key not in cache:
-        try:
-            resolve_public(host, port)
-            cache[key] = ""
-        except BlockedURLError as exc:
-            cache[key] = str(exc)
-    return cache[key]
+    now = time.monotonic()
+    hit = cache.get(key)
+    if hit is not None and hit[1] > now:
+        return hit[0]
+    try:
+        check_url(url)
+        cache[key] = ("", now + _VERDICT_TTL)
+    except BlockedURLError as exc:
+        cache[key] = (str(exc), float("inf"))
+    return cache[key][0]
+
+
+def _peer_reason(addr, host: str) -> str:
+    """Why a response served from `addr` (for `host`) must not be read, or ""."""
+    if not isinstance(addr, str) or not addr or _allow_private():
+        return ""
+    names, _nets = _allowlist()
+    if host and _host_allowlisted(host, names):
+        return ""
+    why = _addr_reason(addr)
+    if why and addr.split("%", 1)[0] in _proxy_addrs():
+        return ""   # a proxied response's peer is the proxy, not the target
+    return why
+
+
+def _response_peer_reason(response) -> str:
+    url = getattr(response, "url", "") or ""
+    if not isinstance(url, str) or url.split(":", 1)[0].lower() not in _ALLOWED_SCHEMES:
+        return ""
+    try:
+        addr = (response.server_addr() or {}).get("ipAddress", "")
+    except Exception:  # noqa: BLE001 — cached / failed responses have no peer
+        return ""
+    why = _peer_reason(addr, urllib.parse.urlsplit(url).hostname or "")
+    return f"{url}: served from the {why}" if why else ""
+
+
+class _GuardState:
+    """Per page/context bookkeeping for `guard_page`."""
+
+    def __init__(self, blocked: list[str] | None):
+        self.blocked = blocked
+        self.cache: dict[str, tuple[str, float]] = {}
+        self.pending: list = []        # responses whose peer is not checked yet
+        self.tainted = ""
+
+    def record(self, line: str) -> None:
+        if self.blocked is not None:
+            self.blocked.append(line)
+
+    def drain(self) -> str:
+        """Check every response seen so far; taint the page on a non-public peer."""
+        while self.pending and not self.tainted:
+            why = _response_peer_reason(self.pending.pop(0))
+            if why:
+                self.tainted = why
+                self.record(why)
+        if self.tainted:
+            self.pending.clear()
+        return self.tainted
 
 
 def guard_page(target, blocked: list[str] | None = None) -> None:
-    """Abort every request a Playwright page/context makes to a disallowed host.
+    """Keep a Playwright page/context off disallowed hosts.
 
-    Covers the document, sub-resources, iframes and script-initiated navigation.
-    Blocked URLs are appended to `blocked` when given. Best-effort by nature:
-    Playwright does not call route handlers for the later hops of an HTTP
-    redirect, and Chromium resolves names itself — `safe_goto` checks where the
-    navigation actually ended up before the content is used.
+    * every routed request (document, sub-resources, iframes, XHR/fetch,
+      script-initiated navigation) to a disallowed host is aborted;
+    * WebSockets are routed too (``route_web_socket``) and refused the same way;
+    * every response's *actual* peer address is checked. Once any response was
+      served from a non-public address (DNS rebinding, or a redirect hop that
+      route handlers never see) the page is **tainted**: every later request is
+      aborted — so script cannot ship what it read anywhere — and
+      :func:`safe_goto` / :func:`assert_page_clean` raise, so the caller does not
+      read the content either.
+
+    Blocked URLs are appended to `blocked` when given. See "Residual gaps" in
+    ``doc/ssrf-guard.md`` for what this still cannot stop.
     """
-    cache: dict[str, str] = {}
+    state = _GuardState(blocked)
 
     def _handler(route, request=None):
         url = (request or route.request).url
-        reason = _request_block_reason(url, cache)
+        # Responses are queued by the listener below and checked here, before any
+        # further request leaves: the browser emits a response before script can
+        # act on its body, so a request built from a rebound response's body
+        # always finds the page already tainted.
+        reason = state.drain() or _request_block_reason(url, state.cache)
         if reason:
-            if blocked is not None:
-                blocked.append(f"{url}: {reason}")
+            if not state.tainted:
+                state.record(f"{url}: {reason}")
             route.abort("blockedbyclient")
         else:
             route.continue_()
 
+    def _on_response(response):
+        if not state.tainted:
+            state.pending.append(response)
+
+    def _ws_handler(ws):
+        # Playwright runs WebSocket route handlers on its event loop, not in a
+        # greenlet: no blocking sync-API call is allowed here (it deadlocks).
+        # So: URL check + the taint flag only, and a refused socket is simply
+        # never connected to the server (Playwright then keeps it page-local).
+        url = getattr(ws, "url", "") or ""
+        scheme, sep, rest = url.partition(":")
+        http_url = _WS_SCHEMES.get(scheme.lower(), scheme) + sep + rest
+        reason = state.tainted or _request_block_reason(http_url, state.cache)
+        if not reason:
+            ws.connect_to_server()
+            return
+        if not state.tainted:
+            state.record(f"{url}: {reason}")
+        impl = getattr(ws, "_impl_obj", None)       # non-blocking close, if we can
+        if impl is not None:
+            try:
+                asyncio.get_running_loop().create_task(
+                    impl.close(code=1008, reason="blocked by SSRF guard"))
+            except Exception:  # noqa: BLE001
+                pass
+
     target.route("**/*", _handler)
+    on = getattr(target, "on", None)
+    if callable(on):
+        on("response", _on_response)
+    route_ws = getattr(target, "route_web_socket", None)
+    if callable(route_ws):
+        route_ws(lambda _url: True, _ws_handler)
+    try:
+        target._ssrf_guard_state = state
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _guard_state(page) -> _GuardState | None:
+    for obj in (page, getattr(page, "context", None)):
+        state = getattr(obj, "_ssrf_guard_state", None)
+        if isinstance(state, _GuardState):
+            return state
+    return None
+
+
+def assert_page_clean(page) -> None:
+    """Raise :class:`BlockedURLError` if a guarded page read from a non-public peer.
+
+    Call it right *after* reading content (``page.content()``) so that a
+    response which arrived during the read is caught too.
+    """
+    state = _guard_state(page)
+    if state is not None and state.drain():
+        raise BlockedURLError(state.tainted)
 
 
 def safe_goto(page, url: str, **kwargs):
     """`page.goto(url)` for a URL the server did not choose.
 
     Validates before navigating, then validates where the navigation ended up —
-    the final URL and, when Chromium reports it, the address the document was
-    actually served from. If either is disallowed the page is blanked and
-    :class:`BlockedURLError` is raised, so the caller never reads the content.
+    the final URL, the address the document was actually served from, and (on a
+    :func:`guard_page`-d page) every response the page received meanwhile. If
+    anything is disallowed the page is blanked and :class:`BlockedURLError` is
+    raised, so the caller never reads the content.
     """
     check_url(url)
     response = page.goto(url, **kwargs)
@@ -438,23 +696,18 @@ def safe_goto(page, url: str, **kwargs):
     final = getattr(page, "url", "") or ""
     if isinstance(final, str) and final.split(":", 1)[0].lower() in _ALLOWED_SCHEMES:
         reason = reject_reason(final)
-    if not reason and response is not None and not _allow_private():
+    if not reason and response is not None:
         try:
             addr = (response.server_addr() or {}).get("ipAddress", "")
         except Exception:  # noqa: BLE001 — not every response knows its peer
             addr = ""
-        if isinstance(addr, str) and addr:
-            _names, nets = _allowlist()
-            why = address_block_reason(addr)
-            if why:
-                try:
-                    ip = ipaddress.ip_address(addr.split("%", 1)[0])
-                    listed = any(ip.version == n.version and ip in n for n in nets)
-                except ValueError:
-                    listed = False
-                host = urllib.parse.urlsplit(final).hostname or ""
-                if not listed and not _host_allowlisted(host, _names):
-                    reason = f"page was served from the {why}"
+        why = _peer_reason(addr, urllib.parse.urlsplit(final).hostname or "")
+        if why:
+            reason = f"page was served from the {why}"
+    if not reason:
+        state = _guard_state(page)
+        if state is not None:
+            reason = state.drain()
     if reason:
         try:
             page.goto("about:blank")

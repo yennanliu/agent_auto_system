@@ -205,6 +205,112 @@ def test_desktop_mode_gets_no_exemption(monkeypatch):
     assert G.reject_reason("http://192.168.0.1/")
 
 
+def test_desktop_mode_allows_the_fake_ip_range(monkeypatch, dns):
+    """Clash/Surge fake-IP DNS answers every name from 198.18.0.0/15."""
+    dns({"shop.example": "198.18.0.42"})
+    assert G.reject_reason("https://shop.example/")            # server: still blocked
+    monkeypatch.setenv("DESKTOP_MODE", "1")
+    assert G.reject_reason("https://shop.example/") == ""
+    assert G.reject_reason("http://198.19.255.254/") == ""
+    # ...and only that range.
+    assert G.reject_reason("http://127.0.0.1/")
+    assert G.reject_reason("http://169.254.169.254/")
+    assert G.reject_reason("http://198.20.0.1/") == ""          # public anyway
+    assert G.reject_reason("http://192.0.2.1/")
+
+
+def test_cidr_allowlist_covers_the_fake_ip_range(monkeypatch, dns):
+    """The documented server-side workaround: SSRF_ALLOW_HOSTS=198.18.0.0/15."""
+    dns({"shop.example": "198.18.3.4", "evil.example": "10.0.0.1"})
+    monkeypatch.setenv("SSRF_ALLOW_HOSTS", "198.18.0.0/15")
+    assert G.reject_reason("https://shop.example/") == ""
+    assert G.reject_reason("http://198.19.0.1/") == ""
+    assert G.reject_reason("https://evil.example/")
+    assert G.reject_reason("http://198.17.255.255/") == ""      # public, outside
+    assert G.reject_reason("http://127.0.0.1/")
+
+
+def test_allowlisted_hostname_is_accepted_without_a_dns_lookup(monkeypatch, dns):
+    lookups = dns({})
+    monkeypatch.setenv("SSRF_ALLOW_HOSTS", "wiki.corp,*.svc.example")
+    assert G.reject_reason("http://wiki.corp/") == ""
+    assert G.reject_reason("http://a.svc.example/") == ""
+    monkeypatch.delenv("SSRF_ALLOW_HOSTS")
+    monkeypatch.setenv("SSRF_ALLOW_PRIVATE", "1")
+    assert G.reject_reason("http://anything.example/") == ""
+    assert lookups == []
+
+
+# ── behind an egress proxy ───────────────────────────────────────────────────
+
+@pytest.fixture
+def proxy_env(monkeypatch):
+    for var in ("no_proxy", "NO_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:3128")
+    monkeypatch.setenv("https_proxy", "http://127.0.0.1:3128")
+
+
+def test_proxy_unresolvable_name_is_left_to_the_proxy(proxy_env, dns):
+    dns({})
+    assert G.reject_reason("https://www.example.com/") == ""
+    assert G.check_url("http://www.example.com/") == []
+
+
+def test_proxy_still_blocks_literal_private_ips(proxy_env, dns):
+    dns({})
+    for url in ("http://127.0.0.1/", "http://169.254.169.254/latest/",
+                "http://10.0.0.1/", "http://[::1]/", "http://2130706433/",
+                "http://[::ffff:169.254.169.254]/"):
+        assert G.reject_reason(url), url
+
+
+@pytest.mark.parametrize("host", [
+    "localhost", "foo.localhost", "metadata.google.internal", "metadata",
+    "db.internal", "printer.local", "router.lan", "kubernetes.default.svc",
+    "intranet",                                   # single label
+])
+def test_proxy_blocks_obviously_internal_names_without_a_lookup(proxy_env, dns, host):
+    lookups = dns({})
+    assert "internal" in G.reject_reason(f"http://{host}/") or \
+        "single-label" in G.reject_reason(f"http://{host}/")
+    assert lookups == []
+
+
+def test_proxy_name_that_resolves_inward_is_still_blocked(proxy_env, dns):
+    dns({"rebind.example": "10.1.2.3"})
+    assert "10.1.2.3" in G.reject_reason("http://rebind.example/")
+
+
+def test_proxy_opt_outs_apply_before_any_lookup(proxy_env, monkeypatch, dns):
+    lookups = dns({})
+    monkeypatch.setenv("SSRF_ALLOW_HOSTS", "wiki.corp")
+    assert G.reject_reason("http://wiki.corp/") == ""
+    assert lookups == []
+
+
+def test_no_proxy_host_is_resolved_and_checked_locally(proxy_env, monkeypatch, dns):
+    dns({})
+    monkeypatch.setenv("no_proxy", "direct.example")
+    assert "does not resolve" in G.reject_reason("https://direct.example/")
+    assert G.reject_reason("https://other.example/") == ""
+
+
+def test_urlopen_through_a_proxy_reaches_an_unresolvable_name(monkeypatch, dns, server):
+    """End to end: the guarded opener hands an unresolvable name to the proxy."""
+    dns({})
+    for var in ("no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{server.server_port}")
+    with G.urlopen("http://far.example/page", timeout=5) as resp:
+        assert resp.read() == b"hello from http://far.example/page"
+    with pytest.raises(G.BlockedURLError):
+        G.urlopen("http://169.254.169.254/latest/", timeout=5)
+    with pytest.raises(G.BlockedURLError):
+        G.urlopen("http://localhost/", timeout=5)
+    assert len(server.hits) == 1
+
+
 # ── urllib transport: redirects + pinning ────────────────────────────────────
 
 @pytest.fixture
@@ -399,15 +505,43 @@ class _Route:
         self.outcome = "continue"
 
 
+class _Resp:
+    def __init__(self, url, ip):
+        self.url, self._ip = url, ip
+
+    def server_addr(self):
+        return {"ipAddress": self._ip, "port": 80} if self._ip else None
+
+
+class _WS:
+    def __init__(self, url):
+        self.url = url
+        self.outcome = None
+
+    def close(self, code=None, reason=None):
+        self.outcome = f"close:{code}"
+
+    def connect_to_server(self):
+        self.outcome = "connect"
+
+
 class _Page:
     def __init__(self, final_url=None, server_ip=None):
         self.handler = None
+        self.listeners: dict = {}
+        self.ws_handler = None
         self.url = "about:blank"
         self._final, self._ip = final_url, server_ip
         self.visited: list[str] = []
 
     def route(self, _pattern, handler):
         self.handler = handler
+
+    def on(self, event, fn):
+        self.listeners[event] = fn
+
+    def route_web_socket(self, _pattern, handler):
+        self.ws_handler = handler
 
     def goto(self, url, **_kw):
         self.visited.append(url)
@@ -465,3 +599,70 @@ def test_safe_goto_allows_a_public_page(dns):
     page = _Page(server_ip=PUBLIC)
     assert G.safe_goto(page, "https://shop.example/", timeout=1) is not None
     assert page.visited == ["https://shop.example/"]
+
+
+def _outcome(page, url):
+    route = _Route(url)
+    page.handler(route)
+    return route.outcome
+
+
+def test_guard_page_rechecks_allowed_hosts_after_a_short_ttl(monkeypatch, dns):
+    """An allowed verdict is not cached for the page lifetime (DNS rebinding)."""
+    answers = iter([PUBLIC, "127.0.0.1"])
+    dns({"rebind.example": lambda: next(answers)})
+    clock = [1000.0]
+    monkeypatch.setattr(G.time, "monotonic", lambda: clock[0])
+    page = _Page()
+    G.guard_page(page)
+    assert _outcome(page, "http://rebind.example/a") == "continue"
+    assert _outcome(page, "http://rebind.example/b") == "continue"     # cached
+    clock[0] += G._VERDICT_TTL + 1
+    assert _outcome(page, "http://rebind.example/c") == "abort:blockedbyclient"
+
+
+def test_response_from_a_private_peer_taints_the_page(dns):
+    """A same-origin fetch that rebound to loopback: nothing more leaves the
+    page, and the content is not read back."""
+    dns({"rebind.example": PUBLIC, "cdn.example": PUBLIC})
+    page, blocked = _Page(server_ip=PUBLIC), []
+    G.guard_page(page, blocked)
+    page.listeners["response"](_Resp("https://cdn.example/app.js", PUBLIC))
+    assert _outcome(page, "https://cdn.example/b.js") == "continue"
+    G.assert_page_clean(page)
+
+    page.listeners["response"](_Resp("http://rebind.example/api", "127.0.0.1"))
+    assert _outcome(page, "https://cdn.example/exfil?d=x") == "abort:blockedbyclient"
+    assert any("served from" in b and "127.0.0.1" in b for b in blocked)
+    with pytest.raises(G.BlockedURLError, match="127.0.0.1"):
+        G.assert_page_clean(page)
+    with pytest.raises(G.BlockedURLError):
+        G.safe_goto(page, "https://cdn.example/")
+
+
+def test_response_peer_check_honours_the_allowlist_and_desktop_fake_ip(monkeypatch, dns):
+    dns({"wiki.corp": "10.0.0.5", "shop.example": "198.18.0.9"})
+    monkeypatch.setenv("SSRF_ALLOW_HOSTS", "wiki.corp")
+    monkeypatch.setenv("DESKTOP_MODE", "1")
+    page = _Page()
+    G.guard_page(page)
+    page.listeners["response"](_Resp("http://wiki.corp/x", "10.0.0.5"))
+    page.listeners["response"](_Resp("https://shop.example/x", "198.18.0.9"))
+    page.listeners["response"](_Resp("data:text/plain,hi", None))
+    G.assert_page_clean(page)
+
+
+def test_guard_page_routes_websockets(dns):
+    dns({"ws.example": PUBLIC, "inner.example": "192.168.0.10"})
+    page, blocked = _Page(), []
+    G.guard_page(page, blocked)
+
+    def ws(url):
+        sock = _WS(url)
+        page.ws_handler(sock)
+        return sock.outcome
+
+    assert ws("wss://ws.example/live") == "connect"
+    assert ws("ws://inner.example/") is None                      # never connected
+    assert ws("ws://127.0.0.1:9222/devtools/browser") is None
+    assert len(blocked) == 2

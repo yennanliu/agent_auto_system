@@ -201,7 +201,11 @@ def _render_and_harvest(base: str, domain: str, log) -> tuple[set[str], int]:
                     try:
                         net_guard.safe_goto(page, url, wait_until="networkidle",
                                             timeout=20000)
-                        return page.content()
+                        html = page.content()
+                        # A sub-resource / script fetch served from a non-public
+                        # peer (DNS rebinding) taints the page — don't use it.
+                        net_guard.assert_page_clean(page)
+                        return html
                     except net_guard.BlockedURLError as exc:
                         log(f"Skipped {url}: blocked by SSRF guard ({exc})")
                         return None

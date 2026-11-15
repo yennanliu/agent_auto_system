@@ -31,13 +31,40 @@ whether such a fetch may happen.
 | `SSRF_ALLOW_PRIVATE=1` | Turn the address check off entirely (scheme check stays). For a trusted single-tenant install that scrapes its own intranet. |
 | `SSRF_ALLOW_HOSTS=wiki.corp,*.internal.example,10.20.0.0/16,192.168.1.5` | Allow specific targets only: hostnames (exact or `*.suffix`), IPs or CIDRs. Prefer this over `SSRF_ALLOW_PRIVATE`. |
 
-Both are read on every call (no restart-order pitfalls) and default to off/empty.
+Both are read on every call (no restart-order pitfalls), default to off/empty, and are
+consulted **before** any DNS lookup — an allowlisted name is accepted without being
+resolved, so they work on networks where the server has no local DNS.
 
-**Desktop mode gets no exemption.** With `DESKTOP_MODE=1` the backend auto-authenticates
-every loopback request as the admin, so a page that talks an agent into fetching
+**Egress proxy.** When a request will go through a proxy (`HTTP_PROXY` / `HTTPS_PROXY`,
+honouring `NO_PROXY` — the same decision urllib's `ProxyHandler` makes), the proxy
+resolves the name, and on many such networks the server cannot resolve it at all. So a
+name that does **not** resolve locally is handed to the proxy instead of being refused.
+Still refused behind a proxy:
+
+- literal non-public IPs, in any spelling (`127.0.0.1`, `2130706433`, `[::ffff:169.254.169.254]`, ...);
+- obviously-internal names, without a lookup: `localhost`, `*.localhost`, `*.local`,
+  `*.localdomain`, `*.internal` (incl. `metadata.google.internal`), `*.intranet`, `*.lan`,
+  `*.home`, `*.home.arpa`, `*.corp`, `*.svc`, `*.cluster.local`, `metadata`,
+  `metadata.goog`, `instance-data`, `kubernetes(.default)`, and any single-label name
+  (the proxy would expand it with its own search domain);
+- a name that **does** resolve locally to a non-public address.
+
+**Desktop mode.** With `DESKTOP_MODE=1` the backend auto-authenticates every loopback
+request as the admin, so a page that talks an agent into fetching
 `http://127.0.0.1:<port>/api/...` would act with full admin rights; the user's router and
-LAN devices are equally in reach. A desktop user who wants intranet scraping sets the same
-env vars as anyone else.
+LAN devices are equally in reach. Desktop mode therefore gets no exemption for loopback,
+RFC 1918, link-local, etc. — a desktop user who wants intranet scraping sets the same env
+vars as anyone else. The single exception is **`198.18.0.0/15`** (the benchmarking range):
+Clash / Surge / similar desktop proxy tools in "fake-IP" mode answer *every* DNS query from
+it, so blocking it would block every fetch on such a machine. On a single-user desktop the
+guard's value for that range is low.
+
+On a **server** that sits behind a fake-IP resolver, allow the range explicitly (CIDRs are
+accepted):
+
+```bash
+SSRF_ALLOW_HOSTS=198.18.0.0/15
+```
 
 ## Fetch-site audit
 
@@ -47,9 +74,9 @@ env vars as anyone else.
 | `google_sheet_tool.py` | payload ("or a direct CSV URL") | **guarded** (pinned urllib) |
 | `google_form_tools.py` — inspector `_fetch_html` | payload / agent | **guarded** (pinned urllib) |
 | `google_form_tools.py` — submit | fixed `docs.google.com` + form id | fixed host |
-| `playwright_form_tool.py` | payload / agent | **guarded** (pre-check + request interception + post-navigation check) |
+| `playwright_form_tool.py` | payload / agent | **guarded** (pre-check + request/WebSocket interception + response peer check + post-navigation check) |
 | `email_extract_tool.py` — `_fetch` (homepage + discovered contact links) | Maps / registry / payload / scraped links | **guarded** (pinned urllib) |
-| `email_extract_tool.py` — `_render_and_harvest` | same | **guarded** (Playwright, as above) |
+| `email_extract_tool.py` — `_render_and_harvest` | same | **guarded** (Playwright, as above + `assert_page_clean` after reading) |
 | `tw_association_tool.py` — crawler + hop following | payload + scraped links | **guarded** (already had a per-hop check; now shares the module and is pinned) |
 | `email_verify_tool.py` — SMTP probe to the MX | DNS of a scraped e-mail domain | **guarded** (public MX only, dials the checked address) |
 | `email_verify_tool.py` — MX / A lookup | scraped domain | DNS query only, no connection |
@@ -67,18 +94,44 @@ endpoints are operator configuration, not request data.
 ## Residual gaps
 
 - **Playwright cannot be pinned.** Chromium does its own DNS, and Playwright does not call
-  route handlers for the later hops of an HTTP redirect. So a page on a public host can
-  still make the browser *send* a GET to an internal address (via a 30x, or by rebinding
-  DNS between our check and Chromium's lookup). What the guard does guarantee: the URL is
-  validated before navigation; first-hop requests of every kind (documents, iframes,
-  XHR/fetch, sub-resources) to non-public hosts are aborted; and after navigation the
-  final URL and the address the document was served from are checked — if either is
-  non-public the page is blanked and nothing is read. Net: blind request possible, content
-  read-back blocked for the main document. Run browser automations in a network-isolated
-  container if blind requests matter to you.
+  route handlers for the later hops of an HTTP redirect. What `guard_page` + `safe_goto`
+  do:
+  - the URL is validated before navigation;
+  - every routed request (documents, iframes, XHR/fetch, sub-resources) to a non-public
+    host is aborted. Per-host *allowed* verdicts are reused for only 5 s (blocked ones for
+    the page lifetime), so a page cannot pass the check once and then rebind its own name
+    inward for the rest of its life;
+  - WebSockets are routed via `route_web_socket` and refused the same way: a refused
+    socket is never connected to the server and is closed with code 1008. This is a URL
+    check only — the guard sees no peer address for a WebSocket;
+  - every response's **actual peer address** (`Response.server_addr()`) is checked. The
+    first response served from a non-public address — a DNS rebind, or a redirect hop the
+    route handler never saw — **taints** the page: every later request and WebSocket is
+    aborted (so script cannot ship what it read to an outside host), and `safe_goto` /
+    `assert_page_clean` raise, so the tool does not read the content either. Responses
+    are queued by the `response` listener and checked by the route handler before the next
+    request is let out; the browser reports a response before script can use its body, so
+    a request built from that body finds the page already tainted.
+
+  What is **not** covered: the browser still *sends* the request to the internal address
+  (rebinding between our check and Chromium's lookup, or a 30x hop) — a blind,
+  side-effecting GET/POST to an internal service is possible; responses Chromium reports
+  without a peer address (memory cache, some service-worker responses) are not checked;
+  and a WebSocket that rebinds after its URL check is not detected. The page can also
+  render what it read into its own DOM before the taint is noticed — which is why tools
+  must call `assert_page_clean(page)` *after* `page.content()` (both browser tools do).
+  Run browser automations in a network-isolated container if blind requests matter.
 - **Behind an HTTP(S) proxy** (`HTTP_PROXY`/`HTTPS_PROXY`), the proxy resolves names, so
-  the connection cannot be pinned; the guard still resolves and checks every hop itself,
-  but a rebinding window exists between that check and the proxy's lookup.
+  the connection cannot be pinned and **the proxy's own resolution is not checked**: a name
+  that does not resolve locally (or resolves to a public address locally but differently
+  at the proxy — split-horizon DNS, rebinding) reaches whatever the proxy resolves it to.
+  Only literal IPs, the internal-name list above, and names that resolve inward locally are
+  refused. If the proxy can reach internal hosts, enforce an egress policy on the proxy
+  itself (deny RFC 1918 / link-local / loopback destinations). Responses that Chromium
+  reports as served from the proxy's own address are not treated as non-public.
+- **Fake-IP range on desktop** (`198.18.0.0/15` with `DESKTOP_MODE=1`, or when
+  allowlisted): the address says nothing about the real destination, which the local
+  proxy tool decides — the same residual risk as the proxy case above.
 - **Nitter instances** are operator-chosen hosts and are fetched with plain urllib: a
   hostile third-party instance could redirect the request inward. Only nitter-shaped HTML
   is parsed from the response.
