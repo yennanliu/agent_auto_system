@@ -83,9 +83,11 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen
 
 # tests/ is excluded from the runtime image (.dockerignore) — bring it in here,
-# along with the sample CSV fixtures the profit_calc tests read.
+# along with the sample CSV fixtures the profit_calc tests read and the
+# standalone scripts that have unit tests (test-stage only, not runtime).
 COPY tests/ ./tests/
 COPY shopee/sample_data/ ./shopee/sample_data/
+COPY scripts/greenhouse_country_boards.py ./scripts/
 # Golden eval cases — read by tests/unit/test_evalset.py (offline eval tier).
 COPY evals/ ./evals/
 
