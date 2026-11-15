@@ -150,6 +150,7 @@ runForm.addEventListener('submit', async (e) => {
       max_applications: parseInt(document.getElementById('li-max').value, 10) || 5,
       max_pages: parseInt(document.getElementById('li-max-pages').value, 10) || 10,
       remote: document.getElementById('li-remote').checked,
+      expand_keywords: document.getElementById('li-expand').checked,
       dry_run: document.getElementById('li-dry-run').checked,
       ...(location ? { location } : {}),
       ...(nationality ? { nationality } : {}),
@@ -321,6 +322,7 @@ const RERUN_FIELD_MAP = {
     keywords: 'li-keywords', location: 'li-location', nationality: 'li-nationality',
     phone: 'li-phone', years_experience: 'li-years', max_applications: 'li-max',
     max_pages: 'li-max-pages', remote: 'li-remote', dry_run: 'li-dry-run', task_filter: 'li-filter',
+    expand_keywords: 'li-expand',
   },
   email_collect: {
     query: 'lead-query', region: 'lead-region', industry: 'lead-industry', offer: 'lead-offer',

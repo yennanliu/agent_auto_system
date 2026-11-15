@@ -140,7 +140,8 @@ export const AUTO_CATALOG = {
     icon: '🔗', name: 'LinkedIn Easy Apply',
     desc: 'Log in to LinkedIn (via a saved session) and auto-apply to "Easy Apply" jobs matching a keyword: open each job, walk the multi-step Easy Apply modal (fill contact info / screening questions → Next/Review → Submit). Auto-advances through search result pages, skipping jobs you already applied to, until it has applied to max_applications ones. An application is only counted as successful when LinkedIn shows the "application was sent" banner. The LLM (gemini/openai/anthropic) acts as an optional relevance gate — the apply itself is pure browser automation. Dry-run by default — fills the form without clicking Submit.',
     inputs: [
-      { name: 'keywords',         type: 'str',         desc: 'Job search keywords, e.g. Software Engineer / python' },
+      { name: 'keywords',         type: 'str',         desc: 'Job search keyword(s); separate several search terms with , or 、 (searched one after another)' },
+      { name: 'expand_keywords',  type: 'bool',        desc: 'Let the LLM add up to 3 closely related search terms (e.g. Forward Deployed Engineer → FDE, AI Engineer)' },
       { name: 'location',         type: 'str',         desc: 'Location text — Taipei / United Kingdom (default Taiwan)' },
       { name: 'remote',           type: 'bool',        desc: 'Only search remote jobs (LinkedIn f_WT=2)' },
       { name: 'phone',            type: 'str',         desc: 'Phone number for the Easy Apply contact question (optional)' },

@@ -565,7 +565,11 @@
       </div>
 
       <div id="fields-linkedin_apply" class="hidden">
-        <div class="field"><label>Job keywords</label><input type="text" id="li-keywords" placeholder="e.g. Software Engineer / python / data engineer" /></div>
+        <div class="field"><label>Job keywords</label><input type="text" id="li-keywords" placeholder="e.g. Forward Deployed Engineer, AI Engineer（逗號／頓號分隔 = 多組搜尋詞，依序搜尋）" /></div>
+        <div class="field" style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" id="li-expand" style="width:auto;margin:0" />
+          <label for="li-expand" style="margin:0">Auto-expand keywords（AI 自動補上相近搜尋詞，例如 Forward Deployed Engineer → FDE、AI Engineer；最多 +3 組）</label>
+        </div>
         <div class="field" style="display:flex;gap:0.5rem">
           <div style="flex:1"><label>Location</label><input type="text" id="li-location" value="Taiwan" placeholder="e.g. Taipei / United Kingdom / Remote（留空 = 不限地區）" /></div>
           <div style="flex:1"><label>Nationality</label><input type="text" id="li-nationality" value="Taiwanese" placeholder="e.g. Taiwanese（應徵表單國籍題預設值）" /></div>

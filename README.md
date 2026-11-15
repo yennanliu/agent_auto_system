@@ -303,6 +303,7 @@ Or with compose (wires volumes + optional Prometheus sidecar): `docker compose u
 | `TASKER_USERNAME` / `TASKER_PASSWORD` / `TASKER_STORAGE_STATE` | for `tasker_apply` | Session creds (run `scripts/tasker_login.py` once) |
 | `NITTER_INSTANCES` | no | Overrides the X scraper's nitter list |
 | `OTEL_ENABLED` / `OTEL_SERVICE_NAME` | no | OpenTelemetry export (set by compose) |
+| `LOG_FORMAT` / `LOG_LEVEL` | no | `LOG_FORMAT=json` emits one JSON log line per record with `run_id` / `job_id` / `job_type` / `user_id` / `request_id`; default `text` leaves output unchanged ([details](doc/dev-notes.md#structured-logging)) |
 
 **Persisted volumes:** `/app/data` (SQLite), `/app/uploads` (uploaded CSVs), `/app/reports` (PDFs).
 

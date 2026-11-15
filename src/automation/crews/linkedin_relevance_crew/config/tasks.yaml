@@ -14,9 +14,19 @@ judge_relevance_task:
     {job_meta}
 
     Requirements:
-    - Judge only by the filter; only a clear match counts as relevant (relevant=true).
-    - If the job clearly falls into an excluded type, or is obviously outside the
-      filter's field, it is not relevant (relevant=false).
+    - A list of skills / fields / role types in the filter (e.g. "AI, software,
+      backend, python, cloud, infra") means ANY of them: the job is relevant if it
+      matches at least ONE item. It does not have to match every item — e.g. a Go
+      backend role matches "backend" even if the filter also says "python", and an
+      SRE / platform role matches "cloud" or "infra".
+    - Lean towards applying: a role that is adjacent to the filter's field (e.g. for
+      an engineering filter: full-stack, SRE / platform, data / ML engineering,
+      solutions / implementation / forward-deployed engineering) counts as relevant
+      (relevant=true) unless the filter explicitly excludes it.
+    - It is not relevant (relevant=false) only when the job is clearly in a
+      different field (e.g. sales, finance, HR, operations for an engineering
+      filter), or falls into a type the filter explicitly excludes. Explicit
+      exclusions in the filter always win.
     - reason: one short sentence explaining the call (e.g. "Backend engineer role,
       matches the Python filter" or "Sales role, which is excluded").
     - Output exactly one JSON object: {{"relevant": true or false, "reason": "<one sentence>"}}.
