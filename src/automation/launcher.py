@@ -5,6 +5,7 @@ Both the HTTP trigger endpoint (``routers/runs.py``) and the cron scheduler
 the create → asyncio task → register sequence lives in exactly one place.
 """
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -38,10 +39,32 @@ def _set_queued(run_id: int, queued: bool) -> None:
         s.commit()
 
 
+def _fail_unstarted(run_id: int, exc: BaseException) -> None:
+    """Mark a run that never reached ``execute_run`` as failed (best effort).
+
+    Without this, an error while classifying/queueing would leave the row
+    pending/queued forever — blocking that job's schedule (no-overlap) and
+    impossible to cancel or delete, since its task is gone.
+    """
+    try:
+        with Session(get_engine()) as s:
+            run = s.get(Run, run_id)
+            if run is None or run.status not in concurrency.ACTIVE_STATUSES:
+                return
+            run.status = "failed"
+            run.result = json.dumps({"error": f"Failed to start run: {exc}"[:500]})
+            run.finished_at = datetime.now(UTC)
+            s.add(run)
+            s.commit()
+    except Exception:  # noqa: BLE001 — never mask the original error
+        logger.exception("run_id=%d: could not mark unstarted run as failed", run_id)
+
+
 async def _run_in_background(run_id: int, job_type: str, payload: dict) -> None:
     # Imported lazily to avoid pulling the whole crewai/executor stack at module
     # import time (keeps app startup and test collection fast).
     from src.automation.executor import execute_run
+    started = False
     try:
         run_class = concurrency.run_class(job_type, payload)
         sem = concurrency.semaphore_for(run_class)
@@ -60,7 +83,16 @@ async def _run_in_background(run_id: int, job_type: str, payload: dict) -> None:
         async with sem:
             if queued:
                 _set_queued(run_id, False)
+            started = True
             await execute_run(run_id, job_type, payload)
+    except Exception as exc:
+        # execute_run records its own failures; only a run that never got that far
+        # needs its row closed here.
+        if not started:
+            logger.exception("run_id=%d failed before it started", run_id)
+            _fail_unstarted(run_id, exc)
+        else:
+            raise
     finally:
         unregister(run_id)
 

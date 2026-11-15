@@ -80,3 +80,22 @@ async def test_tick_skips_job_whose_previous_run_is_still_active(
     db_session.commit()
     assert await sch.tick(now=t0 + timedelta(minutes=2, seconds=5)) == [7]
     launched.assert_called_once()
+
+
+async def test_tick_fails_closed_when_active_run_check_errors(scheduled_job, test_engine, mocker):
+    """If the no-overlap check can't run, skip the fire instead of launching blind."""
+    mocker.patch("src.automation.scheduler.get_engine", return_value=test_engine)
+    launched = mocker.patch("src.automation.scheduler.launch_run", return_value=9)
+    mocker.patch("src.settings_store.is_automation_enabled", return_value=True)
+
+    sch = CronScheduler()
+    t0 = datetime(2026, 1, 1, 10, 0, 30, tzinfo=UTC)
+    await sch.tick(now=t0)
+    mocker.patch.object(sch, "_active_job_ids", side_effect=RuntimeError("db locked"))
+    assert await sch.tick(now=t0 + timedelta(minutes=1, seconds=5)) == []
+    launched.assert_not_called()
+
+    # The check recovers → the next due slot fires normally.
+    mocker.patch.object(sch, "_active_job_ids", return_value=set())
+    assert await sch.tick(now=t0 + timedelta(minutes=2, seconds=5)) == [9]
+    launched.assert_called_once()

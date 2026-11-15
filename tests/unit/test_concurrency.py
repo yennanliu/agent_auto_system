@@ -158,3 +158,23 @@ async def test_cancelling_a_queued_run_frees_no_slot_and_never_executes(run_env)
             break
     assert ids[2] not in run_env["started"]                   # cancelled while waiting
     assert run_env["started"] == [ids[0], ids[1], ids[3]]     # the next in line still ran
+
+
+async def test_error_before_execute_marks_run_failed_not_stuck(run_env, test_engine, mocker):
+    """An error while classifying/queueing must not leave the row pending forever
+    (it would block the job's schedule and be impossible to cancel or delete)."""
+    import json
+
+    from src.automation import registry
+
+    mocker.patch.object(concurrency, "run_class", side_effect=RuntimeError("bad spec"))
+    run_id = launcher.launch_run(run_env["job_id"], "google_form_fill", {}, None)
+    await _settle()
+
+    assert run_env["status"](run_id) == "failed"
+    assert run_env["started"] == []                            # never executed
+    assert run_id not in registry._TASKS                       # task cleaned up
+    with Session(test_engine) as s:
+        run = s.get(Run, run_id)
+        assert "Failed to start run: bad spec" in json.loads(run.result)["error"]
+        assert run.finished_at is not None

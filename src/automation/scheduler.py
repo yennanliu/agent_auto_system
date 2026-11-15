@@ -111,8 +111,11 @@ class CronScheduler:
         try:
             busy = await asyncio.to_thread(self._active_job_ids, [j.id for j in due])
         except Exception:
-            logger.exception("Scheduler: failed to check active runs")
-            busy = set()
+            # Fail closed: without the active-run check we can't guarantee no
+            # overlap, so drop this pass's fires (they are not backfilled — same
+            # as a skipped overlapping fire) rather than launching blind.
+            logger.exception("Scheduler: failed to check active runs; skipping %d due job(s)", len(due))
+            return []
         for job in due:
             # No overlap: if this job's previous run is still active, drop this
             # fire (it is not backfilled) rather than stacking runs up.

@@ -96,13 +96,14 @@ test('status-dependent actions: completed → rerun + delete, failed → Retry, 
     mk({ id: 2, status: 'failed' }),
     mk({ id: 3, status: 'running', finished_at: null }),
     mk({ id: 4, status: 'pending', finished_at: null }),
+    mk({ id: 5, status: 'queued', finished_at: null }),
   ]);
   const actions = (id) => dataRow(id).querySelector('.row-actions');
   assert.equal(actions(1).querySelector('[data-action="rerun"]').textContent, '↺');
   assert.ok(!actions(1).querySelector('[data-action="delete"]').disabled);
   assert.equal(actions(2).querySelector('[data-action="rerun"]').textContent, '↺ Retry');
   assert.ok(actions(2).querySelector('.btn-retry'));
-  for (const id of [3, 4]) {
+  for (const id of [3, 4, 5]) {
     assert.ok(actions(id).querySelector('[data-action="abort"]'));
     assert.equal(actions(id).querySelector('[data-action="rerun"]'), null);
     assert.ok(actions(id).querySelector('[data-action="delete"]').disabled);
@@ -332,7 +333,8 @@ test('switching tabs activates the matching pane, and open detail + tab survive 
 // ── selection / bulk delete ─────────────────────────────────────────────────────
 
 test('select-all selects only completed runs and drives the Delete Selected button', async () => {
-  await show([mk({ id: 1 }), mk({ id: 2, status: 'failed' }), mk({ id: 3, status: 'running', finished_at: null })]);
+  await show([mk({ id: 1 }), mk({ id: 2, status: 'failed' }), mk({ id: 3, status: 'running', finished_at: null }),
+    mk({ id: 4, status: 'queued', finished_at: null })]);
   const btn = $('delete-selected-btn');
   assert.ok(btn.classList.contains('hidden'));
 
@@ -340,6 +342,7 @@ test('select-all selects only completed runs and drives the Delete Selected butt
   assert.equal(dataRow(1).querySelector('.run-cb').checked, true);
   assert.equal(dataRow(2).querySelector('.run-cb').checked, true);
   assert.equal(dataRow(3).querySelector('.run-cb').checked, false);
+  assert.equal(dataRow(4).querySelector('.run-cb').checked, false, 'queued runs are active');
   assert.ok(!btn.classList.contains('hidden'));
   assert.equal(btn.textContent, 'Delete Selected (2)');
 
@@ -403,7 +406,8 @@ test('Delete Selected: cancel sends nothing; server error toasts; empty selectio
 });
 
 test('Delete All: confirms with the completed count and DELETEs ?delete_all=true', async () => {
-  await show([mk({ id: 1 }), mk({ id: 2 }), mk({ id: 3, status: 'running', finished_at: null })]);
+  await show([mk({ id: 1 }), mk({ id: 2 }), mk({ id: 3, status: 'running', finished_at: null }),
+    mk({ id: 4, status: 'queued', finished_at: null })]);
   fetchMock.reset();
   fetchMock.on('DELETE', '/api/runs', () => ({ deleted: 2 }));
   click('#delete-all-btn');
@@ -642,4 +646,11 @@ test('admins see an owner badge on each run', async () => {
   }
   await show([mk({ id: 1, owner: 'alice' })]);
   assert.equal(dataRow(1).querySelector('.badge-admin'), null, 'non-admins see no owner badge');
+});
+
+// ── isActiveStatus (E2: 'queued' = waiting for a concurrency slot) ─────────────
+
+test('isActiveStatus: pending/queued/running are active, terminal statuses are not', () => {
+  for (const st of ['pending', 'queued', 'running']) assert.equal(runs.isActiveStatus(st), true, st);
+  for (const st of ['success', 'failed', undefined, null, '']) assert.equal(runs.isActiveStatus(st), false, String(st));
 });
