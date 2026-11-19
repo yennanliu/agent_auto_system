@@ -1,0 +1,226 @@
+{
+ "status": "success",
+ "result": {
+  "projects": [
+   {
+    "id": 40825877,
+    "title": "Android APK EncryptionTelegram BOT Expert",
+    "type": "fixed",
+    "description": "Urgently Hiring – Android Encryption & Security Developer\n\nWe are looking for an experienced Android Encryption & Application Security Developer for an existing encryption project.\n\nThe project already has complete source code and project files. The developer must be capable of understanding the ent",
+    "budget": {
+     "minimum": 1500.0,
+     "maximum": 12500.0
+    },
+    "currency": {
+     "code": "INR",
+     "sign": "₹",
+     "exchange_rate": 0.010722
+    },
+    "bid_stats": {
+     "bid_count": 17,
+     "bid_avg": 8258.823529411764
+    },
+    "jobs": [
+     {
+      "name": "Java"
+     },
+     {
+      "name": "Python"
+     },
+     {
+      "name": "Mobile App Development"
+     },
+     {
+      "name": "Android"
+     },
+     {
+      "name": "Scripting"
+     },
+     {
+      "name": "Encryption"
+     },
+     {
+      "name": "Security"
+     },
+     {
+      "name": "Automation"
+     },
+     {
+      "name": "Reverse Engineering"
+     },
+     {
+      "name": "Android SDK"
+     }
+    ],
+    "seo_url": "android-sdk/Android-APK-EncryptionTelegram-BOT",
+    "frontend_project_status": "open",
+    "status": "active",
+    "nonpublic": false,
+    "time_submitted": 1795082475
+   },
+   {
+    "id": 40825855,
+    "title": "Ongoing Part-Time Website Developer",
+    "type": "fixed",
+    "description": "I need an experienced developer who can take full ownership of building—and then steadily improving—a responsive website (and later a companion app) whose primary goal is to present information and make it effortless for visitors to get in touch.\n\nCore user-facing requirement  \nVisitors must be able",
+    "budget": {
+     "minimum": 250.0,
+     "maximum": 750.0
+    },
+    "currency": {
+     "code": "USD",
+     "sign": "$",
+     "exchange_rate": 1.0
+    },
+    "bid_stats": {
+     "bid_count": 277,
+     "bid_avg": 396.2111913357401
+    },
+    "jobs": [
+     {
+      "name": "PHP"
+     },
+     {
+      "name": "JavaScript"
+     },
+     {
+      "name": "CSS"
+     },
+     {
+      "name": "HTML"
+     },
+     {
+      "name": "Node.js"
+     },
+     {
+      "name": "Web Development"
+     },
+     {
+      "name": "Vue.js"
+     },
+     {
+      "name": "Next.js"
+     }
+    ],
+    "seo_url": "web-development/Ongoing-Part-Time-Website-Developer",
+    "frontend_project_status": "open",
+    "status": "active",
+    "nonpublic": false,
+    "time_submitted": 1795082459
+   },
+   {
+    "id": 40825837,
+    "title": "FTP/Network Integration Specialist",
+    "type": "hourly",
+    "description": "My immediate roadblock is simple yet critical: I still cannot connect to our file server, so the very first milestone is to make basic FTP connectivity rock-solid. Once that is stable, I’ll need you to configure – and, if required, switch between – FTP, FTPS, and SFTP so that every partner in our wo",
+    "budget": {
+     "minimum": 15.0,
+     "maximum": 25.0
+    },
+    "currency": {
+     "code": "USD",
+     "sign": "$",
+     "exchange_rate": 1.0
+    },
+    "bid_stats": {
+     "bid_count": 89,
+     "bid_avg": 20.584269662921347
+    },
+    "jobs": [
+     {
+      "name": "Python"
+     },
+     {
+      "name": "Linux"
+     },
+     {
+      "name": "Shell Script"
+     },
+     {
+      "name": "Network Administration"
+     },
+     {
+      "name": "Powershell"
+     },
+     {
+      "name": "Scripting"
+     },
+     {
+      "name": "API Integration"
+     },
+     {
+      "name": "Bash"
+     },
+     {
+      "name": "VPN"
+     },
+     {
+      "name": "Firewall"
+     }
+    ],
+    "seo_url": "scripting/FTP-Network-Integration-Specialist",
+    "frontend_project_status": "open",
+    "status": "active",
+    "nonpublic": false,
+    "time_submitted": 1795081396
+   },
+   {
+    "id": 40825666,
+    "title": "Malaysia-Based Freelance Software Developer Needed",
+    "type": "fixed",
+    "description": "*Freelancer based in Malaysia* \nMonthly salary range: RM 6000 to 10,000\n\nResponsibilities: \n1. Software Development and System Enhancement\n•\tDesign, develop, test, implement, and maintain software applications to support business and operational requirements.\n•\tAnalyse user requirements and translat",
+    "budget": {
+     "minimum": 1500.0,
+     "maximum": 3000.0
+    },
+    "currency": {
+     "code": "SGD",
+     "sign": "$",
+     "exchange_rate": 0.775714
+    },
+    "bid_stats": {
+     "bid_count": 117,
+     "bid_avg": 2076.381965811966
+    },
+    "jobs": [
+     {
+      "name": "Java"
+     },
+     {
+      "name": "Python"
+     },
+     {
+      "name": "SQL"
+     },
+     {
+      "name": "C# Programming"
+     },
+     {
+      "name": "Software Testing"
+     },
+     {
+      "name": "Software Development"
+     },
+     {
+      "name": "Computer Science"
+     },
+     {
+      "name": "Database Design"
+     },
+     {
+      "name": "Software Engineering"
+     },
+     {
+      "name": "Web Application"
+     }
+    ],
+    "seo_url": "computer-science/Malaysia-Based-Freelance-Software",
+    "frontend_project_status": "open",
+    "status": "active",
+    "nonpublic": false,
+    "time_submitted": 1795074766
+   }
+  ],
+  "total_count": 139
+ }
+}

@@ -39,6 +39,8 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'linkedin_keyword_expander', "name": 'LinkedIn Keyword Expander', "yaml_key": 'keyword_expander', "tools": [], "crew": 'LinkedInKeywordCrew', "task": 'expand_keywords_task', "job_type": 'linkedin_apply', "source_file": 'src/automation/crews/linkedin_keyword_crew/config/agents.yaml'},
     {"id": 'greenhouse_relevance_judge', "name": 'Greenhouse Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'greenhouse_screening_answerer', "name": 'Greenhouse Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
+    {"id": 'freelancer_proposal_writer', "name": 'Freelancer Proposal Writer', "yaml_key": 'proposal_writer', "tools": [], "crew": 'FreelancerProposalCrew', "task": 'write_proposal_task', "job_type": 'freelancer_bids', "source_file": 'src/automation/crews/freelancer_proposal_crew/config/agents.yaml'},
+    {"id": 'freelancer_relevance_judge', "name": 'Freelancer Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'freelancer_bids', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_relevance_judge', "name": 'ATS Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_screening_answerer', "name": 'ATS Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
@@ -299,6 +301,27 @@ _CATALOG: dict = {
             ],
             "used_by": ["GreenhouseApplyFlow"],
             "source_file": "src/automation/tools/greenhouse_apply_tool.py",
+        },
+        {
+            "id": "freelancer_search",
+            "name": "Freelancer.com Project Search",
+            "class": "freelancer_tool.find_projects",
+            "description": (
+                "Searches Freelancer.com's official public projects API (no login) once per keyword, "
+                "normalises budgets to USD via each currency's exchange rate, and filters by budget, "
+                "type (fixed / hourly), competition (bid count), keyword match on title / skills, and "
+                "projects already drafted in an earlier run. Called directly by FreelancerBidsFlow; "
+                "drafting is the LLM's job and bidding is left to the user."
+            ),
+            "inputs": [
+                {"name": "keywords",       "type": "str",   "description": "Comma-separated search terms (max 5 searches)"},
+                {"name": "min_budget_usd", "type": "float", "description": "Project budget must reach this (0 = any)"},
+                {"name": "max_budget_usd", "type": "float", "description": "Project budget must start at or below this (0 = any)"},
+                {"name": "project_type",   "type": "str",   "description": "any | fixed | hourly"},
+                {"name": "max_bids",       "type": "int",   "description": "Skip projects with more bids than this (0 = any)"},
+            ],
+            "used_by": ["FreelancerBidsFlow"],
+            "source_file": "src/automation/tools/freelancer_tool.py",
         },
         {
             "id": "ats_apply",

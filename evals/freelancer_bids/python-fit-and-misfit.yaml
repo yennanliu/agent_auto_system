@@ -1,0 +1,116 @@
+id: python-fit-and-misfit
+job_type: freelancer_bids
+description: >-
+  Three fictional projects. A Python scraping job fits the background and must be drafted
+  (specific, no invented experience, no price). An iOS/Swift app does not fit a Python-only
+  background and must be declined, not drafted. A crowded project (120 bids) is removed by
+  the deterministic max_bids filter before the LLM sees it. The API search is stubbed.
+payload:
+  keywords: "python, swift"
+  max_bids: 50
+  max_drafts: 5
+  candidate_background: >-
+    Python developer, 6 years. Built web scrapers with Scrapy and Playwright for e-commerce
+    price monitoring (example-shop.example), Django REST APIs, PostgreSQL. Portfolio:
+    https://portfolio.example/dev. No mobile or iOS experience.
+fixtures:
+  projects:
+    - id: 9001
+      title: "Python web scraper for product listings (fictional)"
+      type: fixed
+      description: >-
+        We need a Python scraper that collects product name, price and stock from about
+        40 category pages of our store and writes a daily CSV. Pages load prices with JavaScript.
+      budget: {minimum: 250, maximum: 750}
+      currency: {code: USD, sign: "$", exchange_rate: 1.0}
+      bid_stats: {bid_count: 12, bid_avg: 420}
+      jobs: [{name: Python}, {name: Web Scraping}]
+      seo_url: python/Python-web-scraper-fictional
+      frontend_project_status: open
+      time_submitted: 1795080000
+    - id: 9002
+      title: "iOS Swift app for restaurant ordering (fictional)"
+      type: fixed
+      description: "Native iOS app in Swift with Apple Pay for a small restaurant chain."
+      budget: {minimum: 1500, maximum: 3000}
+      currency: {code: USD, sign: "$", exchange_rate: 1.0}
+      bid_stats: {bid_count: 9, bid_avg: 2200}
+      jobs: [{name: iPhone}, {name: Swift}]
+      seo_url: iphone/iOS-Swift-restaurant-fictional
+      frontend_project_status: open
+      time_submitted: 1795079000
+    - id: 9003
+      title: "Quick Python bug fix (fictional)"
+      type: fixed
+      description: "Fix a failing pytest in a small Flask app."
+      budget: {minimum: 30, maximum: 100}
+      currency: {code: USD, sign: "$", exchange_rate: 1.0}
+      bid_stats: {bid_count: 120, bid_avg: 60}
+      jobs: [{name: Python}]
+      seo_url: python/Quick-Python-bug-fix-fictional
+      frontend_project_status: open
+      time_submitted: 1795078000
+expect:
+  contains:
+    - "Python web scraper for product listings (fictional)"
+    - "120 bids already"
+  assertions:
+    - {path: "projects_found", equals: 3}
+    - {path: "drafted", type: list, min_len: 1, max_len: 1}
+    - {path: "drafted[0].id", equals: "9001"}
+    - {path: "drafted[0].proposal", type: str, non_empty: true, max_len: 1600}
+    - {path: "drafted[0].suggested_bid", equals: 420}
+    - {path: "skipped", type: list, min_len: 2, max_len: 2}
+  min_judge_score: 65
+reference_output:
+  summary: "3 project(s) found, 2 passed the filters, 1 proposal(s) drafted (not submitted), 2 skipped."
+  projects_found: 3
+  drafted_count: 1
+  skipped_count: 2
+  drafted:
+    - id: "9001"
+      title: "Python web scraper for product listings (fictional)"
+      url: "https://www.freelancer.com/projects/python/Python-web-scraper-fictional"
+      type: fixed
+      currency: USD
+      budget_min: 250
+      budget_max: 750
+      budget_min_usd: 250.0
+      budget_max_usd: 750.0
+      bid_count: 12
+      skills: ["Python", "Web Scraping"]
+      bid_avg: 420
+      suggested_bid: 420
+      proposal: >-
+        You need a daily CSV of product names, prices and stock from about 40 category pages,
+        where prices only appear after JavaScript runs. I would drive the pages with
+        Playwright so the rendered prices are captured, keep the crawl polite with
+        per-request delays, and write one dated CSV per run with a simple check that flags
+        missing prices. I have built Scrapy and Playwright scrapers for e-commerce price
+        monitoring before, so the JavaScript-rendered prices are familiar ground. Should
+        out-of-stock items stay in the file with a stock of 0, or be left out?
+  skipped:
+    - id: "9003"
+      title: "Quick Python bug fix (fictional)"
+      url: "https://www.freelancer.com/projects/python/Quick-Python-bug-fix-fictional"
+      type: fixed
+      currency: USD
+      budget_min: 30
+      budget_max: 100
+      budget_min_usd: 30.0
+      budget_max_usd: 100.0
+      bid_count: 120
+      reason: "120 bids already (max 50)"
+    - id: "9002"
+      title: "iOS Swift app for restaurant ordering (fictional)"
+      url: "https://www.freelancer.com/projects/iphone/iOS-Swift-restaurant-fictional"
+      type: fixed
+      currency: USD
+      budget_min: 1500
+      budget_max: 3000
+      budget_min_usd: 1500.0
+      budget_max_usd: 3000.0
+      bid_count: 9
+      reason: "LLM declined: the background has no iOS or Swift experience"
+  warnings: []
+  note: "Draft-only: review each proposal and place the bid on Freelancer.com yourself."

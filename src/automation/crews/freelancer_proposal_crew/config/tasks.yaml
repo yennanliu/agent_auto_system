@@ -1,0 +1,30 @@
+write_proposal_task:
+  description: >
+    Write a bid proposal for this Freelancer.com project.
+
+    Project title: {project_title}
+    Project type and budget: {project_budget}
+    Skills the client tagged: {project_skills}
+    Project description (may be truncated):
+    {project_description}
+
+    The freelancer's own background — the ONLY source of facts about them:
+    {candidate_background}
+
+    Optional template the freelancer likes to reuse (keep any links / sign-off it contains
+    verbatim; tailor everything else). "(none)" means write freely:
+    {proposal_template}
+
+    Rules:
+    - If the background does not support the project's core requirement, output exactly one line:
+      SKIP: <short reason>
+      and nothing else. Declining is better than a proposal that overstates the freelancer.
+    - Otherwise write 80–180 words of plain English: open with the client's goal in your own
+      words, give 2–3 concrete points on how you would approach it (tied to the description),
+      mention only experience the background states, and end with one specific question.
+    - No price or timeline numbers (the bid amount is entered separately), no placeholders,
+      no headings, no Markdown, no quotes around the text, no "Dear Sir/Madam".
+    If this is a retry, fix the previous problem: {previous_error}
+  expected_output: >
+    Either the plain-text proposal ready to paste, or a single line "SKIP: <reason>".
+  agent: proposal_writer
