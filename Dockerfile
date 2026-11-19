@@ -87,7 +87,7 @@ RUN uv sync --frozen
 # standalone scripts that have unit tests (test-stage only, not runtime).
 COPY tests/ ./tests/
 COPY shopee/sample_data/ ./shopee/sample_data/
-COPY scripts/greenhouse_country_boards.py scripts/daily_new_jobs.py ./scripts/
+COPY scripts/greenhouse_country_boards.py scripts/ats_country_boards.py scripts/daily_new_jobs.py ./scripts/
 # Golden eval cases — read by tests/unit/test_evalset.py (offline eval tier).
 COPY evals/ ./evals/
 
