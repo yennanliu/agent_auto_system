@@ -20,8 +20,10 @@ class SmartRecruitersAdapter(Adapter):
     platform = "smartrecruiters"
     label = "SmartRecruiters"
     can_apply = False
+    manual_reason = ("its apply page is behind a bot wall, so it isn't automated — "
+                     "open apply_url to apply by hand")
 
-    def discover(self, client, ref: BoardRef) -> list[dict]:
+    def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         jobs: list[dict] = []
         offset = 0
         while offset < _MAX_JOBS:

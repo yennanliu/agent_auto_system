@@ -100,7 +100,7 @@ class LeverAdapter(Adapter):
     platform = "lever"
     label = "Lever"
 
-    def discover(self, client, ref: BoardRef) -> list[dict]:
+    def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         resp = client.get(f"{_API[ref.region]}/{ref.company}", params={"mode": "json"})
         if resp.status_code == 404:
             raise RuntimeError("no such Lever site")

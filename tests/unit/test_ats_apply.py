@@ -101,7 +101,10 @@ def _by_label(answers):
     ("https://jobs.smartrecruiters.com/oneclick-ui/company/x/publication/y?dcr_ci=Ubisoft2",
      BoardRef("smartrecruiters", "Ubisoft2")),
     ("https://boards.greenhouse.io/figma/jobs/5426468004", BoardRef("greenhouse", "figma", "5426468004")),
-    ("https://acme.wd5.myworkdayjobs.com/en-US/careers", BoardRef("workday", "acme")),
+    ("https://acme.wd5.myworkdayjobs.com/en-US/careers", BoardRef("workday", "acme.wd5/careers")),
+    ("https://wd1.myworkdaysite.com/recruiting/wf/WellsFargoJobs/job/IRVING-TX/Eng_R-531729",
+     BoardRef("workday", "wf.wd1/WellsFargoJobs", "Eng_R-531729")),
+    ("workday:ngc.wd1/Northrop_Grumman_External_Site", BoardRef("workday", "ngc.wd1/Northrop_Grumman_External_Site")),
     ("lever:palantir", BoardRef("lever", "palantir")),
     ("greenhouse:figma/123", BoardRef("greenhouse", "figma", "123")),
     ("workable:huggingface", BoardRef("workable", "huggingface")),
@@ -122,9 +125,10 @@ def test_bare_token_needs_a_default_platform():
     assert parse_board_ref("palantir", default_platform="lever") == BoardRef("lever", "palantir")
 
 
-def test_workday_is_recognised_but_unsupported():
+def test_workday_is_a_discovery_platform():
     ref = detect_ats("https://acme.wd1.myworkdayjobs.com/External")
-    assert ref.platform == "workday" and not ref.supported
+    assert ref == BoardRef("workday", "acme.wd1/External") and ref.supported
+    assert parse_board_ref("workday:acme") is None                       # tenant.wdN/site needed
 
 
 # ── shared core additions ────────────────────────────────────────────────────

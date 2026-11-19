@@ -87,12 +87,12 @@ def test_route_keeps_specific_jobs_over_the_bare_board():
         "https://jobs.lever.co/acme",
         "https://jobs.ashbyhq.com/beta",
         "https://acme.com/careers",
-        "https://acme.wd1.myworkdayjobs.com/x",     # recognised, unsupported → dropped, not "other"
+        "https://acme.wd1.myworkdayjobs.com/x",     # Workday: routed (listed for manual apply)
+        "https://www.icims.com/jobs/1",             # unsupported → kept as a manual link
     ])
     assert refs == [BoardRef("lever", "acme", "11111111-1111-1111-1111-111111111111"),
-                    BoardRef("ashby", "beta")]
-    # An ATS we can't apply on is still a link the user can use: a manual lead.
-    assert other == ["https://acme.com/careers", "https://acme.wd1.myworkdayjobs.com/x"]
+                    BoardRef("ashby", "beta"), BoardRef("workday", "acme.wd1/x")]
+    assert other == ["https://acme.com/careers", "https://www.icims.com/jobs/1"]
 
 
 def test_careers_link_prefers_a_jobs_page():

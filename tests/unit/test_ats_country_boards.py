@@ -32,13 +32,18 @@ def test_candidates_from_any_text_uses_the_router():
         {"url": "https://apply.workable.com/huggingface/j/ABC123DEF/"},
         {"url": "https://boards.greenhouse.io/figma"},          # not this scanner's platform
         {"url": "https://jobs.workable.com/view/x"},            # Workable's own site, not an account
+        {"url": "https://ngc.wd1.myworkdayjobs.com/Ext/job/US/Engineer_R1"},
     ])
     out = acb.candidates_from("urls", text)
-    assert out == {"lever": {"palantir"}, "ashby": {"openai"}, "workable": {"huggingface"}}
+    assert out == {"lever": {"palantir"}, "ashby": {"openai"}, "workable": {"huggingface"},
+                   "workday": {"ngc.wd1/Ext"}}
 
 
 def test_clean_drops_junk_names():
     assert acb.clean(["a", "ok", "x" * 90, "has/slash", "ok"]) == ["ok"]
+    # Workday tokens are tenant.wdN/site: the slash is part of the name.
+    assert acb.clean(["ngc.wd1/Northrop_Grumman_External_Site"], "workday") == [
+        "ngc.wd1/Northrop_Grumman_External_Site"]
 
 
 # ── checking one board ───────────────────────────────────────────────────────
@@ -114,7 +119,7 @@ def test_rank_across_platforms_filters_titles_and_country():
 def test_render_issue_input_block_pastes_into_ats_apply():
     rows = acb.rank(CACHE, acb.COUNTRIES["taiwan"])
     title, body = acb.render_issue(acb.COUNTRIES["taiwan"], rows, CACHE)
-    assert title.startswith("Taiwan: 2 Lever / Ashby / Workable companies")
+    assert title.startswith("Taiwan: 2 Lever/Ashby companies")
     boards_line = next(ln for ln in body.splitlines() if ln.startswith("boards:"))
     tokens = [t.strip() for t in boards_line.split(":", 1)[1].split(",")]
     assert tokens == ["ashby:beta", "lever:acme"]
@@ -128,3 +133,32 @@ def test_report_without_cache_exits(tmp_path):
                           "cache": str(tmp_path / "none.json"), "out_dir": str(tmp_path)})()
     with pytest.raises(SystemExit, match="run `scan` first"):
         acb.report(args)
+
+
+def test_workday_rows_link_to_the_board_and_say_manual():
+    cache = {"date": "2026-11-19", "platforms": {"workday": {"candidates": 1, "dead": [], "boards": {
+        "ngc.wd1/Ext": [_job("Software Engineer", "Taipei, Taiwan")]}}}}
+    rows = acb.rank(cache, acb.COUNTRIES["taiwan"])
+    title, body = acb.render_issue(acb.COUNTRIES["taiwan"], rows, cache)
+    assert title.startswith("Taiwan: 1 Workday companies")
+    assert "[ngc.wd1/Ext](https://ngc.wd1.myworkdayjobs.com/Ext) | workday |" in body
+    assert "listed for manual apply" in body
+    assert parse_board_ref("workday:ngc.wd1/Ext") is not None
+
+
+def test_scanner_searches_workday_and_passes_no_hint_elsewhere(adapters):
+    seen = {}
+
+    class Hinted:
+        def discover(self, client, ref, search=()):
+            seen[ref.platform] = search
+            return []
+
+    class Old:                                                   # pre-hint signature
+        def discover(self, client, ref):
+            seen[ref.platform] = "no hint"
+            return []
+    adapters["workday"], adapters["lever"] = Hinted(), Old()
+    acb.check_board(None, "workday", "ngc.wd1/Ext", acb.Gate(0))
+    acb.check_board(None, "lever", "x", acb.Gate(0))
+    assert seen == {"workday": ("engineer",), "lever": "no hint"}

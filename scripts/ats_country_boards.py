@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find Lever / Ashby / Workable boards with software / AI engineering openings in a country.
+"""Find Lever / Ashby / Workable / Workday boards with software / AI engineering openings in a country.
 
 The multi-ATS sibling of scripts/greenhouse_country_boards.py: same two steps and
 the same country presets and engineering-title filter, but for the platforms
@@ -12,7 +12,7 @@ the same country presets and engineering-title filter, but for the platforms
   report  filter the cache by country + engineering title and write the markdown
 
 Candidates come from the Feashliaa/job-board-aggregator Lever and Ashby lists
-plus every Lever / Ashby / Workable link in the SimplifyJobs listings and the
+plus every Lever / Ashby / Workable / Workday link in the SimplifyJobs listings and the
 hiring-without-whiteboards README (resolved with ats_router.detect_ats), plus
 boards already in the cache.
 
@@ -46,10 +46,12 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.automation.tools.ats_apply_tool import discover_with_hint  # noqa: E402
 from src.automation.tools.ats_ashby import AshbyAdapter  # noqa: E402
 from src.automation.tools.ats_lever import LeverAdapter  # noqa: E402
 from src.automation.tools.ats_router import BoardRef, detect_ats  # noqa: E402
 from src.automation.tools.ats_workable import WorkableAdapter  # noqa: E402
+from src.automation.tools.ats_workday import WorkdayAdapter  # noqa: E402
 
 # The country presets, title filter and ranking are shared with the Greenhouse scanner.
 _spec = importlib.util.spec_from_file_location("greenhouse_country_boards",
@@ -63,10 +65,14 @@ DEFAULT_CACHE = "data/ats_boards.json"
 DEFAULT_OUT_DIR = "data/ats_reports"
 USER_AGENT = "job-board-check/1.0"
 TOP_N = 80
-PLATFORMS = ("lever", "ashby", "workable")
-ADAPTERS = {"lever": LeverAdapter(), "ashby": AshbyAdapter(), "workable": WorkableAdapter()}
+PLATFORMS = ("lever", "ashby", "workable", "workday")
+ADAPTERS = {"lever": LeverAdapter(), "ashby": AshbyAdapter(), "workable": WorkableAdapter(),
+            "workday": WorkdayAdapter()}
 BOARD_URL = {"lever": "https://jobs.lever.co/{t}", "ashby": "https://jobs.ashbyhq.com/{t}",
              "workable": "https://apply.workable.com/{t}/"}
+# Workday 429s across tenants: scan it slowly, and search "engineer" instead of
+# listing boards with thousands of jobs (applying there is manual anyway).
+SLOW = {"workday": {"delay": 2.0, "workers": 2, "search": ("engineer",)}}
 
 _AGG = "https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data/{p}_companies.json"
 # (label, url, kind, platforms it can yield)
@@ -82,9 +88,17 @@ SOURCES = [
     ("hiring-without-whiteboards",
      "https://raw.githubusercontent.com/poteto/hiring-without-whiteboards/main/README.md", "urls"),
 ]
-SOURCES_BLURB = ("the Feashliaa/job-board-aggregator Lever and Ashby lists, every Lever / Ashby / "
+SOURCES_BLURB = ("the Feashliaa/job-board-aggregator Lever and Ashby lists, every Lever / Ashby / Workday / "
                  "Workable link in the SimplifyJobs and hiring-without-whiteboards repos, plus "
                  "boards already in the cache")
+
+
+def board_url(platform: str, token: str) -> str:
+    if platform == "workday":
+        from src.automation.tools.ats_workday import split_token
+        tenant, wd, site = split_token(token)
+        return f"https://{tenant}.{wd}.myworkdayjobs.com/{site}"
+    return BOARD_URL[platform].format(t=token)
 
 
 # ── candidates ───────────────────────────────────────────────────────────────
@@ -107,8 +121,10 @@ def _urls(text: str) -> list[str]:
     return re.findall(r"https?://[^\s\"'<>()\]]+", text)
 
 
-def clean(names) -> list[str]:
-    return sorted({n for n in names if 1 < len(n) < 80 and "/" not in n})
+def clean(names, platform: str = "") -> list[str]:
+    # Workday tokens are <tenant>.<wdN>/<site>; every other platform's has no "/".
+    limit = 120 if platform == "workday" else 80
+    return sorted({n for n in names if 1 < len(n) < limit and ("/" not in n or platform == "workday")})
 
 
 def harvest(client: httpx.Client, platforms) -> dict[str, set[str]]:
@@ -151,7 +167,8 @@ def check_board(client, platform: str, token: str, gate: Gate, tries: int = 6):
     for _ in range(tries):
         gate.open.wait()
         try:
-            jobs = ADAPTERS[platform].discover(client, BoardRef(platform, token))
+            search = SLOW.get(platform, {}).get("search", ())
+            jobs = discover_with_hint(ADAPTERS[platform], client, BoardRef(platform, token), search)
             return "live", [{"title": j["title"], "location": j["location"], "url": j["url"]}
                             for j in jobs]
         except RuntimeError as exc:
@@ -187,7 +204,10 @@ def scan(args) -> None:
             state = state or {"boards": {}, "dead": []}
             # boards that were live last time stay candidates even if a source drops them
             cands = clean(names[platform] | set(prev.get("boards", {})) |
-                          {b.split(":", 1)[1] for b in args.board or [] if b.startswith(platform + ":")})
+                          {b.split(":", 1)[1] for b in args.board or [] if b.startswith(platform + ":")},
+                          platform)
+            delay = max(args.delay, SLOW.get(platform, {}).get("delay", 0))
+            workers = min(args.workers, SLOW.get(platform, {}).get("workers", args.workers))
             if args.limit:
                 cands = cands[: args.limit]
             state["candidates"] = len(cands)
@@ -195,7 +215,7 @@ def scan(args) -> None:
             checked = set(state["boards"]) | set(state["dead"])
             todo = [c for c in cands if c not in checked]
             print(f"{platform}: {len(cands):,} candidates, {len(todo):,} to check "
-                  f"(~{len(todo) * args.delay / args.workers / 60:.0f}+ min)")
+                  f"(~{len(todo) * delay / workers / 60:.0f}+ min)")
             done = 0
 
             def work(token, platform=platform, state=state):
@@ -209,10 +229,10 @@ def scan(args) -> None:
                 if done % 250 == 0:
                     print(f"  {platform}: {done:,}/{len(todo):,} checked, {len(state['boards']):,} live")
                     gcb.save_cache(path, cache)
-                time.sleep(args.delay)
+                time.sleep(delay)
 
             try:
-                with ThreadPoolExecutor(max_workers=args.workers) as pool:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
                     list(pool.map(work, todo))
             finally:
                 gcb.save_cache(path, cache)
@@ -244,9 +264,12 @@ def render_issue(country: dict, rows, cache: dict) -> tuple[str, str]:
     cands = sum(s.get("candidates", 0) for s in cache.get("platforms", {}).values())
     by_platform = {p: sum(1 for r in top if r[0] == p) for p in PLATFORMS}
     head = f"{total} companies" if total <= TOP_N else f"Top {TOP_N} of {total} companies"
+    workday_note = (" (Workday boards are listed for manual apply: each employer needs its own "
+                    "Workday account)") if by_platform.get("workday") else ""
     lines = [
-        f"**Lever / Ashby / Workable**: every company below hosts its jobs on one of these, so "
-        f"the `ats_apply` automation can run against all of them. {head} with a live software / "
+        f"**{' / '.join(p.title() for p, n in by_platform.items() if n) or 'Lever / Ashby / Workable'}**: "
+        f"every company below hosts its jobs on one of these, so the `ats_apply` automation can run "
+        f"against all of them{workday_note}. {head} with a live software / "
         f"AI / ML engineering opening in **{name}**, checked on **{date}**, sorted by number of "
         f"matching roles ({', '.join(f'{n} {p.title()}' for p, n in by_platform.items() if n)}).",
         "",
@@ -269,10 +292,10 @@ def render_issue(country: dict, rows, cache: dict) -> tuple[str, str]:
     ]
     for i, (platform, board, roles) in enumerate(top, 1):
         examples = "; ".join(f"[{_cell(j['title'])[:60]}]({j['url']})" for j in roles[:3])
-        lines.append(f"| {i} | [{board}]({BOARD_URL[platform].format(t=board)}) | {platform} "
+        lines.append(f"| {i} | [{board}]({board_url(platform, board)}) | {platform} "
                      f"| {len(roles)} | {examples} |")
-    title = (f"{name}: {len(top)} Lever / Ashby / Workable companies with software / AI "
-             f"engineering openings ({date})")
+    title = (f"{name}: {len(top)} {'/'.join(p.title() for p, n in by_platform.items() if n) or 'ATS'} "
+             f"companies with software / AI engineering openings ({date})")
     return title, "\n".join(lines) + "\n"
 
 

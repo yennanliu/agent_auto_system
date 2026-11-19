@@ -19,7 +19,7 @@ class GreenhouseAdapter(Adapter):
     platform = "greenhouse"
     label = "Greenhouse"
 
-    def discover(self, client, ref: BoardRef) -> list[dict]:
+    def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         resp = client.get(f"{_API}/{ref.company}/jobs")
         if resp.status_code == 404:
             raise RuntimeError("no such Greenhouse board")
