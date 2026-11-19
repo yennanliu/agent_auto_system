@@ -1,0 +1,137 @@
+{
+ "results": [
+  {
+   "id": 6125026,
+   "shortcode": "DB4D7C0EC8",
+   "title": "Senior Open-Source Python Engineer, ML Developer Tools - EMEA Remote",
+   "remote": true,
+   "location": {
+    "city": "",
+    "country": "France",
+    "countryCode": "FR",
+    "region": null
+   },
+   "locations": [
+    {
+     "city": "",
+     "country": "France",
+     "countryCode": "FR",
+     "hidden": true,
+     "region": null
+    }
+   ],
+   "state": "published",
+   "isInternal": false,
+   "code": "",
+   "published": "2026-09-21T00:00:00.000Z",
+   "type": "full",
+   "language": "en",
+   "department": [
+    "Product"
+   ],
+   "accountUid": "940cf17f-c078-40ac-95e8-07704e754048",
+   "approvalStatus": "approved",
+   "workplace": "remote"
+  },
+  {
+   "id": 6125041,
+   "shortcode": "F88446C814",
+   "title": "Senior Open-Source Python Engineer, ML Developer Tools - US Remote",
+   "remote": true,
+   "location": {
+    "city": "",
+    "country": "United States",
+    "countryCode": "US",
+    "region": null
+   },
+   "locations": [
+    {
+     "city": "",
+     "country": "United States",
+     "countryCode": "US",
+     "hidden": true,
+     "region": null
+    }
+   ],
+   "state": "published",
+   "isInternal": false,
+   "code": "",
+   "published": "2026-09-21T00:00:00.000Z",
+   "type": "full",
+   "language": "en",
+   "department": [
+    "Product"
+   ],
+   "accountUid": "940cf17f-c078-40ac-95e8-07704e754048",
+   "approvalStatus": "approved",
+   "workplace": "remote"
+  },
+  {
+   "id": 6074222,
+   "shortcode": "9E2A4C02C7",
+   "title": "Senior Machine Learning Engineer, Voice Agents - EMEA Remote",
+   "remote": true,
+   "location": {
+    "city": "Paris",
+    "country": "France",
+    "countryCode": "FR",
+    "region": "Île-de-France"
+   },
+   "locations": [
+    {
+     "city": "Paris",
+     "country": "France",
+     "countryCode": "FR",
+     "hidden": true,
+     "region": "Île-de-France"
+    }
+   ],
+   "state": "published",
+   "isInternal": false,
+   "code": "",
+   "published": "2026-09-02T00:00:00.000Z",
+   "type": "full",
+   "language": "en",
+   "department": [
+    "Science"
+   ],
+   "accountUid": "940cf17f-c078-40ac-95e8-07704e754048",
+   "approvalStatus": "approved",
+   "workplace": "remote"
+  },
+  {
+   "id": 5851144,
+   "shortcode": "19A136F8E2",
+   "title": "Open-Source Machine Learning Engineer - US Remote",
+   "remote": true,
+   "location": {
+    "city": "New York",
+    "country": "United States",
+    "countryCode": "US",
+    "region": "New York"
+   },
+   "locations": [
+    {
+     "city": "New York",
+     "country": "United States",
+     "countryCode": "US",
+     "hidden": false,
+     "region": "New York"
+    }
+   ],
+   "state": "published",
+   "isInternal": false,
+   "code": "",
+   "published": "2026-05-29T00:00:00.000Z",
+   "type": "full",
+   "language": "en",
+   "department": [
+    "Open Source"
+   ],
+   "accountUid": "940cf17f-c078-40ac-95e8-07704e754048",
+   "approvalStatus": "approved",
+   "workplace": "remote"
+  }
+ ],
+ "total": 6
+}

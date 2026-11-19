@@ -1,0 +1,242 @@
+[
+ {
+  "fields": [
+   {
+    "id": "firstname",
+    "label": "First name",
+    "required": true,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "lastname",
+    "label": "Last name",
+    "required": true,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "email",
+    "label": "Email",
+    "required": true,
+    "maxLength": 255,
+    "type": "email"
+   },
+   {
+    "id": "phone",
+    "label": "Phone",
+    "required": false,
+    "helper": "The hiring team may use this number to contact you about this job.",
+    "maxLength": 255,
+    "type": "phone"
+   }
+  ],
+  "name": "Personal information"
+ },
+ {
+  "fields": [
+   {
+    "id": "education",
+    "label": "Education",
+    "required": false,
+    "fields": [
+     {
+      "id": "school",
+      "label": "School",
+      "required": true,
+      "maxLength": 255,
+      "type": "text"
+     },
+     {
+      "id": "field_of_study",
+      "label": "Field of study",
+      "required": false,
+      "maxLength": 255,
+      "type": "text"
+     },
+     {
+      "id": "degree",
+      "label": "Degree",
+      "required": false,
+      "maxLength": 255,
+      "type": "text"
+     },
+     {
+      "id": "start_date",
+      "label": "Start date",
+      "required": false,
+      "type": "date"
+     },
+     {
+      "id": "end_date",
+      "label": "End date",
+      "required": false,
+      "type": "date"
+     }
+    ],
+    "type": "group"
+   },
+   {
+    "id": "experience",
+    "label": "Experience",
+    "required": false,
+    "fields": [
+     {
+      "id": "title",
+      "label": "Title",
+      "required": true,
+      "maxLength": 255,
+      "type": "text"
+     },
+     {
+      "id": "company",
+      "label": "Company",
+      "required": false,
+      "maxLength": 255,
+      "type": "text"
+     },
+     {
+      "id": "industry",
+      "label": "Industry",
+      "required": false,
+      "maxLength": 255,
+      "type": "text"
+     },
+     {
+      "id": "summary",
+      "label": "Summary",
+      "required": false,
+      "type": "paragraph"
+     },
+     {
+      "id": "start_date",
+      "label": "Start date",
+      "required": false,
+      "type": "date"
+     },
+     {
+      "id": "end_date",
+      "label": "End date",
+      "required": false,
+      "type": "date"
+     },
+     {
+      "id": "current",
+      "label": "I currently work here",
+      "required": false,
+      "type": "boolean"
+     }
+    ],
+    "type": "group"
+   },
+   {
+    "id": "summary",
+    "label": "Summary",
+    "required": false,
+    "type": "paragraph"
+   },
+   {
+    "id": "resume",
+    "label": "Resume",
+    "required": true,
+    "maxFileSize": 12000000,
+    "supportedFileTypes": [
+     ".pdf",
+     ".doc",
+     ".docx",
+     ".odt",
+     ".rtf"
+    ],
+    "supportedMimeTypes": [
+     "application/pdf",
+     "application/msword",
+     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "application/vnd.oasis.opendocument.text",
+     "application/rtf"
+    ],
+    "type": "file"
+   },
+   {
+    "id": "CA_47143",
+    "label": "Github profile",
+    "required": true,
+    "type": "paragraph"
+   },
+   {
+    "id": "CA_47383",
+    "label": "Linkedin",
+    "required": true,
+    "type": "paragraph"
+   }
+  ],
+  "name": "Profile"
+ },
+ {
+  "fields": [
+   {
+    "id": "CA_10626",
+    "label": "Expected salary",
+    "required": false,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "CA_10627",
+    "label": "Notice period / availability",
+    "required": false,
+    "options": [
+     {
+      "name": "139527",
+      "value": "Available immediately"
+     },
+     {
+      "name": "139528",
+      "value": " 1 week"
+     },
+     {
+      "name": "139529",
+      "value": " 2 weeks"
+     },
+     {
+      "name": "139530",
+      "value": " 3 weeks"
+     },
+     {
+      "name": "139531",
+      "value": " 1 month"
+     },
+     {
+      "name": "139532",
+      "value": " 2 months"
+     },
+     {
+      "name": "139533",
+      "value": " 3 months or more"
+     }
+    ],
+    "singleOption": true,
+    "type": "dropdown"
+   },
+   {
+    "id": "CA_10629",
+    "label": "How did you hear about us?",
+    "required": false,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "QA_8723547",
+    "label": "Please detail the reasons why you are applying to work at Hugging Face and how you think you can make an impact on our team",
+    "required": true,
+    "type": "paragraph"
+   },
+   {
+    "id": "QA_5500738",
+    "label": "Please detail the project you would be most excited to work on in your first 3 months of joining",
+    "required": true,
+    "type": "paragraph"
+   }
+  ],
+  "name": "Details"
+ }
+]

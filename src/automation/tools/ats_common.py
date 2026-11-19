@@ -177,6 +177,10 @@ _COUNTRIES = {
 }
 # Job locations often give only a city ("Toronto", "San Francisco, CA").
 _CITIES = {
+    "united states": r"san francisco|new york|seattle|los angeles|mountain view|palo alto|"
+                     r"menlo park|sunnyvale|san jose|san mateo|redwood city|bay area|chicago|"
+                     r"boston|cambridge, ma|denver|washington,? d\.?c|atlanta|miami|"
+                     r"austin|dallas|houston",
     "canada": r"toronto|vancouver|montreal", "ireland": r"dublin",
     "united kingdom": r"london|manchester|edinburgh", "thailand": r"bangkok",
     "india": r"gurugram|gurgaon|bengaluru|bangalore|hyderabad|pune|mumbai",
@@ -383,6 +387,10 @@ def _profile_answer(label: str, profile: dict):
     return None
 
 
+_ASKS_FOR_CONTENT = re.compile(r"\b(share|describe|explain|list|tell us|walk us|give us|provide (a|some|examples?)|"
+                               r"examples?|contributions?|pull requests?|prs)\b")
+
+
 def rule_answer(label: str, profile: dict):
     """Heuristic answer for a custom question label, or None when unsure. The
     caller maps the answer onto a select's options when the field is a select.
@@ -394,11 +402,14 @@ def rule_answer(label: str, profile: dict):
     prof = _profile_answer(label, profile)
     if prof:
         return prof
-    if "linkedin" in lbl:
+    # A profile-URL field ("LinkedIn Profile", "GitHub URL"), not a question
+    # that merely mentions the site ("Share 2-3 contributions (GitHub PRs…)").
+    url_field = not _ASKS_FOR_CONTENT.search(lbl)
+    if "linkedin" in lbl and url_field:
         return profile.get("linkedin_url") or None
-    if "github" in lbl:
+    if "github" in lbl and url_field:
         return profile.get("github_url") or None
-    if re.search(r"website|portfolio|personal site|blog", lbl):
+    if re.search(r"website|portfolio|personal site|blog", lbl) and url_field:
         return profile.get("website_url") or profile.get("github_url") or None
     # "Will you require a work permit…" is a sponsorship question, not "do you
     # have the right to work" — opposite answers.
@@ -425,8 +436,16 @@ def rule_answer(label: str, profile: dict):
         return "No"
     if re.search(r"were you referred|referred by|referral", lbl):
         return "No"
-    if re.search(r"how did you (hear|find|learn)|where did you (hear|find|learn)", lbl):
+    if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
+                 r"where did you (hear|find|learn|see)", lbl):
         return "__source__"  # we found it on the employer's own job board
+    # "Which university are you attending / did you last attend?" — the
+    # highest-degree school from the profile (a select maps it onto its list).
+    if re.search(r"(which|what) (university|college|school)|name of (the |your )?(university|college|school)|"
+                 r"(university|college|school) (did|do) you (attend|graduate)", lbl):
+        return (profile.get("education") or {}).get("school") or None
+    if re.search(r"(highest|what) (level of )?(degree|education)", lbl):
+        return (profile.get("education") or {}).get("degree") or None
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
         return str(profile.get("years", 3))
     # "Last drawn / current salary" is a fact about the past, not the expectation.
@@ -633,6 +652,122 @@ def parse_extra_answers(text: str) -> list[tuple[str, str]]:
             if kw.strip() and ans.strip():
                 out.append((kw.strip(), ans.strip()))
     return out
+
+
+def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "",
+                  current_location: str = "", linkedin_url: str = "", github_url: str = "",
+                  website_url: str = "", years_experience=3, salary_expectation: str = "",
+                  work_authorized: bool = True, needs_sponsorship: bool = False,
+                  authorized_countries: str = "", resume_path: str = "",
+                  cover_letter_path: str | None = None, cover_letter_text: str = "",
+                  extra_answers: str = "", current_salary: str = "", notice_period: str = "",
+                  languages: str = "", programming_languages: str = "", ai_experience: str = "",
+                  reason_for_leaving: str = "", has_criminal_record: bool = False,
+                  school: str = "", degree: str = "", discipline: str = "",
+                  current_company: str = "", current_title: str = "",
+                  current_start: str = "") -> dict:
+    """The candidate profile every planner reads, from the run-form inputs."""
+    try:
+        years = int(years_experience)  # preserve an explicit 0 (entry-level)
+    except (TypeError, ValueError):
+        years = 3
+    return {
+        "first_name": first_name.strip(), "last_name": last_name.strip(),
+        "email": email.strip(), "phone": (phone or "").strip(),
+        "location": (current_location or "").strip(),
+        "linkedin_url": (linkedin_url or "").strip(), "github_url": (github_url or "").strip(),
+        "website_url": (website_url or "").strip(), "years": years,
+        "salary": (salary_expectation or "").strip(),
+        "work_authorized": bool(work_authorized),
+        "needs_sponsorship": bool(needs_sponsorship),
+        "authorized_countries": set().union(*(countries_in(c) for c in split_list(authorized_countries))),
+        "resume_path": resume_path, "cover_letter_path": cover_letter_path,
+        "cover_letter_text": (cover_letter_text or "").strip(),
+        "extra_answers": parse_extra_answers(extra_answers),
+        "current_salary": (current_salary or "").strip(),
+        "notice_period": (notice_period or "").strip(),
+        "languages": languages or "",
+        "programming_languages": programming_languages or "",
+        "ai_experience": (ai_experience or "").strip(),
+        "reason_for_leaving": (reason_for_leaving or "").strip(),
+        "has_criminal_record": bool(has_criminal_record),
+        "education": {"school": (school or "").strip(), "degree": (degree or "").strip(),
+                      "discipline": (discipline or "").strip()},
+        "employment": {"company": (current_company or "").strip(),
+                       "title": (current_title or "").strip(), **parse_start(current_start)},
+    }
+
+
+def standard_value(name: str, profile: dict) -> str:
+    """A system field every ATS asks for, by its canonical name: first_name,
+    last_name, full_name, email, phone, location, city, linkedin, github,
+    website, current_company, current_title, resume, cover_letter_file,
+    cover_letter_text. "" when the profile has none."""
+    first, last = profile.get("first_name", ""), profile.get("last_name", "")
+    emp = profile.get("employment") or {}
+    values = {
+        "first_name": first, "last_name": last, "full_name": f"{first} {last}".strip(),
+        "email": profile.get("email", ""), "phone": profile.get("phone", ""),
+        "location": profile.get("location", ""),
+        "city": (location_parts(profile.get("location", "")) or [""])[0],
+        "linkedin": profile.get("linkedin_url", ""), "github": profile.get("github_url", ""),
+        "website": profile.get("website_url", "") or profile.get("github_url", ""),
+        "current_company": emp.get("company", ""), "current_title": emp.get("title", ""),
+        "resume": profile.get("resume_path", ""),
+        "cover_letter_file": profile.get("cover_letter_path") or "",
+        "cover_letter_text": profile.get("cover_letter_text", ""),
+    }
+    return str(values.get(name) or "")
+
+
+# Contact-field labels → standard_value() names, for ATSs that don't mark their
+# built-in fields (Ashby / Workable custom "Phone Number", "Linkedin", …).
+_STANDARD_LABELS = (
+    ("first_name", r"^(legal )?first name$|^given name$"),
+    ("last_name", r"^(legal )?(last|family) name$|^surname$"),
+    ("full_name", r"^(full |legal |your )?name$|^full legal name$"),
+    ("email", r"^(e-?mail|email address)$"),
+    ("phone", r"^(phone|mobile|cell|telephone)( (number|no\.?))?$"),
+    ("linkedin", r"linkedin"),
+    ("github", r"github"),
+    ("website", r"^(personal )?(website|portfolio)( url| link)?$"),
+)
+
+
+def standard_for_label(label: str) -> str | None:
+    """The standard_value() name a plain contact-field label asks for, or None."""
+    t = re.sub(r"[*:✱]", "", (label or "").lower()).strip()
+    t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Contact-field labels are a few words; a sentence that mentions GitHub is
+    # a question ("Share your contributions (GitHub PRs…)"), not the URL field.
+    if len(t.split()) > 5 or _ASKS_FOR_CONTENT.search(t):
+        return None
+    t = re.sub(r"\s+(url|profile|link)$", "", t) if re.search(r"linkedin|github", t) else t
+    for name, pat in _STANDARD_LABELS:
+        if re.search(pat, t):
+            return name
+    return None
+
+
+_NOTICE_RE = re.compile(r"(\d+)\s*(day|week|month)", re.I)
+
+
+def start_date_from_notice(notice: str, today=None):
+    """The earliest start date a notice period implies ("2 weeks" → today + 14
+    days, "immediately" → today), or None when it can't be read — a date
+    question is then left to extra_answers / the LLM rather than guessed."""
+    from datetime import date, timedelta
+    today = today or date.today()
+    t = (notice or "").strip().lower()
+    if not t:
+        return None
+    if re.search(r"immediate|asap|right away|now\b", t):
+        return today
+    m = _NOTICE_RE.search(t)
+    if not m:
+        return None
+    n, unit = int(m.group(1)), m.group(2).lower()
+    return today + timedelta(days=n * {"day": 1, "week": 7, "month": 30}[unit])
 
 
 # ── local ledger (no site-side "already applied" without a login) ────────────

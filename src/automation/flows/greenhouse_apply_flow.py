@@ -64,6 +64,117 @@ def _names_unmentioned_employer(question: str, job: dict, background: str) -> bo
     return any(n in q for n in names) and not any(n in bg for n in names)
 
 
+def build_llm_callbacks(state) -> tuple:
+    """The optional LLM steps of an apply flow, built from its state:
+    ``(relevance_fn, answer_fn, usage_acc)``. ``relevance_fn`` is None unless
+    ``task_filter`` is set; ``answer_fn`` is None unless ``candidate_background``
+    is. Shared by the Greenhouse and multi-ATS apply flows; the LLM is resolved
+    lazily, so a run using neither makes no LLM call."""
+    usage_acc = {"prompt_tokens": 0, "completion_tokens": 0}
+
+    # The LLM powers two optional steps — the relevance gate and screening
+    # answers. It's resolved lazily, so a run using neither makes no LLM call.
+    llm_box: dict = {}
+
+    def _get_llm():
+        if "llm" not in llm_box:
+            llm = None
+            try:
+                from src.automation.harness.provider import resolve as resolve_llm
+                llm, _p, _m = resolve_llm(
+                    state.llm_provider or None,
+                    state.llm_model or None,
+                    temperature=0.2,
+                )
+            except Exception as exc:  # noqa: BLE001
+                append_log(state.run_id, f"No LLM available ({exc}).")
+            llm_box["llm"] = llm
+        return llm_box["llm"]
+
+    def _acc_usage(result) -> None:
+        u = extract_usage(result)
+        usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
+        usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
+
+    # ── Relevance gate (optional second filter before applying) ──
+    task_filter = (state.task_filter or "").strip()
+    relevance_fn = None
+    if task_filter:
+        llm = _get_llm()
+        if llm is None:
+            append_log(state.run_id,
+                       "task_filter is set but no LLM is available; "
+                       "applying to all matching jobs.")
+        else:
+            append_log(state.run_id,
+                       "Second gate active: filtering jobs by task_filter before applying.")
+
+            def relevance_fn(title: str, meta: str) -> tuple[bool, str]:  # noqa: F811
+                try:
+                    result = GreenhouseRelevanceCrew(llm=llm).crew().kickoff(inputs={
+                        "task_filter": task_filter,
+                        "job_title": title,
+                        "job_meta": meta,
+                    })
+                    _acc_usage(result)
+                    text = (result.raw if hasattr(result, "raw") else str(result)) or ""
+                    verdict = _parse_verdict(text)
+                    if verdict is None:
+                        append_log(state.run_id,
+                                   f"Relevance verdict unparseable ({text[:80]!r}); "
+                                   "keeping job (fail-open).")
+                        return True, ""
+                    return bool(verdict.get("relevant")), str(verdict.get("reason") or "")
+                except Exception as exc:  # noqa: BLE001 — never fail a job on the gate
+                    append_log(state.run_id,
+                               f"Relevance judge failed ({exc}); keeping job (fail-open).")
+                    return True, ""
+
+    # ── Screening answers (only with the candidate's own background) ──
+    # Without background text the model could only invent facts, so the
+    # answerer stays off and unanswerable required questions skip the job.
+    background = (state.candidate_background or "").strip()
+    answer_fn = None
+    if background:
+        llm = _get_llm()
+        if llm is not None:
+            append_log(state.run_id,
+                       "Screening answerer active: required questions the rules "
+                       "miss are answered from candidate_background.")
+            profile_txt = "\n".join(f"{k}: {v}" for k, v in {
+                "name": f"{state.first_name} {state.last_name}".strip(),
+                "based in": state.current_location,
+                "years of experience": state.years_experience,
+                "authorized to work": state.work_authorized,
+                "needs visa sponsorship": state.needs_sponsorship,
+                "authorized to work only in": state.authorized_countries,
+                "salary expectation": state.salary_expectation,
+            }.items() if v not in ("", None))
+
+            def answer_fn(label: str, kind: str, options: list[str], job: dict) -> str:  # noqa: F811
+                if _names_unmentioned_employer(label, job, background):
+                    return ""
+                try:
+                    result = GreenhouseAnswerCrew(llm=llm).crew().kickoff(inputs={
+                        "job_title": job.get("title", ""),
+                        "company": job.get("company", ""),
+                        "job_location": job.get("location", "") or "unspecified",
+                        "question": label,
+                        "field_kind": "select" if kind == "select" else "free text",
+                        "options": "\n".join(f"- {o}" for o in options) or "(free text)",
+                        "candidate_profile": profile_txt,
+                        "candidate_background": background,
+                    })
+                    _acc_usage(result)
+                    return _parse_answer(
+                        (result.raw if hasattr(result, "raw") else str(result)) or "")
+                except Exception as exc:  # noqa: BLE001
+                    append_log(state.run_id,
+                               f"Screening answerer failed ({exc}); leaving unanswered.")
+                    return ""
+    return relevance_fn, answer_fn, usage_acc
+
+
 class GreenhouseApplyState(BaseModel):
     boards: str = ""                # board tokens / URLs, comma-separated (required)
     keywords: str = ""              # title filter, comma-separated phrases (blank = all)
@@ -128,108 +239,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
 
     @listen(validate_payload)
     def execute_apply(self, _):
-        usage_acc = {"prompt_tokens": 0, "completion_tokens": 0}
-
-        # The LLM powers two optional steps — the relevance gate and screening
-        # answers. It's resolved lazily, so a run using neither makes no LLM call.
-        llm_box: dict = {}
-
-        def _get_llm():
-            if "llm" not in llm_box:
-                llm = None
-                try:
-                    from src.automation.harness.provider import resolve as resolve_llm
-                    llm, _p, _m = resolve_llm(
-                        self.state.llm_provider or None,
-                        self.state.llm_model or None,
-                        temperature=0.2,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    append_log(self.state.run_id, f"No LLM available ({exc}).")
-                llm_box["llm"] = llm
-            return llm_box["llm"]
-
-        def _acc_usage(result) -> None:
-            u = extract_usage(result)
-            usage_acc["prompt_tokens"] += u.get("prompt_tokens", 0)
-            usage_acc["completion_tokens"] += u.get("completion_tokens", 0)
-
-        # ── Relevance gate (optional second filter before applying) ──
-        task_filter = (self.state.task_filter or "").strip()
-        relevance_fn = None
-        if task_filter:
-            llm = _get_llm()
-            if llm is None:
-                append_log(self.state.run_id,
-                           "task_filter is set but no LLM is available; "
-                           "applying to all matching jobs.")
-            else:
-                append_log(self.state.run_id,
-                           "Second gate active: filtering jobs by task_filter before applying.")
-
-                def relevance_fn(title: str, meta: str) -> tuple[bool, str]:  # noqa: F811
-                    try:
-                        result = GreenhouseRelevanceCrew(llm=llm).crew().kickoff(inputs={
-                            "task_filter": task_filter,
-                            "job_title": title,
-                            "job_meta": meta,
-                        })
-                        _acc_usage(result)
-                        text = (result.raw if hasattr(result, "raw") else str(result)) or ""
-                        verdict = _parse_verdict(text)
-                        if verdict is None:
-                            append_log(self.state.run_id,
-                                       f"Relevance verdict unparseable ({text[:80]!r}); "
-                                       "keeping job (fail-open).")
-                            return True, ""
-                        return bool(verdict.get("relevant")), str(verdict.get("reason") or "")
-                    except Exception as exc:  # noqa: BLE001 — never fail a job on the gate
-                        append_log(self.state.run_id,
-                                   f"Relevance judge failed ({exc}); keeping job (fail-open).")
-                        return True, ""
-
-        # ── Screening answers (only with the candidate's own background) ──
-        # Without background text the model could only invent facts, so the
-        # answerer stays off and unanswerable required questions skip the job.
-        background = (self.state.candidate_background or "").strip()
-        answer_fn = None
-        if background:
-            llm = _get_llm()
-            if llm is not None:
-                append_log(self.state.run_id,
-                           "Screening answerer active: required questions the rules "
-                           "miss are answered from candidate_background.")
-                profile_txt = "\n".join(f"{k}: {v}" for k, v in {
-                    "name": f"{self.state.first_name} {self.state.last_name}".strip(),
-                    "based in": self.state.current_location,
-                    "years of experience": self.state.years_experience,
-                    "authorized to work": self.state.work_authorized,
-                    "needs visa sponsorship": self.state.needs_sponsorship,
-                    "authorized to work only in": self.state.authorized_countries,
-                    "salary expectation": self.state.salary_expectation,
-                }.items() if v not in ("", None))
-
-                def answer_fn(label: str, kind: str, options: list[str], job: dict) -> str:  # noqa: F811
-                    if _names_unmentioned_employer(label, job, background):
-                        return ""
-                    try:
-                        result = GreenhouseAnswerCrew(llm=llm).crew().kickoff(inputs={
-                            "job_title": job.get("title", ""),
-                            "company": job.get("company", ""),
-                            "job_location": job.get("location", "") or "unspecified",
-                            "question": label,
-                            "field_kind": "select" if kind == "select" else "free text",
-                            "options": "\n".join(f"- {o}" for o in options) or "(free text)",
-                            "candidate_profile": profile_txt,
-                            "candidate_background": background,
-                        })
-                        _acc_usage(result)
-                        return _parse_answer(
-                            (result.raw if hasattr(result, "raw") else str(result)) or "")
-                    except Exception as exc:  # noqa: BLE001
-                        append_log(self.state.run_id,
-                                   f"Screening answerer failed ({exc}); leaving unanswered.")
-                        return ""
+        relevance_fn, answer_fn, usage_acc = build_llm_callbacks(self.state)
 
         result = run_greenhouse_apply(
             boards=self.state.boards,

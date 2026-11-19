@@ -641,6 +641,52 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
+    job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby and Workable boards",
+    name="ATS Apply", icon="🧭",
+    flow_module="src.automation.flows.ats_apply_flow", flow_class="ATSApplyFlow",
+    start_log="Discovering jobs via each ATS", temperature=0.2, browser=True,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Discover", "Discovering jobs via each ATS"), ("Apply", "run complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("applied"), list) and r.get("jobs_found") is not None,
+        "no jobs processed",
+    ),
+    rubric=("Matching jobs were found and an accurate applied[] list reflects real "
+            "applications (a submission counts only when the platform showed its "
+            "confirmation); jobs skipped as already-applied, 'filtered out', or for an "
+            "unanswerable required question, and SmartRecruiters jobs listed under manual[], "
+            "are correct behavior, not failures."),
+    # Login-free, like Greenhouse: take a live posting id from Lever's public
+    # Postings API and check the apply form's name field and Submit button.
+    canary=Canary(
+        kind="browser",
+        seed_url="https://api.lever.co/v0/postings/palantir?mode=json&limit=1", seed_path="0.id",
+        url="https://jobs.lever.co/palantir/{seed}/apply",
+        expect=("input[name='name']", "#btn-submit"),
+        source="src.automation.tools.ats_lever",
+    ),
+    name_template="ATS: {boards}",
+    fields=tuple(
+        Field("boards", "text", "Job Boards", required=True,
+              placeholder="lever:palantir, https://jobs.ashbyhq.com/openai, workable:huggingface",
+              help="Board or job URLs on Greenhouse, Lever, Ashby, Workable or SmartRecruiters, "
+                   "or platform:token (greenhouse:figma). A job URL applies to that one job. "
+                   "SmartRecruiters jobs are listed for manual apply.")
+        if f.name == "boards" else
+        Field("resume_path", "text", "Resume Path (on server)", placeholder="/path/to/resume.pdf",
+              help="Blank = ATS_RESUME_PATH (or GREENHOUSE_RESUME_PATH) from .env.")
+        if f.name == "resume_path" else f
+        for f in REGISTRY["greenhouse_apply"].fields
+    ),
+    help_note=(
+        "No login needed — jobs come from each ATS's public API, and every form's "
+        "questions are read before a browser opens. Opens a visible Chrome window to fill "
+        "forms (captchas reject headless). Jobs with a required question we can't answer "
+        "are skipped and listed so you can add them to <b>Extra Answers</b>."
+    ),
+))
+
+register(AutomationSpec(
     job_type="email_collect", desc='Find businesses & collect their emails', custom_ui=True, name="Email Collector", icon="📧",
     flow_module="src.automation.flows.email_collect_flow", flow_class="EmailCollectFlow",
     start_log="Starting lead-collection funnel...", temperature=0.4, browser=True,
