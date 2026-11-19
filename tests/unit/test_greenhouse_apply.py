@@ -829,3 +829,56 @@ def test_optional_answer_that_cannot_be_filled_does_not_fail_the_form(mocker):
         {"field": "question_2", "kind": "select", "value": "Yes", "label": "Required Q"},
     ], log=lambda _m: None)
     assert failed == ["Required Q"]
+
+
+# ── unconfirmed submissions are pending: never resent, count toward the cap ──
+
+def _pending_run(tmp_path, mocker, status, *, dry_run=False, max_applications=1):
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    routes = {"/a/jobs": {"jobs": [_job("Backend A", jid=1), _job("Backend B", jid=2)]},
+              "/jobs/1": {"questions": []}, "/jobs/2": {"questions": []}}
+    mocker.patch.object(gh, "_launch_browser")
+    tried = []
+
+    def apply(_page, job, *_a):
+        tried.append(job["job_id"])
+        return {**job, "status": status, "submitted": status == "submitted"}
+    mocker.patch.object(gh, "_apply_to_job", side_effect=apply)
+    out = gh.run_greenhouse_apply(boards="a", resume_path=str(resume), client=FakeClient(routes),
+                                  ledger_path=str(tmp_path / "l.json"), dry_run=dry_run,
+                                  max_applications=max_applications, **_ARGS)
+    return out, tried
+
+
+@pytest.mark.parametrize("status", ["unconfirmed", "needs_verification"])
+def test_unconfirmed_submission_is_pending_and_never_resent(tmp_path, mocker, status):
+    out, tried = _pending_run(tmp_path, mocker, status)
+    assert tried == ["1"]                                         # cap 1 used by the pending one
+    assert out["submitted_count"] == 0 and out["unconfirmed_count"] == 1
+    assert gh.load_ledger(str(tmp_path / "l.json"))["a/1"]["status"] == "pending"
+    again, tried = _pending_run(tmp_path, mocker, status)
+    assert tried == ["2"]                                         # job 1 not resent
+    assert "never confirmed" in again["skipped"][0]["reason"]
+
+
+def test_dry_run_unconfirmed_is_not_ledgered(tmp_path, mocker):
+    _pending_run(tmp_path, mocker, "unconfirmed", dry_run=True)
+    assert gh.load_ledger(str(tmp_path / "l.json")) == {}
+
+
+def test_legacy_ledger_entries_without_status_count_as_applied():
+    job = {"token": "a", "job_id": "1"}
+    assert gh.ledger_status({"a/1": {"title": "x"}}, job) == "applied"
+    assert gh.ledger_status({"a/1": True}, job) == "applied"
+    assert gh.ledger_status({}, job) is None
+
+
+def test_ats_greenhouse_adapter_sees_greenhouse_apply_pending(tmp_path, monkeypatch):
+    from src.automation.tools.ats_greenhouse import GreenhouseAdapter
+    monkeypatch.setenv("GREENHOUSE_LEDGER", str(tmp_path / "gh.json"))
+    job = {"platform": "greenhouse", "token": "a", "job_id": "1", "title": "t", "company": "c"}
+    gh.record_applied(str(tmp_path / "gh.json"), job, status="pending")
+    assert GreenhouseAdapter().ledger_status(job, {}) == "pending"
+    GreenhouseAdapter().record(str(tmp_path / "ats.json"), {**job, "job_id": "2"}, status="pending")
+    assert gh.load_ledger(str(tmp_path / "gh.json"))["a/2"]["status"] == "pending"
