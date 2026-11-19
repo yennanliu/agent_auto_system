@@ -21,6 +21,7 @@ Scraper policy (CLAUDE.md): partial results + ``warnings``, never raise.
 import json
 import os
 import re
+import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -130,9 +131,21 @@ def record_drafted(path: str, project: dict) -> None:
     ledger = load_ledger(path)
     ledger[project["id"]] = {"title": project["title"],
                              "drafted_at": datetime.now(UTC).isoformat(timespec="seconds")}
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(ledger, f, ensure_ascii=False, indent=1)
+    # Write a sibling temp file and atomically swap it in: a failed or
+    # interrupted write leaves the previous ledger intact, never an empty one.
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".freelancer_ledger_", suffix=".json", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(ledger, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ── search ───────────────────────────────────────────────────────────────────
@@ -157,7 +170,13 @@ def search(client, keywords: list[str], log: Callable = _noop) -> tuple[list[dic
             warnings.append(f"search '{q}' failed ({exc})")
             log(f"⚠ search '{q}' failed ({exc})")
             continue
-        found = [normalize(p) for p in (data.get("result") or {}).get("projects") or []]
+        found = []
+        for raw in (data.get("result") or {}).get("projects") or []:
+            try:
+                found.append(normalize(raw))
+            except Exception as exc:  # noqa: BLE001 — one odd record never sinks the search
+                warnings.append(f"skipped malformed project {raw.get('id', '?') if isinstance(raw, dict) else '?'} "
+                                f"({type(exc).__name__})")
         for p in found:
             seen.setdefault(p["id"], p)
         log(f"search '{q or '(all)'}': {len(found)} active project(s)")

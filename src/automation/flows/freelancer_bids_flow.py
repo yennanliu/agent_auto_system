@@ -34,11 +34,22 @@ def parse_proposal(text: str) -> tuple[str, str]:
     return text, ""
 
 
+def _money_range(lo, hi, sign: str) -> str:
+    """"$250–$750", or a single end when the other is missing, or "?"."""
+    if lo is not None and hi is not None:
+        return f"{sign}{lo:g}–{sign}{hi:g}"
+    one = lo if lo is not None else hi
+    return f"{sign}{one:g}" if one is not None else "?"
+
+
 def budget_text(p: dict) -> str:
-    lo, hi, sign, cur = p["budget_min"], p["budget_max"], p["currency_sign"], p["currency"]
-    rng = f"{sign}{lo:g}–{sign}{hi:g}" if lo is not None and hi is not None else f"{sign}{lo or hi or '?'}"
-    usd = f" (≈ ${p['budget_min_usd']:g}–${p['budget_max_usd']:g})" if cur != "USD" and p["budget_max_usd"] else ""
-    return f"{p['type'] or 'project'}, {rng} {cur}{usd}{' per hour' if p['type'] == 'hourly' else ''}"
+    cur = p["currency"]
+    usd = ""
+    if cur != "USD" and (p["budget_min_usd"] is not None or p["budget_max_usd"] is not None):
+        usd = f" (≈ {_money_range(p['budget_min_usd'], p['budget_max_usd'], '$')})"
+    per_hour = " per hour" if p["type"] == "hourly" else ""
+    return (f"{p['type'] or 'project'}, {_money_range(p['budget_min'], p['budget_max'], p['currency_sign'])}"
+            f" {cur}{usd}{per_hour}")
 
 
 class FreelancerBidsState(BaseModel):
@@ -104,7 +115,10 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                 try:
                     verdict = _parse_verdict(_kick(GreenhouseRelevanceCrew, {
                         "task_filter": st.task_filter, "job_title": p["title"],
-                        "job_meta": f"Freelance project ({budget_text(p)})\nSkills: {', '.join(p['skills'])}"}))
+                        # The description often decides it (greenfield vs. maintenance, …).
+                        "job_meta": (f"Freelance project ({budget_text(p)})\n"
+                                     f"Skills: {', '.join(p['skills'])}\n"
+                                     f"Description: {p['description'][:1500] or '(none)'}")}))
                 except Exception as exc:  # noqa: BLE001 — fail open
                     verdict = None
                     log(f"Relevance judge failed ({exc}); keeping project.")
@@ -129,7 +143,11 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                 log(f"↷ {p['title'][:60]}: declined — {why}")
                 continue
             drafted.append(ft.drafted_entry(p, proposal))
-            ft.record_drafted(os.getenv("FREELANCER_LEDGER", ft.DEFAULT_LEDGER_PATH), p)
+            try:
+                ft.record_drafted(os.getenv("FREELANCER_LEDGER", ft.DEFAULT_LEDGER_PATH), p)
+            except OSError as exc:  # a ledger problem never costs the run its drafts
+                warnings.append(f"could not record project {p['id']} as drafted ({exc}); "
+                                "it may be drafted again next run")
             log(f"✓ drafted: {p['title'][:60]}")
 
         st.usage = usage

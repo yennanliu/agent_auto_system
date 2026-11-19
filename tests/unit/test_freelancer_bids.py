@@ -201,3 +201,51 @@ def test_flow_without_llm_drafts_nothing_but_still_reports(mocker, monkeypatch, 
     out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={"keywords": "python", "candidate_background": "x"}))
     assert out["drafted"] == [] and out["projects_found"] == 1
     assert any("no LLM available" in w for w in out["warnings"])
+
+
+# ── review fixes (PR #115) ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("over,text", [
+    ({"currency": "EUR", "currency_sign": "€", "budget_min": None, "budget_min_usd": None,
+      "budget_max": 500.0, "budget_max_usd": 540.0}, "fixed, €500 EUR (≈ $540)"),
+    ({"currency": "EUR", "currency_sign": "€", "budget_min": 100.0, "budget_min_usd": 108.0,
+      "budget_max": 500.0, "budget_max_usd": 540.0}, "fixed, €100–€500 EUR (≈ $108–$540)"),
+    ({"budget_min": None, "budget_max": None, "budget_min_usd": None, "budget_max_usd": None},
+     "fixed, ? USD"),
+    ({"type": "hourly", "budget_min": 15.0, "budget_max": 25.0}, "hourly, $15–$25 USD per hour"),
+])
+def test_budget_text_handles_partial_budgets(over, text):
+    assert fbf.budget_text(_p(**over)) == text
+
+
+def test_relevance_judge_sees_the_description(flow_env):
+    json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "task_filter": "no greenfield"}))
+    metas = [i["job_meta"] for name, i in flow_env if name == "GreenhouseRelevanceCrew"]
+    assert metas and all("Description: d" in m for m in metas)
+
+
+def test_a_failing_ledger_write_keeps_the_drafts(flow_env, mocker):
+    mocker.patch.object(ft, "record_drafted", side_effect=OSError("disk full"))
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev"}))
+    assert [d["id"] for d in out["drafted"]] == ["1", "3"]
+    assert any("could not record project 1" in w and "disk full" in w for w in out["warnings"])
+
+
+def test_ledger_write_is_atomic(tmp_path, mocker):
+    path = tmp_path / "drafted.json"
+    ft.record_drafted(str(path), _p(id="1"))
+    mocker.patch.object(ft.json, "dump", side_effect=OSError("interrupted"))
+    with pytest.raises(OSError):
+        ft.record_drafted(str(path), _p(id="2"))
+    assert set(ft.load_ledger(str(path))) == {"1"}                  # previous ledger intact
+    assert [f.name for f in tmp_path.iterdir()] == ["drafted.json"]  # no temp file left
+
+
+def test_a_malformed_project_is_skipped_with_a_warning():
+    bad = {**RAW["result"]["projects"][0], "id": 1, "bid_stats": {"bid_count": "unknown"}}
+    data = {"status": "success", "result": {"projects": [bad, *RAW["result"]["projects"][1:]]}}
+    projects, warnings = ft.search(_Client(_Resp(data)), ["python"])
+    assert len(projects) == len(RAW["result"]["projects"]) - 1
+    assert any("malformed project 1" in w for w in warnings)
