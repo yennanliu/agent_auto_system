@@ -1,8 +1,8 @@
 # ATS Apply (`ats_apply`)
 
 Auto-apply on employers' job boards across applicant-tracking systems, with no login.
-It applies on **Greenhouse, Lever, Ashby and Workable**. **SmartRecruiters** jobs are
-discovered and listed for manual apply. A sibling of `greenhouse_apply`: same profile
+It applies on **Greenhouse, Lever, Ashby and Workable**. **SmartRecruiters** and **Workday**
+jobs are discovered and listed for manual apply. A sibling of `greenhouse_apply`: same profile
 fields, same LLM gates, same answer rules (shared through `tools/ats_common.py`).
 
 ## Boards
@@ -17,10 +17,10 @@ commas. `tools/ats_router.py` resolves each entry:
 | Ashby | `jobs.ashbyhq.com/<page>[/<uuid>]` | `ashby:openai` |
 | Workable | `apply.workable.com/<account>[/j/<SHORTCODE>]`, `<account>.workable.com/j/…` | `workable:huggingface` |
 | SmartRecruiters | `jobs.smartrecruiters.com/<Company>[/<id>-slug]` | `smartrecruiters:BoschGroup` |
+| Workday | `<tenant>.<wdN>.myworkdayjobs.com/[<lang>/]<site>[/job/…]`, `<wdN>.myworkdaysite.com/recruiting/<tenant>/<site>/…` | `workday:ngc.wd1/Northrop_Grumman_External_Site` |
 
-A job URL applies to that one job and bypasses the keyword and location filters. Workday
-URLs are recognised but not supported, so they show up as a warning. A bare token
-(`palantir`) is ambiguous and is rejected.
+A job URL applies to that one job and bypasses the keyword and location filters. A bare
+token (`palantir`) is ambiguous and is rejected.
 
 ## Discovery sources (`sources`)
 
@@ -100,6 +100,29 @@ form is rendered in web components, and there is no public form-definition API, 
 questions can't be planned before the browser opens. Matching jobs are returned under
 `manual[]` with their `apply_url` instead. That adapter is a follow-up.
 
+## Workday: discovery only
+
+Workday has the most employer boards of any ATS: about 1,300 distinct boards in the
+SimplifyJobs listings alone. Its job list is public:
+
+```
+POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
+{"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": "..."}
+```
+
+`tools/ats_workday.py` uses it:
+
+- **Search, not full listing.** It sends the run's first keywords (up to 3) as
+  `searchText`, at up to 100 jobs per term, instead of paging through boards with thousands
+  of jobs. A Workday job link searches its requisition id.
+- **Throttling.** Workday rate-limits **across companies** with HTTP 429 and no
+  `Retry-After` header. Pages are paced 1 s apart, and a 429 backs off (5, 10, 20, 40 s).
+  403, 404, 410 and 422 mean the board is disabled, unknown or closed, and are never
+  waited on.
+- **Applying is manual.** Every employer needs its own Workday candidate account (sign-up,
+  e-mail verification, a 5–7 step wizard). Matching jobs go to `manual[]` with their link.
+  No résumé is needed for a run whose only matches are Workday jobs.
+
 ## Unconfirmed submissions
 
 If Submit is clicked but no confirmation appears, the employer **may still have
@@ -131,12 +154,13 @@ sent again (see above), so the cost is a manual check, not a duplicate.
 
 ## Finding boards by country
 
-`scripts/ats_country_boards.py` is the Lever, Ashby and Workable counterpart of
+`scripts/ats_country_boards.py` is the Lever, Ashby, Workable and Workday counterpart of
 `greenhouse_country_boards.py`. It uses the same country presets and engineering-title
 filter.
 
 ```bash
-uv run python scripts/ats_country_boards.py scan                  # all three platforms; data/ats_boards.json
+uv run python scripts/ats_country_boards.py scan                  # all four platforms; data/ats_boards.json
+uv run python scripts/ats_country_boards.py scan --platform workday   # paced: 2 workers, 2 s, searches "engineer"
 uv run python scripts/ats_country_boards.py scan --platform workable --limit 50
 uv run python scripts/ats_country_boards.py report taiwan uk      # data/ats_reports/<country>_<date>.md
 ```

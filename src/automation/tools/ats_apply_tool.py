@@ -56,11 +56,15 @@ class Adapter:
     platform = ""
     label = ""
     can_apply = True
+    # Shown on this platform's manual[] rows when can_apply is False.
+    manual_reason = "apply isn't automated yet — open apply_url to apply by hand"
 
-    def discover(self, client, ref: BoardRef) -> list[dict]:
+    def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         """All open jobs on the board as ``[{platform, token, job_id, title,
         company, location, url, apply_url}]``. Raise on failure; the runner
-        turns that into a warning."""
+        turns that into a warning. ``search`` is the run's keywords: a hint an
+        adapter may use to search server-side instead of listing a huge board
+        (Workday); the runner still filters what comes back."""
         raise NotImplementedError
 
     def load_form(self, client, job: dict):
@@ -89,14 +93,26 @@ class Adapter:
         record_applied(ledger_path, self.ledger_key(job), job, status)
 
 
+def discover_with_hint(adapter, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
+    """``adapter.discover`` with the ``search`` hint when it takes one. Adapters
+    written before the hint existed (plugins, test doubles) keep working."""
+    import inspect
+    try:
+        takes_hint = "search" in inspect.signature(adapter.discover).parameters
+    except (TypeError, ValueError):
+        takes_hint = False
+    return adapter.discover(client, ref, search=search) if takes_hint else adapter.discover(client, ref)
+
+
 def _adapters() -> dict[str, Adapter]:
     from src.automation.tools.ats_ashby import AshbyAdapter
     from src.automation.tools.ats_greenhouse import GreenhouseAdapter
     from src.automation.tools.ats_lever import LeverAdapter
     from src.automation.tools.ats_smartrecruiters import SmartRecruitersAdapter
     from src.automation.tools.ats_workable import WorkableAdapter
+    from src.automation.tools.ats_workday import WorkdayAdapter
     return {a.platform: a for a in (GreenhouseAdapter(), LeverAdapter(), AshbyAdapter(),
-                                    WorkableAdapter(), SmartRecruitersAdapter())}
+                                    WorkableAdapter(), SmartRecruitersAdapter(), WorkdayAdapter())}
 
 
 # ── the browser half every adapter shares ────────────────────────────────────
@@ -262,7 +278,7 @@ def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
         board_key = (ref.platform, ref.company, ref.region)
         if board_key not in listings:
             try:
-                listings[board_key] = adapter.discover(client, ref)
+                listings[board_key] = discover_with_hint(adapter, client, ref, tuple(keywords))
                 total += len(listings[board_key])
             except Exception as exc:  # noqa: BLE001
                 listings[board_key] = None
@@ -455,8 +471,7 @@ def run_ats_apply(
                     if not adapter.can_apply:
                         # Listed even after the cap: they cost nothing to report.
                         manual.append({**job, "status": "manual",
-                                       "reason": f"{adapter.label} apply isn't automated yet — "
-                                                 "open apply_url to apply by hand"})
+                                       "reason": f"{adapter.label}: {adapter.manual_reason}"})
                         continue
                     # Unconfirmed submissions may have reached the employer, so
                     # they use up the cap like confirmed ones.

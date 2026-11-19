@@ -58,7 +58,7 @@ class AshbyAdapter(Adapter):
     platform = "ashby"
     label = "Ashby"
 
-    def discover(self, client, ref: BoardRef) -> list[dict]:
+    def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         resp = client.get(f"{_BOARD_API}/{ref.company}", params={"includeCompensation": "false"})
         if resp.status_code == 404:
             raise RuntimeError("no such Ashby job board")

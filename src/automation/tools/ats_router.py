@@ -12,15 +12,16 @@ Which applicant-tracking system a pasted board / job reference belongs to.
 ``detect_ats(url)`` is the URL-only half, used to route job links found by
 discovery sources (job boards, aggregators) to the right apply adapter.
 
-Recognised but unsupported platforms (Workday) still come back as a ``BoardRef``
-so the run can report them instead of silently dropping them.
+Workday boards are identified by ``<tenant>.<wdN>/<site>`` (the API needs all
+three): ``workday:ngc.wd1/Northrop_Grumman_External_Site``. Its jobs are
+discovered but applied to by hand (a separate account per company).
 """
 import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
-SUPPORTED = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters")
-KNOWN = SUPPORTED + ("workday",)
+SUPPORTED = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday")
+KNOWN = SUPPORTED
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -111,11 +112,35 @@ def detect_ats(url: str) -> BoardRef | None:
         m = re.match(r"^(\d{6,})", parts[1]) if len(parts) > 1 else None
         return BoardRef("smartrecruiters", parts[0], m.group(1) if m else "")
 
-    if host.endswith(".myworkdayjobs.com") or host.endswith(".myworkdaysite.com"):
-        tenant = host.split(".")[0]
-        return BoardRef("workday", tenant, "")
+    wd = _workday(host, parts)
+    if wd:
+        return wd
 
     return None
+
+
+_WD_HOST = re.compile(r"^([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com$")
+_WD_SITE_HOST = re.compile(r"^(wd\d+)\.myworkdaysite\.com$")
+_LANG = re.compile(r"^[a-z]{2}-[A-Z]{2}$")
+_WD_TOKEN = re.compile(r"^([a-z0-9-]+)\.(wd\d+)/([A-Za-z0-9_.-]+)$")
+
+
+def _workday(host: str, parts: list[str]) -> BoardRef | None:
+    """``<tenant>.<wdN>.myworkdayjobs.com/[<lang>/]<site>[/job/<loc>/<slug>]``
+    or ``<wdN>.myworkdaysite.com/recruiting/<tenant>/<site>/…`` (same API)."""
+    if m := _WD_HOST.match(host):
+        tenant, wd = m.groups()
+        rest = parts[1:] if parts and _LANG.match(parts[0]) else parts
+    elif (m := _WD_SITE_HOST.match(host)) and len(parts) >= 3 and parts[0] == "recruiting":
+        tenant, wd = parts[1].lower(), m.group(1)
+        rest = parts[2:]
+    else:
+        return None
+    if not rest or not _TOKEN_RE.match(rest[0]) or rest[0] in ("wday", "job"):
+        return None
+    site = rest[0]
+    job = rest[-1] if "job" in rest[1:] and rest[-1] != "job" else ""
+    return BoardRef("workday", f"{tenant}.{wd}/{site}", job)
 
 
 def parse_board_ref(ref: str, default_platform: str = "") -> BoardRef | None:
@@ -124,6 +149,12 @@ def parse_board_ref(ref: str, default_platform: str = "") -> BoardRef | None:
     ref = (ref or "").strip().strip("/")
     if not ref:
         return None
+    if ref.startswith("workday:"):
+        # workday:<tenant>.<wdN>/<site>[/<job slug>]
+        token, _, job = ref[len("workday:"):].partition("/")
+        site, _, job = job.partition("/")
+        m = _WD_TOKEN.match(f"{token}/{site}")
+        return BoardRef("workday", f"{m.group(1)}.{m.group(2)}/{m.group(3)}", job) if m else None
     m = re.match(r"^([a-z]+):([A-Za-z0-9_.-]+)(?:/([A-Za-z0-9-]+))?$", ref)
     if m and m.group(1) in KNOWN:
         platform, token, job = m.group(1), m.group(2), m.group(3) or ""

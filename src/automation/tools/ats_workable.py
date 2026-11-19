@@ -46,7 +46,7 @@ class WorkableAdapter(Adapter):
     platform = "workable"
     label = "Workable"
 
-    def discover(self, client, ref: BoardRef) -> list[dict]:
+    def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         company = ref.company
         try:
             acct = client.get(f"{_BASE}/api/v1/accounts/{ref.company}")
