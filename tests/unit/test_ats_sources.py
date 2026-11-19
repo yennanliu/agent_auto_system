@@ -361,3 +361,52 @@ def test_flow_accepts_sources_without_boards(mocker):
     mocker.patch("src.automation.flows.ats_apply_flow.append_log")
     ATSApplyFlow().kickoff(inputs={"sources": "hn", "first_name": "a", "last_name": "b", "email": "c"})
     assert runner.call_args.kwargs["sources"] == "hn" and runner.call_args.kwargs["boards"] == ""
+
+
+# ── Seek / JobStreet (search-only sources) ───────────────────────────────────
+
+def test_parse_seek_jobs_adds_the_country_and_links_back():
+    jobs = src.parse_seek_jobs(_load("jobstreet_sg.json"), "https://sg.jobstreet.com", "Singapore")
+    assert len(jobs) == 5
+    assert all(j["url"].startswith("https://sg.jobstreet.com/job/") for j in jobs)
+    # "Central Region" alone would fail a "Singapore" location filter.
+    assert jobs[0]["location"] == "Central Region, Singapore"
+    assert all("Singapore" in j["location"] for j in jobs)
+    assert jobs[3]["company"] == "Horizon Software Pte Ltd"                 # no companyName → advertiser
+
+
+class _SeekClient:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, params=None):
+        self.calls.append((url, dict(params or {})))
+        return _Resp(_load("jobstreet_sg.json"))
+
+
+def test_seek_source_one_search_per_keyword_with_where():
+    client = _SeekClient()
+    out = src.SOURCES["jobstreet_sg"](client, ["software engineer", "backend"], ["Singapore"],
+                                      log=lambda _m: None)
+    assert [c[0] for c in client.calls] == ["https://sg.jobstreet.com/api/jobsearch/v5/search"] * 2
+    assert [c[1]["keywords"] for c in client.calls] == ["software engineer", "backend"]
+    assert all(c[1]["siteKey"] == "SG-Main" and c[1]["where"] == "Singapore" for c in client.calls)
+    assert out["refs"] == []
+    urls = [m["url"] for m in out["manual"]]
+    assert urls and len(urls) == len(set(urls))                             # deduped across searches
+    assert all("JobStreet SG" in m["reason"] and "your own account" in m["reason"] for m in out["manual"])
+
+
+def test_seek_source_caps_searches_and_has_every_market():
+    client = _SeekClient()
+    out = src.SOURCES["seek_au"](client, [f"k{i}" for i in range(7)], [], log=lambda _m: None)
+    assert len(client.calls) == 5 and "where" not in client.calls[0][1]
+    assert client.calls[0][0].startswith("https://au.seek.com/")
+    assert any("first 5 keywords" in w for w in out["warnings"])
+    assert set(src.SEEK_SITES) == {"seek_au", "seek_nz", "jobstreet_sg", "jobstreet_my",
+                                   "jobstreet_ph", "jobstreet_id"}
+
+
+def test_seek_aliases():
+    assert src.resolve_sources(["Seek", "jobstreet-singapore", "jobsdb_hk"]) == (
+        ["seek_au", "jobstreet_sg"], ["jobsdb_hk"])                         # JobsDB is blocked: unknown

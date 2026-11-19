@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.automation.tools import ats_apply_tool as ats  # noqa: E402
 
 DEFAULT_BOARDS = ("greenhouse:figma", "lever:palantir", "ashby:openai", "workable:huggingface")
-DEFAULT_SOURCES = ("hn", "remoteok", "remotive", "weworkremotely")
+DEFAULT_SOURCES = ("hn", "remoteok", "remotive", "weworkremotely", "seek_au", "jobstreet_sg")
 
 PROFILE = dict(
     first_name="Test", last_name="DryRun", email="dry-run@example.com", phone="+1 415 555 0100",
