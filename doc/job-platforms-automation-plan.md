@@ -36,7 +36,8 @@ must be re-checked against the site before work starts.
 | 1. ATS adapters | ✅ #109, #112 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). SmartRecruiters is discovery-only. Country board scanner `scripts/ats_country_boards.py` (#112) |
 | 2. Discovery sources | ✅ #110 | `sources`: **HN "Who is hiring"**, Remote OK, Remotive and We Work Remotely feed the adapters; everything else becomes a manual lead |
 | 3. Taiwan boards | ⏸ skipped for now | Investigated live, nothing built (findings below) |
-| 5 (part). Seek / JobStreet discovery | 🔄 #114 | `seek_au`, `seek_nz`, `jobstreet_sg/my/ph/id` sources via Seek's search API, as manual leads. JobsDB HK/TH answer 403; job pages are behind a bot challenge. **Applying (Quick Apply)** needs the user's Seek account and is still to do |
+| 4 (part). Freelancer.com bids, draft-only | 🔄 #115 | `freelancer_bids` job type: official public search API, USD budget / type / competition filters, LLM-drafted proposals from the user's background (declines misfits). **Placing bids** needs the user's Freelancer OAuth token |
+| 5 (part). Seek / JobStreet discovery | ✅ #114 | `seek_au`, `seek_nz`, `jobstreet_sg/my/ph/id` sources via Seek's search API, as manual leads. JobsDB HK/TH answer 403; job pages are behind a bot challenge. **Applying (Quick Apply)** needs the user's Seek account and is still to do |
 | 6 (part). Workday discovery | ✅ #113 | Workday jobs found via the public `/wday/cxs` API and listed as manual leads; in the board scanner. **Applying on Workday** (an account per employer) is still to do |
 | 4–6 | not started | — |
 

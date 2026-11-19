@@ -33,7 +33,8 @@ DOM 或反機器人機制的內容，開工前都必須再對照實際網站確�
 | 1. ATS adapter | ✅ #109、#112 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。SmartRecruiters 只做探索。國家職缺頁掃描器 `scripts/ats_country_boards.py`（#112） |
 | 2. 探索來源 | ✅ #110 | `sources`：**HN「Who is hiring」**、Remote OK、Remotive、We Work Remotely 接進 adapter；其餘一律成為手動 lead |
 | 3. 台灣求職網站 | ⏸ 暫緩 | 已實測調查，未實作（見下方） |
-| 5（部分）. Seek／JobStreet 探索 | 🔄 #114 | 透過 Seek 的搜尋 API 提供 `seek_au`、`seek_nz`、`jobstreet_sg/my/ph/id` 來源，列為手動 lead。JobsDB HK／TH 回應 403；職缺頁在機器人驗證之後。**應徵（Quick Apply）**需要使用者的 Seek 帳號，尚未完成 |
+| 4（部分）. Freelancer.com 提案（只起草） | 🔄 #115 | `freelancer_bids` 工作類型：官方公開搜尋 API、以 USD 計的預算／類型／競爭篩選，由 LLM 依使用者背景起草提案（不適合的會婉拒）。**實際投標**需要使用者的 Freelancer OAuth token |
+| 5（部分）. Seek／JobStreet 探索 | ✅ #114 | 透過 Seek 的搜尋 API 提供 `seek_au`、`seek_nz`、`jobstreet_sg/my/ph/id` 來源，列為手動 lead。JobsDB HK／TH 回應 403；職缺頁在機器人驗證之後。**應徵（Quick Apply）**需要使用者的 Seek 帳號，尚未完成 |
 | 6（部分）. Workday 探索 | ✅ #113 | 透過公開的 `/wday/cxs` API 找到 Workday 職缺並列為手動 lead；已加入職缺頁掃描器。**在 Workday 上應徵**（每個雇主各需一個帳號）尚未完成 |
 | 4–6 | 尚未開始 | — |
 
