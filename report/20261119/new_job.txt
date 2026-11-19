@@ -1,0 +1,21 @@
+Amazon | Software Engineer I, Commerce | https://www.amazon.jobs/en/jobs/10607758/software-engineer-i-commerce
+Amazon | Software Engineer II, Fintech | https://www.amazon.jobs/en/jobs/10607721/software-engineer-ii-fintech
+Coinbase | Software Engineer | https://www.coinbase.com/careers/positions/8400323?gh_jid=8400323
+Marvell | Software Engineer Intern | https://marvell.wd1.myworkdayjobs.com/MarvellCareers/job/Taipei/Software-Engineer-Intern_2604450
+Marvell | Staff, SRAM Software Engineer | https://marvell.wd1.myworkdayjobs.com/MarvellCareers/job/Burlington-VT/Staff--SRAM-Software-Engineer_2605370
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557047225
+Microsoft | Principal Software Engineer - HW/SW in Fleet Infrastructure | https://apply.careers.microsoft.com/careers/job/1970393557046033
+Microsoft | Senior Software Engineer - HW/SW in Fleet Infrastructure | https://apply.careers.microsoft.com/careers/job/1970393557046024
+Microsoft | Senior Software Engineer, Minecraft | https://apply.careers.microsoft.com/careers/job/1970393557016514
+Microsoft | Senior Software Engineer- Copilot, Agents, and Platforms | https://apply.careers.microsoft.com/careers/job/1970393557073197
+Microsoft | Software Engineer II | https://apply.careers.microsoft.com/careers/job/1970393557040900
+NVIDIA | Senior AI Infrastructure Engineer - EDA Infrastructure | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Remote/Senior-AI-infrastructure-engineer---Hardware-Infrastructure-Engineering_JR2024816
+NVIDIA | Senior Software Developer, AI Networking | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Developer--AI-Networking_JR2029449
+NVIDIA | Senior Software Engineer | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/Israel-Raanana/Senior-Software-Engineer_JR2016506
+NVIDIA | Software Engineer, NVLink | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/Israel-Raanana/Software-Engineer--NVLink_JR2025935
+Rocket Lab | Principal Flight Software Engineer | https://job-boards.greenhouse.io/rocketlab/jobs/8204047003
+Rocket Lab | Senior Flight Software Engineer II | https://job-boards.greenhouse.io/rocketlab/jobs/8204049003
+Salesforce | Software Development Engineer - Mid/Senior/Lead; Go-To-Market Automation | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/North-Carolina---Raleigh/Software-Development-Engineer---Mid-Senior-Lead--Go-To-Market-Automation_JR368380
+Salesforce | Staff Security Software Engineer, SecOps - Slack | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California---San-Francisco/Staff-Security-Software-Engineer--SecOps---Slack_JR368091-1
+SpaceX | Backend Software Engineer, GNC (Starlink) | https://boards.greenhouse.io/spacex/jobs/8753321002?gh_jid=8753321002
+Waymo | Staff Software Engineer, Field Response | https://careers.withwaymo.com/jobs?gh_jid=8396989
