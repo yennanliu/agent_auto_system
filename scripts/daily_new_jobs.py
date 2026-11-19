@@ -86,7 +86,7 @@ COMPANIES = [
 ]
 
 ROLE = re.compile(
-    r"\bsoftware (engineer|developer)\b|\bswe\b"   # SWE
+    r"\bsoftware (development )?(engineer|developer)\b|\bs[wd]e\b"   # SWE
     r"|\bback[- ]?end (\w+ )?(engineer|developer)\b"  # backend
     r"|\bfull[- ]?stack\b"                            # full stack
     r"|\bai(/ml)? (\w+ )?engineer\b"                  # AI engineer
@@ -114,7 +114,8 @@ def on_day(stamp, day: date) -> bool:
     if isinstance(stamp, (int, float)):
         when = datetime.fromtimestamp(stamp / 1000 if stamp > 1e11 else stamp, UTC)
     else:
-        when = datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(UTC)
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        when = when.astimezone(UTC) if when.tzinfo else when.replace(tzinfo=UTC)  # naive = UTC
     return when.date() == day
 
 

@@ -15,6 +15,7 @@ DAY = date(2026, 11, 19)
 
 @pytest.mark.parametrize("title", [
     "Software Engineer", "Senior Software Engineer, Payments", "SWE II", "Software Developer",
+    "Software Development Engineer II, AWS", "SDE I",
     "Backend Engineer", "Back-End Software Engineer", "Full Stack Engineer", "Fullstack Developer",
     "AI Engineer", "Senior AI Infrastructure Engineer", "AI/ML Engineer",
     "Forward Deployed Engineer", "Forward-Deployed Software Engineer", "FDE, Public Sector",
@@ -38,6 +39,7 @@ def test_other_roles_rejected(title):
     ("2026-11-19T21:00:00-05:00", False),     # 02:00 UTC on the 20th
     ("2026-11-19T00:10:00.123+00:00", True),
     ("2026-11-18T23:59:59Z", False),
+    ("2026-11-19T23:30:00", True),             # no offset: read as UTC, not host-local
     (1795050585, True),                        # epoch seconds
     (1795050585000, True),                     # epoch milliseconds
     (None, False), ("", False),
