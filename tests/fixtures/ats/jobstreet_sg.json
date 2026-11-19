@@ -1,0 +1,139 @@
+{
+ "totalCount": 5020,
+ "data": [
+  {
+   "id": "95975582",
+   "title": "Software Engineer (AI/Full-stack)",
+   "companyName": "ScienTec Consulting",
+   "advertiser": {
+    "id": "60503573",
+    "description": "ScienTec Consulting Pte Ltd"
+   },
+   "locations": [
+    {
+     "label": "Central Region",
+     "countryCode": "SG",
+     "seoHierarchy": [
+      {
+       "contextualName": "Central Region"
+      }
+     ]
+    }
+   ],
+   "listingDate": "2026-11-18T10:52:13Z",
+   "workTypes": [
+    "Full time"
+   ],
+   "salaryLabel": "SGD 6000 - 10000 per month",
+   "teaser": "Build AI-powered applications using Java, .NET or Python and drive digital transformation."
+  },
+  {
+   "id": "95985864",
+   "title": "AI Software Engineer - DS/MC",
+   "companyName": "ST Engineering",
+   "advertiser": {
+    "id": "60499391",
+    "description": "ST Engineering Cloud & Data Centre Solutions Pte Ltd"
+   },
+   "locations": [
+    {
+     "label": "Ang Mo Kio, North-East Region",
+     "countryCode": "SG",
+     "seoHierarchy": [
+      {
+       "contextualName": "Ang Mo Kio North-East Region"
+      },
+      {
+       "contextualName": "North-East Region"
+      }
+     ]
+    }
+   ],
+   "listingDate": "2026-11-19T02:49:47Z",
+   "workTypes": [
+    "Full time"
+   ],
+   "salaryLabel": "",
+   "teaser": "Design, develop, and deploy AI-powered applications, intelligent agents, and workflow automation solutions."
+  },
+  {
+   "id": "95993721",
+   "title": "Software Engineer",
+   "companyName": "Activate Interactive",
+   "advertiser": {
+    "id": "60466167",
+    "description": "Activate Interactive Pte Ltd"
+   },
+   "locations": [
+    {
+     "label": "Singapore",
+     "countryCode": "SG",
+     "seoHierarchy": [
+      {
+       "contextualName": "Singapore"
+      }
+     ]
+    }
+   ],
+   "listingDate": "2026-11-18T09:02:08Z",
+   "workTypes": [
+    "Full time"
+   ],
+   "salaryLabel": "",
+   "teaser": "We believe in positively impacting the lives of people around us and the environment we live in through the use of technology. Hence, we are..."
+  },
+  {
+   "id": "95953823",
+   "title": "Software Engineer",
+   "companyName": null,
+   "advertiser": {
+    "id": "60304435",
+    "description": "Horizon Software Pte Ltd"
+   },
+   "locations": [
+    {
+     "label": "Singapore",
+     "countryCode": "SG",
+     "seoHierarchy": [
+      {
+       "contextualName": "Singapore"
+      }
+     ]
+    }
+   ],
+   "listingDate": "2026-11-17T08:27:33Z",
+   "workTypes": [
+    "Contract/Temp",
+    "Full time"
+   ],
+   "salaryLabel": "",
+   "teaser": "We are looking for an experienced Software Engineer with 8 years of hands-on experience in software development, application design, coding,..."
+  },
+  {
+   "id": "95999730",
+   "title": "Software Engineer Intern (Traffic Architecture) - 2027 Start",
+   "companyName": "ByteDance",
+   "advertiser": {
+    "id": "60574766",
+    "description": "BYTEDANCE PTE. LTD."
+   },
+   "locations": [
+    {
+     "label": "Singapore",
+     "countryCode": "SG",
+     "seoHierarchy": [
+      {
+       "contextualName": "Singapore"
+      }
+     ]
+    }
+   ],
+   "listingDate": "2026-11-19T09:42:56Z",
+   "workTypes": [
+    "Full time"
+   ],
+   "salaryLabel": "",
+   "teaser": "About the Team The Traffic Infrastructure Global Engineering (TIGE)-Traffic Platform team at ByteDance builds and operates multi-cloud based large..."
+  }
+ ]
+}

@@ -42,6 +42,7 @@ them without needing a résumé.
 | `remoteok` | `remoteok.com/api` | **Discovery only.** The apply button (`/l/<id>`) redirects back to Remote OK even in a real browser. 2 of 97 listings had an ATS link in their text, and those get routed. |
 | `remotive` | `remotive.com/api/remote-jobs` (one `search=` per keyword, up to 5, merged) | **Discovery only.** The employer link isn't on the job page. 1 of 16 listings had an ATS link in its text. |
 | `weworkremotely` | the programming and devops RSS feeds | **Discovery only.** Job pages need a job-seeker account and sit behind a Cloudflare check. The RSS descriptions had no ATS links. |
+| `seek_au`, `seek_nz`, `jobstreet_sg`, `jobstreet_my`, `jobstreet_ph`, `jobstreet_id` | Seek's search API (`/api/jobsearch/v5/search`, one per market; your first location is sent as Seek's `where`) | **Discovery only.** It's one platform: Seek in AU/NZ, JobStreet in SE Asia. Applying is Seek's own logged-in Quick Apply, and job pages are behind a bot challenge, so every match is a manual lead linking to the job. The site's country is added to each location (JobStreet SG says just "Central Region"). The API is internal and undocumented, so a run makes at most 5 searches per market. **JobsDB HK / TH** answer with HTTP 403 and aren't included. |
 
 **Which links count.** On a job-board listing (`remoteok`, `remotive`, `weworkremotely`),
 an ATS link is routed only when it is **presented as how to apply** ("Apply here",

@@ -26,8 +26,12 @@ What each source can actually give (verified live, Nov 2026):
     whose text contains an ATS link is routed; the rest are manual, linked back
     to the board as its API terms require.
 
+  * ``seek_au`` / ``seek_nz`` / ``jobstreet_sg|my|ph|id`` — Seek's platform
+    search API (one per market). Applying is Seek's own logged-in Quick Apply
+    and job pages sit behind a challenge, so every match is a manual lead.
+
 Not implemented (see doc/ats_apply.md): Built In (apply link only for signed-in
-users) and Google Jobs (needs a paid SerpAPI key).
+users), Google Jobs (needs a paid SerpAPI key), JobsDB HK / TH (HTTP 403).
 """
 import html
 import re
@@ -210,7 +214,8 @@ def hn_source(client, keywords: list[str], locations: list[str], log: Callable =
 
 # ── remote job boards (discovery only; employer links are hidden) ────────────
 
-def _board_jobs(name: str, label: str, jobs: list[dict], keywords, locations, log) -> dict:
+def _board_jobs(name: str, label: str, jobs: list[dict], keywords, locations, log,
+                reason: str = "") -> dict:
     """Shared tail for the remote boards: filter, route any ATS link found in
     the listing text, list the rest for manual apply with a link back."""
     refs: list[BoardRef] = []
@@ -230,8 +235,8 @@ def _board_jobs(name: str, label: str, jobs: list[dict], keywords, locations, lo
             "source": name, "company": j["company"], "title": j["title"],
             "location": j["location"], "url": j["url"], "email": "",
             "source_url": j["url"],
-            "reason": f"via {label} — the board doesn't expose the employer's application "
-                      "link; open url to apply",
+            "reason": reason or (f"via {label} — the board doesn't expose the employer's "
+                                 "application link; open url to apply"),
         })
     log(f"{name}: {len(jobs)} listing(s), {len(refs)} routed to an ATS, {len(manual)} manual")
     return {"refs": refs, "manual": manual, "warnings": []}
@@ -308,14 +313,83 @@ def weworkremotely_source(client, keywords, locations, log: Callable = noop) -> 
     return out
 
 
+# ── Seek / JobStreet (one platform, one search API) ──────────────────────────
+
+# name → (site base URL, siteKey, label, country appended to job locations).
+# JobStreet labels SG jobs "Central Region", so the country is added for the
+# location filter. JobsDB HK / TH answer the API with HTTP 403 (bot wall) and
+# job pages on every site are behind a challenge, so these are search-only.
+SEEK_SITES = {
+    "seek_au": ("https://au.seek.com", "AU-Main", "Seek AU", "Australia"),
+    "seek_nz": ("https://nz.seek.com", "NZ-Main", "Seek NZ", "New Zealand"),
+    "jobstreet_sg": ("https://sg.jobstreet.com", "SG-Main", "JobStreet SG", "Singapore"),
+    "jobstreet_my": ("https://my.jobstreet.com", "MY-Main", "JobStreet MY", "Malaysia"),
+    "jobstreet_ph": ("https://ph.jobstreet.com", "PH-Main", "JobStreet PH", "Philippines"),
+    "jobstreet_id": ("https://id.jobstreet.com", "ID-Main", "JobStreet ID", "Indonesia"),
+}
+_SEEK_PAGE_SIZE = 50
+_SEEK_MAX_SEARCHES = 5  # an undocumented API: keep the footprint small
+
+
+def parse_seek_jobs(data: dict, base: str, country: str) -> list[dict]:
+    jobs = []
+    for j in data.get("data") or []:
+        jid = str(j.get("id") or "")
+        if not jid:
+            continue
+        labels = [loc.get("label") for loc in j.get("locations") or [] if loc.get("label")]
+        where = "; ".join(labels)
+        jobs.append({
+            "title": (j.get("title") or "").strip(),
+            "company": (j.get("companyName") or (j.get("advertiser") or {}).get("description") or "").strip(),
+            "location": f"{where}, {country}" if where and country.lower() not in where.lower() else (where or country),
+            "url": f"{base}/job/{jid}", "html": "",
+        })
+    return jobs
+
+
+def _seek_source(name: str) -> Callable:
+    base, site_key, label, country = SEEK_SITES[name]
+
+    def source(client, keywords, locations, log: Callable = noop) -> dict:
+        # One search per keyword (the API takes one), the first location as
+        # Seek's own "where"; the shared matcher still filters what comes back.
+        queries = keywords[:_SEEK_MAX_SEARCHES] or [""]
+        jobs: list[dict] = []
+        seen: set[str] = set()
+        for kw in queries:
+            params = {"siteKey": site_key, "keywords": kw, "page": 1, "pageSize": _SEEK_PAGE_SIZE}
+            if locations:
+                params["where"] = locations[0]
+            resp = client.get(f"{base}/api/jobsearch/v5/search", params=params)
+            resp.raise_for_status()
+            for j in parse_seek_jobs(resp.json(), base, country):
+                if j["url"] not in seen:
+                    seen.add(j["url"])
+                    jobs.append(j)
+        out = _board_jobs(name, label, jobs, keywords, locations, log,
+                          reason=f"via {label} — apply on {label.split()[0]} with your own account "
+                                 "(its Quick Apply isn't automated); open url")
+        if len(keywords) > _SEEK_MAX_SEARCHES:
+            out["warnings"] = [f"{name}: searched only the first {_SEEK_MAX_SEARCHES} keywords"]
+        return out
+
+    source.__name__ = f"{name}_source"
+    return source
+
+
 SOURCES: dict[str, Callable] = {
     "hn": hn_source,
     "remoteok": remoteok_source,
     "remotive": remotive_source,
     "weworkremotely": weworkremotely_source,
+    **{name: _seek_source(name) for name in SEEK_SITES},
 }
 _ALIASES = {"hackernews": "hn", "hacker_news": "hn", "hn_hiring": "hn", "whoishiring": "hn", "remote_ok": "remoteok",
-            "wwr": "weworkremotely", "we_work_remotely": "weworkremotely"}
+            "wwr": "weworkremotely", "we_work_remotely": "weworkremotely",
+            "seek": "seek_au", "seek_australia": "seek_au", "seek_new_zealand": "seek_nz",
+            "jobstreet_singapore": "jobstreet_sg", "jobstreet_malaysia": "jobstreet_my",
+            "jobstreet_philippines": "jobstreet_ph", "jobstreet_indonesia": "jobstreet_id"}
 
 
 def resolve_sources(names: list[str]) -> tuple[list[str], list[str]]:

@@ -676,9 +676,10 @@ register(AutomationSpec(
                         "or platform:token (greenhouse:figma). A job URL applies to that one job. "
                         "SmartRecruiters jobs are listed for manual apply. Optional when "
                         "Discovery Sources are set."),
-             Field("sources", "text", "Discovery Sources", placeholder="hn, remoteok, remotive, weworkremotely",
+             Field("sources", "text", "Discovery Sources", placeholder="hn, remoteok, jobstreet_sg, seek_au",
                    help="Also find jobs here: hn (this month's HN 'Who is hiring?'), remoteok, "
-                        "remotive, weworkremotely. Links to a supported ATS are applied to (still "
+                        "remotive, weworkremotely, seek_au, seek_nz, jobstreet_sg, jobstreet_my, "
+                        "jobstreet_ph, jobstreet_id. Links to a supported ATS are applied to (still "
                         "filtered by keywords / location); everything else — careers pages, e-mails, "
                         "board listings — is returned as manual leads."))
             if f.name == "boards" else
