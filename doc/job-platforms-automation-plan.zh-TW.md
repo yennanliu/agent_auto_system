@@ -2,7 +2,8 @@
 
 [English](job-platforms-automation-plan.md) | 繁體中文
 
-狀態：**提案**。除了 repo 已有的四個應徵流程之外，本文件中的內容都尚未實作。
+狀態：**Phase 0–2 已上線**（#107、#109、#110），其餘仍為提案。實際碰到真實網站後的修正見
+「進度與實測心得」。
 
 | 已支援 | 類型 | 程式碼 |
 |---|---|---|
@@ -21,6 +22,38 @@
 工作量以**單一平台的工作天**計，標準比照 `greenhouse_apply`：spec、flow、tool、dry-run 模式、
 已應徵紀錄（ledger）、canary、golden eval 與文件。這些都是估計而非承諾。凡是取決於網站目前
 DOM 或反機器人機制的內容，開工前都必須再對照實際網站確認。
+
+---
+
+## 進度與實測心得（截至 2026-11-19）
+
+| 階段 | 狀態 | 已上線內容 |
+|---|---|---|
+| 0. 共用 ATS 核心 | ✅ #107 | `tools/ats_common.py`：共用答題規則（`Question` → `answer_question`）、比對、ledger、瀏覽器 helper。Greenhouse 已搬到上面，行為不變 |
+| 1. ATS adapter | ✅ #109 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。SmartRecruiters 只做探索。新 ATS 的國家職缺頁掃描器**尚未完成** |
+| 2. 探索來源 | ✅ #110 | `sources`：**HN「Who is hiring」**、Remote OK、Remotive、We Work Remotely 接進 adapter；其餘一律成為手動 lead |
+| 3–6 | 尚未開始 | — |
+
+**真實網站的實測結果（皆在真實瀏覽器中確認，而非假設）：**
+
+- 四個可自動應徵的 ATS **都能在不開瀏覽器的情況下讀出表單**：Lever（伺服器端渲染的
+  HTML）、Ashby（託管頁面的公開 GraphQL）、Workable（表單 API）、Greenhouse（Job Board
+  API）。「先用 Python 規劃，再填寫」的模式可直接沿用。
+- **SmartRecruiters** 的應徵頁有 DataDome 反機器人牆。無頭瀏覽器會看到「Access is temporarily
+  restricted」，有頭的 Chrome 則可通過。表單由 web component 組成，且沒有表單 API。目前只做
+  探索（§3.1 低估了這點）。
+- **遠端職缺網站*不會*導向雇主的 ATS**（§4.1 原本這樣假設）：
+  - Remote OK 的應徵連結會繞回自己的頁面。
+  - Remotive 的職缺頁沒有雇主連結。
+  - We Work Remotely 需要帳號，且在 Cloudflare 驗證之後。
+  - 只有約 2–6 % 的職缺內含 ATS 連結，所以這些網站大多只產生手動 lead。
+- **HN「Who is hiring」才是真正有價值的來源。** 一個月內，243 篇貼文中有 36 篇直接連到支援的
+  ATS，74 篇提供 e-mail。
+- **Built In** 只對已登入使用者顯示雇主連結。**Google Jobs** 需要付費的 SerpAPI key。兩者皆未實作。
+- **樣板連結很重要。** 職缺的 EEO／AAP 政策頁尾可能指向同一 ATS 上的*另一個*職缺，職缺也會
+  交叉推廣其他職位。在求職網站上，只有被呈現為「如何應徵」的連結才會被採用。
+- **未確認的送出**（已按送出、但沒看到確認頁）會記錄為 pending，且不會自動重送。較早的
+  `greenhouse_apply` 工作類型仍缺少這項保護。
 
 ---
 
@@ -148,7 +181,10 @@ L 表示基本上是全新開發。**複雜度：**L／M／H／XH。**ToS 風險
 
 ## 4. 遠端、約聘與接案平台
 
-### 4.1 遠端職缺網站（全職或約聘，多數連到 ATS）
+### 4.1 遠端職缺網站（全職或約聘）
+
+> **實測後修正（Phase 2）：** 這些網站大多**不會**提供雇主的應徵連結，見「進度與實測心得」。
+> 下表的「應徵」欄是原本的假設。實際上它們是探索來源，只會產生手動 lead。
 
 | 平台 | 探索 | 應徵 | 沿用度 | 工作量 | 備註 |
 |---|---|---|---|---|---|
@@ -196,9 +232,9 @@ L 表示基本上是全新開發。**複雜度：**L／M／H／XH。**ToS 風險
 
 | 階段 | 範圍 | 工作量 | 排序理由 |
 |---|---|---|---|
-| **0. 共用 ATS 核心** | 抽出 `ats_common.py`（`Question`、`plan_answers`、ledger、比對、相關性過濾），並把 Greenhouse 搬到上面 | 3–4 天 | 之後每個 adapter 只剩「探索 + 填寫」。Greenhouse 的測試與 eval 為重構把關 |
-| **1. 便宜的 ATS** | Lever、Ashby，接著 Workable 與 SmartRecruiters。新增 `detect_ats(url)` 與依 URL 導向的通用 `ats_apply` spec。把依國家掃描職缺頁的腳本擴展到新 ATS | 15–20 天 | 公開 API、免登入，以最低風險換到最多新覆蓋 |
-| **2. 探索來源** | RemoteOK、Remotive、We Work Remotely、HN「Who is Hiring」、Built In、Google Jobs（SerpAPI）→ ATS router。未知 ATS 的連結列入執行報告中的「手動」清單 | 7–10 天 | 每個來源 1–2 天，並沿用 Phase 1 的所有 adapter |
+| **0. 共用 ATS 核心** ✅ | 抽出 `ats_common.py`（`Question`、`plan_answers`、ledger、比對、相關性過濾），並把 Greenhouse 搬到上面 | 3–4 天 | 之後每個 adapter 只剩「探索 + 填寫」。Greenhouse 的測試與 eval 為重構把關 |
+| **1. 便宜的 ATS** ✅（掃描器尚未完成） | Lever、Ashby，接著 Workable 與 SmartRecruiters。新增 `detect_ats(url)` 與依 URL 導向的通用 `ats_apply` spec。把依國家掃描職缺頁的腳本擴展到新 ATS | 15–20 天 | 公開 API、免登入，以最低風險換到最多新覆蓋 |
+| **2. 探索來源** ✅（HN + 3 個網站） | RemoteOK、Remotive、We Work Remotely、HN「Who is Hiring」、Built In、Google Jobs（SerpAPI）→ ATS router。未知 ATS 的連結列入執行報告中的「手動」清單 | 7–10 天 | 每個來源 1–2 天，並沿用 Phase 1 的所有 adapter |
 | **3. 台灣求職網站** | 1111（104 的翻版）、CakeResume、Yourator，接著 518 | 13–18 天 | 直接沿用 104／tasker 模式；在地價值高 |
 | **4. 接案** | Freelancer.com（API 投標）、PRO360（tasker 翻版）、Upwork **只起草** | 13–18 天 | 與 tasker 同一套流程。Upwork 保持人工把關 |
 | **5. 亞太求職網站** | Seek + JobStreet + JobsDB（一個 adapter） | 6–8 天 | 一次開發涵蓋約八個市場 |

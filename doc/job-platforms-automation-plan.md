@@ -2,8 +2,9 @@
 
 English | [繁體中文](job-platforms-automation-plan.zh-TW.md)
 
-Status: **proposal**. Nothing in this doc is built yet, apart from the four apply flows the
-repo already ships.
+Status: **Phases 0–2 shipped** (#107, #109, #110). The rest is still a proposal. See
+[Progress and lessons](#progress-and-lessons-as-of-2026-11-19) for what changed when it met
+the real sites.
 
 | Already supported | Kind | Code |
 |---|---|---|
@@ -24,6 +25,44 @@ Effort is in **developer-days** for one platform, to the bar `greenhouse_apply` 
 spec, flow, tool, a dry-run mode, a ledger, a canary, golden evals, and a doc. These are
 estimates, not commitments. Anything that depends on a site's live DOM or anti-bot setup
 must be re-checked against the site before work starts.
+
+---
+
+## Progress and lessons (as of 2026-11-19)
+
+| Phase | Status | What shipped |
+|---|---|---|
+| 0. Shared ATS core | ✅ #107 | `tools/ats_common.py`: shared answer rules (`Question` → `answer_question`), matching, ledger and browser helpers. Greenhouse moved onto it with no behaviour change |
+| 1. ATS adapters | ✅ #109 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). SmartRecruiters is discovery-only. The country board scanner for the new ATSs is **still to do** |
+| 2. Discovery sources | ✅ #110 | `sources`: **HN "Who is hiring"**, Remote OK, Remotive and We Work Remotely feed the adapters; everything else becomes a manual lead |
+| 3–6 | not started | — |
+
+**What the live sites showed (each checked in a real browser, not assumed):**
+
+- **Forms can be read without a browser** on all four apply-able ATSs: Lever (its
+  server-rendered HTML), Ashby (the hosted page's public GraphQL), Workable (a form API)
+  and Greenhouse (the Job Board API). The "plan in Python, then fill" model carried over
+  unchanged.
+- **SmartRecruiters** puts its apply page behind a DataDome bot wall. Headless browsers
+  get "Access is temporarily restricted"; headed Chrome passes. The form is built from web
+  components, and there's no form API. It's discovery-only for now (§3.1 underestimated
+  this).
+- **Remote job boards do *not* redirect to the employer's ATS** (§4.1 assumed they did):
+  - Remote OK's apply link loops back to Remote OK.
+  - Remotive's job page has no employer link.
+  - We Work Remotely needs an account behind a Cloudflare check.
+  - Only about 2–6 % of listings contain an ATS link at all, so these boards are mostly
+    manual leads.
+- **HN "Who is hiring" is the source that pays off.** In one month, 36 of 243 posts linked a
+  supported ATS directly and 74 gave an e-mail address.
+- **Built In** shows the employer link only to signed-in users. **Google Jobs** needs a
+  paid SerpAPI key. Neither was built.
+- **Boilerplate links matter.** A listing's EEO or AAP policy footer can point at a
+  *different* posting on the same ATS, and listings cross-promote other roles. On job
+  boards, a link is followed only when it's presented as how to apply.
+- **Unconfirmed submissions** (Submit clicked, no confirmation seen) are recorded as
+  pending and never resent automatically. The older `greenhouse_apply` job type still
+  lacks this.
 
 ---
 
@@ -157,7 +196,12 @@ applying or scraping, which affects whether we should build it at all. LinkedIn 
 
 ## 4. Remote, contract and freelance platforms
 
-### 4.1 Remote-job boards (full-time or contract, mostly link to the ATS)
+### 4.1 Remote-job boards (full-time or contract)
+
+> **Corrected after testing (Phase 2):** these boards mostly do **not** expose the
+> employer's application link. See [Progress and lessons](#progress-and-lessons-as-of-2026-11-19).
+> The "Apply" column below was the original assumption. In practice they're discovery
+> sources that produce manual leads.
 
 | Platform | Discovery | Apply | Reuse | Effort | Notes |
 |---|---|---|---|---|---|
@@ -208,9 +252,9 @@ for the user's own manual sign-up and don't build adapters:
 
 | Phase | Scope | Effort | Why this order |
 |---|---|---|---|
-| **0. Shared ATS core** | Extract `ats_common.py` (`Question`, `plan_answers`, ledger, matching, relevance gate) and move Greenhouse onto it | 3–4 d | Every later adapter becomes "discovery + fill" only. Greenhouse tests and evals guard the refactor |
-| **1. Cheap ATS wins** | Lever, Ashby, then Workable and SmartRecruiters. Add `detect_ats(url)` and a generic `ats_apply` spec that routes by URL. Extend the country board scanner to the new ATSs | 15–20 d | Public APIs and no login, so the most new coverage for the least risk |
-| **2. Discovery sources** | RemoteOK, Remotive, We Work Remotely, HN "Who is Hiring", Built In, Google Jobs (SerpAPI) → ATS router. Unknown-ATS links land in a "manual" list in the run report | 7–10 d | Each source costs 1–2 days and reuses every adapter from Phase 1 |
+| **0. Shared ATS core** ✅ | Extract `ats_common.py` (`Question`, `plan_answers`, ledger, matching, relevance gate) and move Greenhouse onto it | 3–4 d | Every later adapter becomes "discovery + fill" only. Greenhouse tests and evals guard the refactor |
+| **1. Cheap ATS wins** ✅ (scanner still to do) | Lever, Ashby, then Workable and SmartRecruiters. Add `detect_ats(url)` and a generic `ats_apply` spec that routes by URL. Extend the country board scanner to the new ATSs | 15–20 d | Public APIs and no login, so the most new coverage for the least risk |
+| **2. Discovery sources** ✅ (HN + 3 boards) | RemoteOK, Remotive, We Work Remotely, HN "Who is Hiring", Built In, Google Jobs (SerpAPI) → ATS router. Unknown-ATS links land in a "manual" list in the run report | 7–10 d | Each source costs 1–2 days and reuses every adapter from Phase 1 |
 | **3. Taiwan boards** | 1111 (clone of 104), CakeResume, Yourator, then 518 | 13–18 d | Reuses the 104 / tasker patterns directly; strong local value |
 | **4. Freelance** | Freelancer.com (API bids), PRO360 (tasker clone), Upwork **draft-only** | 13–18 d | Same funnel as tasker. Upwork stays human-in-the-loop |
 | **5. APAC board** | Seek + JobStreet + JobsDB (one adapter) | 6–8 d | One build covers about eight markets |
