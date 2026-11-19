@@ -1,5 +1,7 @@
 # Job platforms: landscape and auto-apply automation plan
 
+English | [繁體中文](job-platforms-automation-plan.zh-TW.md)
+
 Status: **proposal**. Nothing in this doc is built yet, apart from the four apply flows the
 repo already ships.
 
