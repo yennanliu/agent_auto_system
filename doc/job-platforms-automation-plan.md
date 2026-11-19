@@ -35,7 +35,8 @@ must be re-checked against the site before work starts.
 | 0. Shared ATS core | ✅ #107 | `tools/ats_common.py`: shared answer rules (`Question` → `answer_question`), matching, ledger and browser helpers. Greenhouse moved onto it with no behaviour change |
 | 1. ATS adapters | ✅ #109 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). SmartRecruiters is discovery-only. The country board scanner for the new ATSs is **still to do** |
 | 2. Discovery sources | ✅ #110 | `sources`: **HN "Who is hiring"**, Remote OK, Remotive and We Work Remotely feed the adapters; everything else becomes a manual lead |
-| 3–6 | not started | — |
+| 3. Taiwan boards | ⏸ skipped for now | Investigated live, nothing built (findings below) |
+| 4–6 | not started | — |
 
 **What the live sites showed (each checked in a real browser, not assumed):**
 
@@ -63,6 +64,17 @@ must be re-checked against the site before work starts.
 - **Unconfirmed submissions** (Submit clicked, no confirmation seen) are recorded as
   pending and never resent automatically. The older `greenhouse_apply` job type still
   lacks this.
+- **Taiwan boards (Phase 3, skipped for now):**
+  - **1111** puts even its search page behind a captcha gate (a Cloudflare challenge plus
+    an ALTCHA proof-of-work). Headless and headed Chrome both stayed on "Loading…". The
+    plan's "clone of 104, 3–5 days" estimate doesn't hold.
+  - **CakeResume** is behind Cloudflare ("請稍候…"), even in headed Chrome.
+  - **Yourator** has a public JSON API (`/api/v4/jobs`). 44 % of the jobs sampled (78 of 179)
+    apply on an external site: 66 via **Teamdoor** (a Taiwanese ATS), a few via Greenhouse
+    or Lever (including `grnh.se` short links). That makes it a cheap discovery source,
+    plus a possible Teamdoor adapter.
+  - **518** search pages are server-rendered and readable.
+  - Applying in-site on all four needs the user's own logged-in account.
 
 ---
 
@@ -255,7 +267,7 @@ for the user's own manual sign-up and don't build adapters:
 | **0. Shared ATS core** ✅ | Extract `ats_common.py` (`Question`, `plan_answers`, ledger, matching, relevance gate) and move Greenhouse onto it | 3–4 d | Every later adapter becomes "discovery + fill" only. Greenhouse tests and evals guard the refactor |
 | **1. Cheap ATS wins** ✅ (scanner still to do) | Lever, Ashby, then Workable and SmartRecruiters. Add `detect_ats(url)` and a generic `ats_apply` spec that routes by URL. Extend the country board scanner to the new ATSs | 15–20 d | Public APIs and no login, so the most new coverage for the least risk |
 | **2. Discovery sources** ✅ (HN + 3 boards) | RemoteOK, Remotive, We Work Remotely, HN "Who is Hiring", Built In, Google Jobs (SerpAPI) → ATS router. Unknown-ATS links land in a "manual" list in the run report | 7–10 d | Each source costs 1–2 days and reuses every adapter from Phase 1 |
-| **3. Taiwan boards** | 1111 (clone of 104), CakeResume, Yourator, then 518 | 13–18 d | Reuses the 104 / tasker patterns directly; strong local value |
+| **3. Taiwan boards** ⏸ skipped | 1111 (clone of 104), CakeResume, Yourator, then 518 | 13–18 d | Reuses the 104 / tasker patterns directly; strong local value |
 | **4. Freelance** | Freelancer.com (API bids), PRO360 (tasker clone), Upwork **draft-only** | 13–18 d | Same funnel as tasker. Upwork stays human-in-the-loop |
 | **5. APAC board** | Seek + JobStreet + JobsDB (one adapter) | 6–8 d | One build covers about eight markets |
 | **6. Workday** | Tenant discovery, account creation, e-mail verification via Gmail, wizard walker on `data-automation-id` | 15–20 d | Largest job pool but the most expensive. Build once the shared core is proven |

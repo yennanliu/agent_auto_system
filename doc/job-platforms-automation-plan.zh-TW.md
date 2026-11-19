@@ -32,7 +32,8 @@ DOM 或反機器人機制的內容，開工前都必須再對照實際網站確�
 | 0. 共用 ATS 核心 | ✅ #107 | `tools/ats_common.py`：共用答題規則（`Question` → `answer_question`）、比對、ledger、瀏覽器 helper。Greenhouse 已搬到上面，行為不變 |
 | 1. ATS adapter | ✅ #109 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。SmartRecruiters 只做探索。新 ATS 的國家職缺頁掃描器**尚未完成** |
 | 2. 探索來源 | ✅ #110 | `sources`：**HN「Who is hiring」**、Remote OK、Remotive、We Work Remotely 接進 adapter；其餘一律成為手動 lead |
-| 3–6 | 尚未開始 | — |
+| 3. 台灣求職網站 | ⏸ 暫緩 | 已實測調查，未實作（見下方） |
+| 4–6 | 尚未開始 | — |
 
 **真實網站的實測結果（皆在真實瀏覽器中確認，而非假設）：**
 
@@ -54,6 +55,15 @@ DOM 或反機器人機制的內容，開工前都必須再對照實際網站確�
   交叉推廣其他職位。在求職網站上，只有被呈現為「如何應徵」的連結才會被採用。
 - **未確認的送出**（已按送出、但沒看到確認頁）會記錄為 pending，且不會自動重送。較早的
   `greenhouse_apply` 工作類型仍缺少這項保護。
+- **台灣求職網站（Phase 3，暫緩）：**
+  - **1111** 連搜尋頁都有驗證關卡（Cloudflare 驗證加上 ALTCHA 工作量證明）。無頭與有頭的
+    Chrome 都停在「Loading…」。原規劃「複製 104，3–5 天」的估計不成立。
+  - **CakeResume** 在 Cloudflare 之後（「請稍候…」），有頭的 Chrome 也一樣。
+  - **Yourator** 有公開 JSON API（`/api/v4/jobs`）。抽樣的職缺中 44 %（179 筆中 78 筆）在
+    外部網站應徵：66 筆透過 **Teamdoor**（台灣的 ATS），少數透過 Greenhouse 或 Lever（含
+    `grnh.se` 短網址）。因此它是低成本的探索來源，也可能值得做一個 Teamdoor adapter。
+  - **518** 的搜尋頁是伺服器端渲染，可直接讀取。
+  - 這四個網站的站內應徵都需要使用者自己登入的帳號。
 
 ---
 
@@ -235,7 +245,7 @@ L 表示基本上是全新開發。**複雜度：**L／M／H／XH。**ToS 風險
 | **0. 共用 ATS 核心** ✅ | 抽出 `ats_common.py`（`Question`、`plan_answers`、ledger、比對、相關性過濾），並把 Greenhouse 搬到上面 | 3–4 天 | 之後每個 adapter 只剩「探索 + 填寫」。Greenhouse 的測試與 eval 為重構把關 |
 | **1. 便宜的 ATS** ✅（掃描器尚未完成） | Lever、Ashby，接著 Workable 與 SmartRecruiters。新增 `detect_ats(url)` 與依 URL 導向的通用 `ats_apply` spec。把依國家掃描職缺頁的腳本擴展到新 ATS | 15–20 天 | 公開 API、免登入，以最低風險換到最多新覆蓋 |
 | **2. 探索來源** ✅（HN + 3 個網站） | RemoteOK、Remotive、We Work Remotely、HN「Who is Hiring」、Built In、Google Jobs（SerpAPI）→ ATS router。未知 ATS 的連結列入執行報告中的「手動」清單 | 7–10 天 | 每個來源 1–2 天，並沿用 Phase 1 的所有 adapter |
-| **3. 台灣求職網站** | 1111（104 的翻版）、CakeResume、Yourator，接著 518 | 13–18 天 | 直接沿用 104／tasker 模式；在地價值高 |
+| **3. 台灣求職網站** ⏸ 暫緩 | 1111（104 的翻版）、CakeResume、Yourator，接著 518 | 13–18 天 | 直接沿用 104／tasker 模式；在地價值高 |
 | **4. 接案** | Freelancer.com（API 投標）、PRO360（tasker 翻版）、Upwork **只起草** | 13–18 天 | 與 tasker 同一套流程。Upwork 保持人工把關 |
 | **5. 亞太求職網站** | Seek + JobStreet + JobsDB（一個 adapter） | 6–8 天 | 一次開發涵蓋約八個市場 |
 | **6. Workday** | 租戶探索、建立帳號、透過 Gmail 做 e-mail 驗證、以 `data-automation-id` 走訪精靈 | 15–20 天 | 職缺量最大，但成本最高。等共用核心驗證過後再做 |
