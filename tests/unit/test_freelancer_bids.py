@@ -249,3 +249,132 @@ def test_a_malformed_project_is_skipped_with_a_warning():
     projects, warnings = ft.search(_Client(_Resp(data)), ["python"])
     assert len(projects) == len(RAW["result"]["projects"]) - 1
     assert any("malformed project 1" in w for w in warnings)
+
+
+# ── placing bids (opt-in) ────────────────────────────────────────────────────
+
+class _ApiResp:
+    def __init__(self, status, data):
+        self.status_code, self._data = status, data
+
+    def json(self):
+        return self._data
+
+
+class _BidClient:
+    """Fake authenticated API: /self and /bids."""
+    def __init__(self, *, self_resp=None, bid_resps=()):
+        self.self_resp = self_resp or _ApiResp(200, {"status": "success", "result": {"id": 42, "username": "ada"}})
+        self.bid_resps, self.posts, self.headers = list(bid_resps), [], []
+
+    def get(self, url, headers=None, params=None):
+        self.headers.append(headers)
+        return self.self_resp
+
+    def post(self, url, headers=None, json=None):
+        self.headers.append(headers)
+        self.posts.append(json)
+        return self.bid_resps.pop(0) if self.bid_resps else _ApiResp(
+            200, {"status": "success", "result": {"id": 1000 + len(self.posts)}})
+
+    def close(self):
+        pass
+
+
+def test_whoami_and_place_bid_send_the_token_and_body():
+    client = _BidClient()
+    me = ft.whoami(client, "tok")
+    assert me == {"id": 42, "username": "ada"} and client.headers[0]["freelancer-oauth-v1"] == "tok"
+    res = ft.place_bid(client, "tok", bidder_id=42, project=_p(id="7"), amount=200, period_days=0,
+                       milestone_percentage=150, description="x" * 2000)
+    body = client.posts[0]
+    assert res == {"bid_id": 1001}
+    assert body == {"project_id": 7, "bidder_id": 42, "amount": 200.0, "period": 1,
+                    "milestone_percentage": 100, "description": "x" * 1500}
+
+
+def test_api_errors_carry_their_code_and_flag_auth():
+    client = _BidClient(self_resp=_ApiResp(401, {"status": "error", "message": "You must be logged in",
+                                                 "error_code": "RestExceptionCodes.NOT_AUTHENTICATED"}))
+    with pytest.raises(ft.FreelancerAPIError) as e:
+        ft.whoami(client, "bad")
+    assert e.value.is_auth and "logged in" in str(e.value)
+    quota = ft.FreelancerAPIError("no bids left", "ProjectExceptionCodes.NOT_ENOUGH_BIDS", 409)
+    assert not quota.is_auth
+
+
+@pytest.mark.parametrize("proposal,amount,why", [
+    ("x" * 120, 200, ""),
+    ("too short", 200, "proposal shorter than 100 characters"),
+    ("x" * 120, None, "no budget to base a bid amount on"),
+    ("x" * 120, 999, "bid 999 outside the budget"),
+])
+def test_bid_problem(proposal, amount, why):
+    assert ft.bid_problem(_p(), proposal, amount) == why
+
+
+@pytest.fixture
+def bidding(flow_env, mocker, monkeypatch):
+    client = _BidClient()
+    mocker.patch("httpx.Client", return_value=client)
+    monkeypatch.setenv("FREELANCER_OAUTH_TOKEN", "tok")
+    # Long enough to be bid on.
+    mocker.patch.object(fbf, "parse_proposal",
+                        side_effect=lambda t: ("", "no iOS") if t.startswith("SKIP") else (t + " " + "x" * 120, ""))
+    return client
+
+
+def test_bids_are_placed_only_when_submit_bids_is_on(bidding, tmp_path):
+    off = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev"}))
+    assert bidding.posts == [] and off["bids_placed"] == 0 and "not submitted" in off["summary"]
+    assert all("bid" not in d for d in off["drafted"])
+
+
+def test_submit_bids_places_each_draft_and_records_it(bidding, tmp_path):
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True,
+        "bid_period_days": 10, "milestone_percentage": 50}))
+    assert [b["project_id"] for b in bidding.posts] == [1, 3]                 # drafted ones only
+    assert all(b["bidder_id"] == 42 and b["period"] == 10 and b["milestone_percentage"] == 50
+               for b in bidding.posts)
+    assert [d["bid"]["status"] for d in out["drafted"]] == ["placed", "placed"]
+    assert out["bids_placed"] == 2 and "2 bid(s) placed" in out["summary"]
+    led = ft.load_ledger(str(tmp_path / "drafted.json"))
+    assert led["1"]["status"] == "bid_placed"
+    assert "already bid on" in ft.find_projects(keywords="python", ledger_path=str(tmp_path / "drafted.json"),
+                                                client=_Client(_Resp({"status": "success", "result": {"projects": [
+                                                    {**RAW["result"]["projects"][0], "id": 1}]}})))["skipped"][0]["reason"]
+
+
+def test_an_auth_error_stops_bidding_but_keeps_the_drafts(bidding):
+    bidding.bid_resps = [_ApiResp(401, {"status": "error", "message": "token expired",
+                                        "error_code": "RestExceptionCodes.NOT_AUTHENTICATED"})]
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
+    assert len(bidding.posts) == 1                                           # stopped after the 401
+    assert out["drafted"][0]["bid"]["status"] == "failed" and "bid" not in out["drafted"][1]
+    assert len(out["drafted"]) == 2 and any("bidding stopped" in w for w in out["warnings"])
+
+
+def test_a_quota_error_fails_that_bid_and_tries_the_next(bidding):
+    bidding.bid_resps = [_ApiResp(409, {"status": "error", "message": "no bids left",
+                                        "error_code": "ProjectExceptionCodes.NOT_ENOUGH_BIDS"})]
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
+    assert [d["bid"]["status"] for d in out["drafted"]] == ["failed", "placed"]
+
+
+def test_submit_bids_without_a_token_drafts_only(bidding, monkeypatch):
+    monkeypatch.delenv("FREELANCER_OAUTH_TOKEN")
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
+    assert bidding.posts == [] and len(out["drafted"]) == 2
+    assert any("FREELANCER_OAUTH_TOKEN is not set" in w for w in out["warnings"])
+
+
+def test_an_invalid_token_is_caught_before_any_bid(bidding):
+    bidding.self_resp = _ApiResp(401, {"status": "error", "message": "invalid token"})
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
+    assert bidding.posts == [] and any("could not verify the Freelancer token" in w for w in out["warnings"])

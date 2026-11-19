@@ -13,8 +13,10 @@ deterministically (budget in USD, type, competition, keyword match, skips
 projects already drafted in an earlier run); the flow then has the LLM draft a
 proposal for each — the only judgement step.
 
-Placing the bid needs the user's Freelancer OAuth token and is NOT done here:
-the output is projects + drafted proposals for the user to review and submit.
+Placing bids is opt-in (``place_bid``): it needs the user's Freelancer OAuth
+token (``FREELANCER_OAUTH_TOKEN``) and the flow only calls it when the run sets
+``submit_bids``. Without both, the output is projects + drafted proposals for
+the user to review and submit.
 
 Scraper policy (CLAUDE.md): partial results + ``warnings``, never raise.
 """
@@ -127,9 +129,10 @@ def load_ledger(path: str) -> dict:
         return {}
 
 
-def record_drafted(path: str, project: dict) -> None:
+def record_drafted(path: str, project: dict, status: str = "drafted") -> None:
+    """``status`` "drafted" (proposal written) or "bid_placed"."""
     ledger = load_ledger(path)
-    ledger[project["id"]] = {"title": project["title"],
+    ledger[project["id"]] = {"title": project["title"], "status": status,
                              "drafted_at": datetime.now(UTC).isoformat(timespec="seconds")}
     # Write a sibling temp file and atomically swap it in: a failed or
     # interrupted write leaves the previous ledger intact, never an empty one.
@@ -201,7 +204,9 @@ def find_projects(*, keywords: str = "", min_budget_usd: float = 0, max_budget_u
     drafted = load_ledger(ledger_path)
     candidates, skipped = [], []
     for p in sorted(projects, key=lambda x: x.get("submitted_at") or 0, reverse=True):
-        why = "already drafted in an earlier run (ledger)" if p["id"] in drafted else skip_reason(
+        seen = drafted.get(p["id"])
+        why = (("already bid on" if isinstance(seen, dict) and seen.get("status") == "bid_placed"
+                else "already drafted") + " in an earlier run (ledger)") if seen is not None else skip_reason(
             p, min_budget_usd=float(min_budget_usd or 0), max_budget_usd=float(max_budget_usd or 0),
             project_type=project_type or "any", max_bids=int(max_bids or 0), keywords=kw)
         if why:
@@ -221,3 +226,69 @@ def _brief(p: dict) -> dict:
 def drafted_entry(p: dict, proposal: str) -> dict:
     return {**_brief(p), "skills": p["skills"][:8], "bid_avg": p["bid_avg"],
             "suggested_bid": suggested_bid(p), "proposal": proposal}
+
+
+# ── placing bids (opt-in; needs the user's OAuth token) ─────────────────────
+
+SELF_API = "https://www.freelancer.com/api/users/0.1/self/"
+BIDS_API = "https://www.freelancer.com/api/projects/0.1/bids/"
+MIN_PROPOSAL_CHARS = 100   # Freelancer rejects very short bid descriptions
+MAX_PROPOSAL_CHARS = 1500  # and caps them
+_AUTH_ERRORS = ("NOT_AUTHENTICATED", "INVALID_ACCESS_TOKEN", "AUTH", "FORBIDDEN", "PERMISSION")
+
+
+class FreelancerAPIError(RuntimeError):
+    """An error answer from the authenticated API, with its error_code."""
+    def __init__(self, message: str, code: str = "", status: int = 0):
+        super().__init__(message)
+        self.code, self.status = code, status
+
+    @property
+    def is_auth(self) -> bool:
+        return self.status in (401, 403) or any(k in (self.code or "").upper() for k in _AUTH_ERRORS)
+
+
+def _auth(token: str) -> dict:
+    return {"freelancer-oauth-v1": token, "Content-Type": "application/json"}
+
+
+def _answer(resp) -> dict:
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code >= 400 or data.get("status") != "success":
+        raise FreelancerAPIError(str(data.get("message") or f"HTTP {resp.status_code}"),
+                                 str(data.get("error_code") or ""), resp.status_code)
+    return data.get("result") or {}
+
+
+def whoami(client, token: str) -> dict:
+    """``{id, username}`` of the token's account (the bidder)."""
+    res = _answer(client.get(SELF_API, headers=_auth(token)))
+    if not res.get("id"):
+        raise FreelancerAPIError("token accepted but no user id returned")
+    return {"id": int(res["id"]), "username": res.get("username") or ""}
+
+
+def bid_problem(project: dict, proposal: str, amount) -> str:
+    """Why this bid must not be sent, or "" when it may."""
+    if amount is None or amount <= 0:
+        return "no budget to base a bid amount on"
+    if len(proposal.strip()) < MIN_PROPOSAL_CHARS:
+        return f"proposal shorter than {MIN_PROPOSAL_CHARS} characters"
+    lo, hi = project.get("budget_min"), project.get("budget_max")
+    if (lo is not None and amount < lo) or (hi is not None and amount > hi):
+        return f"bid {amount:g} outside the budget"
+    return ""
+
+
+def place_bid(client, token: str, *, bidder_id: int, project: dict, amount: float,
+              period_days: int, milestone_percentage: int, description: str) -> dict:
+    """POST one bid. Returns ``{bid_id}``; raises FreelancerAPIError."""
+    body = {"project_id": int(project["id"]), "bidder_id": int(bidder_id), "amount": float(amount),
+            "period": max(1, int(period_days)),
+            "milestone_percentage": max(0, min(100, int(milestone_percentage))),
+            "description": description.strip()[:MAX_PROPOSAL_CHARS]}
+    res = _answer(client.post(BIDS_API, headers=_auth(token), json=body))
+    return {"bid_id": res.get("id")}
