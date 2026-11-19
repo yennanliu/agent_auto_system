@@ -112,6 +112,7 @@ def test_parse_board_ref(ref, expected):
 
 
 @pytest.mark.parametrize("ref", ["", "palantir", "https://example.com/jobs/1",
+                                 "https://jobs.workable.com/view/abc123/backend-engineer",
                                  "https://apply.workable.com/api/v3/x", "foo:bar"])
 def test_parse_board_ref_rejects_ambiguous_or_foreign(ref):
     assert parse_board_ref(ref) is None
@@ -467,8 +468,13 @@ def test_runner_relevance_gate_and_failing_discovery(runner):
 def test_runner_errors_without_resume_or_boards(runner, tmp_path):
     out = runner({}, boards="", resume_path=str(tmp_path / "cv.pdf"))
     assert "No usable boards" in out["error"]
-    out = runner({"lever": _FakeAdapter("lever", [])}, boards="lever:x", resume_path=str(tmp_path / "missing.pdf"))
+    out = runner({"lever": _FakeAdapter("lever", [("1", "Backend", "X")])}, boards="lever:x",
+                 resume_path=str(tmp_path / "missing.pdf"))
     assert "Resume file not found" in out["error"]
+    # Nothing to auto-apply to (the board has no matching job): no résumé needed.
+    out = runner({"lever": _FakeAdapter("lever", [("1", "Sales", "X")])}, boards="lever:x",
+                 keywords="backend", resume_path=str(tmp_path / "missing.pdf"))
+    assert "error" not in out and out["jobs_found"] == 0
 
 
 def test_runner_unsupported_platform_warns(runner):
@@ -511,7 +517,9 @@ def test_flow_requires_boards_and_contact(mocker):
 def test_ats_apply_registered_with_shared_fields():
     from src.automation.spec import REGISTRY
     spec, gh = REGISTRY["ats_apply"], REGISTRY["greenhouse_apply"]
-    assert [f.name for f in spec.fields] == [f.name for f in gh.fields]
+    names = [f.name for f in spec.fields]
+    assert names == [n for f in gh.fields for n in ((f.name, "sources") if f.name == "boards" else (f.name,))]
+    assert not next(f for f in spec.fields if f.name == "boards").required   # boards or sources
     assert "lever:palantir" in next(f for f in spec.fields if f.name == "boards").placeholder
     assert spec.canary and spec.canary.source == "src.automation.tools.ats_lever"
 

@@ -14,17 +14,23 @@ from src.automation.tools.ats_apply_tool import run_ats_apply
 
 class ATSApplyState(GreenhouseApplyState):
     """``boards`` takes board / job URLs on any supported ATS, or
-    ``platform:token`` shorthand (``lever:palantir``)."""
+    ``platform:token`` shorthand (``lever:palantir``); ``sources`` names
+    discovery sources (``hn, remoteok, remotive, weworkremotely``). At least
+    one of the two is required."""
+    sources: str = ""
 
 
 class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
 
     @start()
     def validate_payload(self):
-        self._check_required("boards", "first_name", "last_name", "email")
+        self._check_required("first_name", "last_name", "email")
+        if not (self.state.boards.strip() or self.state.sources.strip()):
+            raise ValueError("Missing required fields: ['boards' or 'sources']")
         append_log(
             self.state.run_id,
-            f"Payload validated — boards '{self.state.boards}', "
+            f"Payload validated — boards '{self.state.boards or '-'}', "
+            f"sources '{self.state.sources or '-'}', "
             f"keywords '{self.state.keywords or 'any'}', "
             f"location '{self.state.location or 'any'}', "
             f"max {self.state.max_applications} application(s), "
@@ -37,7 +43,7 @@ class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
         relevance_fn, answer_fn, usage_acc = build_llm_callbacks(self.state)
         st = self.state
         result = run_ats_apply(
-            boards=st.boards, keywords=st.keywords, location=st.location,
+            boards=st.boards, sources=st.sources, keywords=st.keywords, location=st.location,
             first_name=st.first_name, last_name=st.last_name, email=st.email, phone=st.phone,
             resume_path=st.resume_path, current_location=st.current_location,
             linkedin_url=st.linkedin_url, github_url=st.github_url, website_url=st.website_url,

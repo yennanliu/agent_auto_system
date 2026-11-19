@@ -665,18 +665,27 @@ register(AutomationSpec(
         expect=("input[name='name']", "#btn-submit"),
         source="src.automation.tools.ats_lever",
     ),
-    name_template="ATS: {boards}",
+    name_template="ATS: {boards} {sources}",
     fields=tuple(
-        Field("boards", "text", "Job Boards", required=True,
-              placeholder="lever:palantir, https://jobs.ashbyhq.com/openai, workable:huggingface",
-              help="Board or job URLs on Greenhouse, Lever, Ashby, Workable or SmartRecruiters, "
-                   "or platform:token (greenhouse:figma). A job URL applies to that one job. "
-                   "SmartRecruiters jobs are listed for manual apply.")
-        if f.name == "boards" else
-        Field("resume_path", "text", "Resume Path (on server)", placeholder="/path/to/resume.pdf",
-              help="Blank = ATS_RESUME_PATH (or GREENHOUSE_RESUME_PATH) from .env.")
-        if f.name == "resume_path" else f
+        g
         for f in REGISTRY["greenhouse_apply"].fields
+        for g in (
+            (Field("boards", "text", "Job Boards",
+                   placeholder="lever:palantir, https://jobs.ashbyhq.com/openai, workable:huggingface",
+                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable or SmartRecruiters, "
+                        "or platform:token (greenhouse:figma). A job URL applies to that one job. "
+                        "SmartRecruiters jobs are listed for manual apply. Optional when "
+                        "Discovery Sources are set."),
+             Field("sources", "text", "Discovery Sources", placeholder="hn, remoteok, remotive, weworkremotely",
+                   help="Also find jobs here: hn (this month's HN 'Who is hiring?'), remoteok, "
+                        "remotive, weworkremotely. Links to a supported ATS are applied to (still "
+                        "filtered by keywords / location); everything else — careers pages, e-mails, "
+                        "board listings — is returned as manual leads."))
+            if f.name == "boards" else
+            (Field("resume_path", "text", "Resume Path (on server)", placeholder="/path/to/resume.pdf",
+                   help="Blank = ATS_RESUME_PATH (or GREENHOUSE_RESUME_PATH) from .env."),)
+            if f.name == "resume_path" else (f,)
+        )
     ),
     help_note=(
         "No login needed — jobs come from each ATS's public API, and every form's "
