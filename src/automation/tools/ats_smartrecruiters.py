@@ -52,5 +52,5 @@ class SmartRecruitersAdapter(Adapter):
                 break
         if not jobs and offset == 0:
             # The API answers an unknown company with an empty list, not a 404.
-            raise RuntimeError("no open postings (unknown company identifier? it is case-sensitive)")
+            raise RuntimeError("no open postings (unknown company identifier?)")
         return jobs
