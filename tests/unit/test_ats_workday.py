@@ -114,3 +114,65 @@ def test_runner_lists_workday_jobs_as_manual_without_a_resume(tmp_path, mocker):
     assert "error" not in out and out["manual_count"] == len(FIX["jobPostings"])
     assert all("its own Workday candidate account" in m["reason"] for m in out["manual"])
     launch.assert_not_called()
+
+
+# ── review fixes (PR #113) ───────────────────────────────────────────────────
+
+from src.automation.tools.ats_workday import search_terms  # noqa: E402
+
+
+def test_search_terms_expand_role_shorthand_round_robin():
+    assert search_terms(["swe"])[0] == "software engineer"                # never the bare "swe"
+    assert search_terms(["swe", "sre", "backend"]) == [
+        "software engineer", "site reliability", "backend",               # every keyword first
+        "software developer", "reliability engineer"]                     # then 2nd alternatives, cap 5
+    assert search_terms(["Python", "python", " "]) == ["Python"]
+    assert search_terms([]) == []
+
+
+def test_discover_sends_expanded_terms_for_shorthand():
+    ad, _ = _adapter()
+    client = _Client(*[_Resp(200, FIX)] * 3)
+    ad.discover(client, BoardRef("workday", "3m.wd1/Search"), search=("swe",))
+    assert [b["searchText"] for b in client.bodies] == [
+        "software engineer", "software developer", "software development engineer"]
+
+
+def test_two_job_links_on_one_workday_board_are_both_looked_up(tmp_path, mocker):
+    """A Workday job ref searches one requisition; it must not be cached as the
+    whole board, or the second job on that board would be 'not found'."""
+    mocker.patch("playwright.sync_api.sync_playwright")
+    mocker.patch.object(ats, "launch_browser")
+    posting = {"jobPostings": FIX["jobPostings"][:1], "total": 1}
+    posting2 = {"jobPostings": FIX["jobPostings"][1:2], "total": 1}
+    ad, _ = _adapter()
+    client = _Client(_Resp(200, posting), _Resp(200, posting2))
+    slug1 = FIX["jobPostings"][0]["externalPath"].rsplit("/", 1)[-1]
+    slug2 = FIX["jobPostings"][1]["externalPath"].rsplit("/", 1)[-1]
+    out = ats.run_ats_apply(
+        boards=f"workday:3m.wd1/Search/{slug1}, workday:3m.wd1/Search/{slug2}",
+        first_name="A", last_name="B", email="a@b.c", client=client, adapters={"workday": ad},
+        ledger_path=str(tmp_path / "l.json"))
+    assert len(client.bodies) == 2                                        # two searches, not one
+    assert sorted(m["job_id"] for m in out["manual"]) == sorted([slug1, slug2])
+    assert not any("not found" in w for w in out["warnings"])
+
+
+def test_board_listing_adapters_still_list_each_board_once(tmp_path, mocker):
+    mocker.patch("playwright.sync_api.sync_playwright")
+    mocker.patch.object(ats, "launch_browser")
+    calls = []
+
+    class Board(ats.Adapter):
+        platform, label, can_apply = "lever", "Lever", False
+
+        def discover(self, client, ref):
+            calls.append(ref.job_id)
+            return [{"platform": "lever", "token": "acme", "job_id": j, "title": "Engineer",
+                     "company": "acme", "location": "", "url": "u", "apply_url": "u"}
+                    for j in ("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222")]
+    ats.run_ats_apply(boards="lever:acme/11111111-1111-1111-1111-111111111111, "
+                             "lever:acme/22222222-2222-2222-2222-222222222222",
+                      first_name="A", last_name="B", email="a@b.c", client=_Client(),
+                      adapters={"lever": Board()}, ledger_path=str(tmp_path / "l.json"))
+    assert len(calls) == 1

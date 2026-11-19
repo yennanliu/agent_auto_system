@@ -29,7 +29,10 @@ from src.automation.tools.ats_router import BoardRef
 PAGE = 20                  # Workday's maximum page size
 MAX_PAGES_LISTING = 10     # no search terms: the first 200 jobs
 MAX_PAGES_PER_TERM = 5     # per search term: up to 100 jobs
-MAX_TERMS = 3
+# Search terms per board: the run's keywords with role shorthand expanded
+# ("swe" → "software engineer", …), one alternative per keyword per round so
+# every keyword is searched before any gets a second alternative.
+MAX_TERMS = 5
 PACE_S = 1.0               # between page requests
 BACKOFF_S = (5, 10, 20, 40)
 
@@ -43,10 +46,27 @@ def split_token(token: str) -> tuple[str, str, str]:
     return tenant, wd, site
 
 
+def search_terms(keywords) -> list[str]:
+    """Workday search terms for the run's keywords. The runner's title filter
+    expands role shorthand (ROLE_ALIASES), so the server-side search must too —
+    Workday would answer "swe" with nothing, and a "Software Engineer" posting
+    would never reach the filter. Keywords are taken round-robin over their
+    alternatives, deduped, capped at MAX_TERMS."""
+    from src.automation.tools.ats_common import expand_keywords
+    per_kw = [expand_keywords([k.strip()]) for k in keywords if k and k.strip()]
+    terms: list[str] = []
+    for i in range(max((len(p) for p in per_kw), default=0)):
+        for phrases in per_kw:
+            if i < len(phrases) and phrases[i].lower() not in (t.lower() for t in terms):
+                terms.append(phrases[i])
+    return terms[:MAX_TERMS]
+
+
 class WorkdayAdapter(Adapter):
     platform = "workday"
     label = "Workday"
     can_apply = False
+    job_scoped = True  # a job ref searches its requisition id, not the board
     manual_reason = ("every employer needs its own Workday candidate account, so applying "
                      "isn't automated — open apply_url to apply by hand")
 
@@ -76,7 +96,7 @@ class WorkdayAdapter(Adapter):
             # One job: search its requisition id ("…_R10225937-1" → "R10225937-1").
             terms, max_pages = [ref.job_id.rsplit("_", 1)[-1]], 1
         elif search:
-            terms, max_pages = [t for t in search if t.strip()][:MAX_TERMS], MAX_PAGES_PER_TERM
+            terms, max_pages = search_terms(search), MAX_PAGES_PER_TERM
         else:
             terms, max_pages = [""], MAX_PAGES_LISTING
         jobs: dict[str, dict] = {}

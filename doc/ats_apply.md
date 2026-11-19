@@ -112,9 +112,11 @@ POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
 
 `tools/ats_workday.py` uses it:
 
-- **Search, not full listing.** It sends the run's first keywords (up to 3) as
-  `searchText`, at up to 100 jobs per term, instead of paging through boards with thousands
-  of jobs. A Workday job link searches its requisition id.
+- **Search, not full listing.** It sends the run's keywords as `searchText`, at up to 100
+  jobs per term, instead of paging through boards with thousands of jobs. Role shorthand is
+  expanded first, as the title filter does (`swe` → "software engineer", …). Keywords are
+  taken one alternative each per round, de-duplicated, up to 5 terms. A Workday job link
+  searches its requisition id, and is cached per job, not as the whole board.
 - **Throttling.** Workday rate-limits **across companies** with HTTP 429 and no
   `Retry-After` header. Pages are paced 1 s apart, and a 429 backs off (5, 10, 20, 40 s).
   403, 404, 410 and 422 mean the board is disabled, unknown or closed, and are never
