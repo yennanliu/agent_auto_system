@@ -40,8 +40,17 @@ them without needing a résumé.
 |---|---|---|
 | `hn` | the latest "Ask HN: Who is hiring?" thread (official Algolia API) | The best source. Of 243 posts, 36 linked a supported ATS directly (mostly Ashby, then Lever, Greenhouse, Workable) and 74 gave an e-mail address. Keywords and location are matched against the whole post. Posts marked "no longer hiring" are skipped. |
 | `remoteok` | `remoteok.com/api` | **Discovery only.** The apply button (`/l/<id>`) redirects back to Remote OK even in a real browser. 2 of 97 listings had an ATS link in their text, and those get routed. |
-| `remotive` | `remotive.com/api/remote-jobs` (`search=` uses the first keyword) | **Discovery only.** The employer link isn't on the job page. 1 of 16 listings had an ATS link in its text. |
+| `remotive` | `remotive.com/api/remote-jobs` (one `search=` per keyword, up to 5, merged) | **Discovery only.** The employer link isn't on the job page. 1 of 16 listings had an ATS link in its text. |
 | `weworkremotely` | the programming and devops RSS feeds | **Discovery only.** Job pages need a job-seeker account and sit behind a Cloudflare check. The RSS descriptions had no ATS links. |
+
+**Which links count.** On a job-board listing (`remoteok`, `remotive`, `weworkremotely`),
+an ATS link is routed only when it is **presented as how to apply** ("Apply here",
+"To apply: …"). Links to other roles ("take a look at our Senior DevOps position") and
+footers (an EEO or AAP policy, privacy notice or benefits page) are not routed, and the
+listing stays a manual lead. Real listings had both: one employer's "AAP Policy Statement"
+footer pointed at a *different* Lever job. HN hiring posts are about hiring, so their ATS
+links route unless they are boilerplate. Links to an ATS we can't apply on (Workday) stay
+in the lead as a manual link.
 
 The job boards' API terms ask for a link back and credit. Every lead keeps the board's own
 job URL and names the board in `reason`.

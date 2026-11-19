@@ -67,14 +67,39 @@ def _text(html_text: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", t))
 
 
-def _links(html_text: str) -> list[str]:
-    """Every distinct URL in an HTML fragment (anchors and bare URLs)."""
-    raw = re.findall(r'href="([^"]+)"', html_text or "") + _URL_RE.findall(_text(html_text))
+# Links that are boilerplate, not where to apply: an employer's EEO / AAP
+# policy, privacy notice, benefits page… often a posting on the same ATS
+# ("Penumbra's AAP Policy Statement" → a different Lever job).
+_BOILERPLATE = re.compile(r"polic(y|ies)|statement|privacy|equal (employment )?opportunit|\beeo\b|\baap\b|"
+                          r"affirmative action|accommodation|benefits|notice|terms|cookie|disclaimer", re.I)
+_ANCHOR_RE = re.compile(r"<a\b[^>]*?href\s*=\s*([\"'])(.*?)\1[^>]*>(.*?)</a>", re.I | re.S)
+
+
+# On a job-board listing, a link only counts as *this* listing's application
+# when its anchor or the words before it say so — not "take a look at our
+# Senior DevOps position" (a different role) or a policy footer.
+_APPLY_SIGNAL = re.compile(r"\bapply|\bapplication|submit (your )?(cv|resume|r[ée]sum[ée])", re.I)
+
+
+def _links(html_text: str, need: re.Pattern | None = None) -> list[str]:
+    """Every distinct URL in an HTML fragment (anchors in either quote style,
+    and bare URLs), minus boilerplate links — judged by the anchor text and
+    the words just before the link. With ``need``, only links whose context
+    matches it are kept."""
+    raw_html = html_text or ""
+    found: list[tuple[str, str]] = []  # (url, anchor text + preceding words)
+    for m in _ANCHOR_RE.finditer(raw_html):
+        before = _text(raw_html[max(0, m.start() - 120):m.start()])[-80:]
+        found.append((m.group(2), f"{before} {_text(m.group(3))}"))
+    plain = _text(_ANCHOR_RE.sub(" ", raw_html))
+    for m in _URL_RE.finditer(plain):
+        found.append((m.group(0), plain[max(0, m.start() - 80):m.start()]))
     out: list[str] = []
-    for u in raw:
-        u = html.unescape(u).rstrip(".,;:!?")
-        if u not in out:
-            out.append(u)
+    for url, context in found:
+        u = html.unescape(url).rstrip(".,;:!?")
+        if _BOILERPLATE.search(context) or u in out or (need is not None and not need.search(context)):
+            continue
+        out.append(u)
     return out
 
 
@@ -82,10 +107,12 @@ def _emails(text: str) -> list[str]:
     out: list[str] = []
     for user, domain in _EMAIL_RE.findall(text or ""):
         domain = re.sub(r"\s*(?:\[dot\]|\(dot\)|\sdot\s)\s*", ".", domain, flags=re.I)
-        # "hr@acme.io.Apply now": domains are written lower-case, so a trailing
-        # Capitalised label is the next sentence, not part of the address.
+        # "hr@acme.io.Apply now": a Title-case word after a lower-case domain is
+        # the next sentence. An all-caps (ACME.CO.UK) or consistently
+        # capitalised domain is kept whole.
         labels = domain.split(".")
-        while len(labels) > 2 and labels[-1][:1].isupper():
+        while (len(labels) > 2 and labels[-1][:1].isupper() and labels[-1][1:].islower()
+               and labels[-2].islower()):
             labels.pop()
         domain = ".".join(labels)
         domain = re.sub(r"\s+", "", domain).strip(".").lower()
@@ -105,9 +132,10 @@ def _route(links: list[str]) -> tuple[list[BoardRef], list[str]]:
     other: list[str] = []
     for u in links:
         ref = detect_ats(u)
-        if ref is not None and ref.supported and ref not in refs:
-            refs.append(ref)
-        elif ref is None:
+        if ref is not None and ref.supported:
+            if ref not in refs:
+                refs.append(ref)
+        else:  # another site, or an ATS we can't apply on (Workday): a manual link
             other.append(u)
     with_jobs = {(r.platform, r.company.lower()) for r in refs if r.job_id}
     refs = [r for r in refs if r.job_id or (r.platform, r.company.lower()) not in with_jobs]
@@ -190,7 +218,10 @@ def _board_jobs(name: str, label: str, jobs: list[dict], keywords, locations, lo
     for j in jobs:
         if not match_title(j["title"], j["location"] or "remote", keywords, locations):
             continue
-        ats_refs, _ = _route(_links(j.get("html", "")) + ([j["apply_url"]] if j.get("apply_url") else []))
+        # Only a link presented as how to apply for THIS listing is routed;
+        # cross-promoted roles and footers leave the listing as a manual lead.
+        ats_refs, _ = _route(_links(j.get("html", ""), need=_APPLY_SIGNAL)
+                             + ([j["apply_url"]] if j.get("apply_url") else []))
         job_refs = [r for r in ats_refs if r.job_id] or ats_refs
         if job_refs:
             refs.extend(r for r in job_refs if r not in refs)
@@ -217,17 +248,33 @@ def remoteok_source(client, keywords, locations, log: Callable = noop) -> dict:
     return _board_jobs("remoteok", "Remote OK", jobs, keywords, locations, log)
 
 
+_REMOTIVE_MAX_SEARCHES = 5  # be gentle with a free API
+
+
 def remotive_source(client, keywords, locations, log: Callable = noop) -> dict:
-    params = {"category": "software-dev"}
-    if keywords:
-        params = {"search": keywords[0]}  # the API takes one search term
-    resp = client.get(_REMOTIVE, params=params)
-    resp.raise_for_status()
-    jobs = [{"title": (j.get("title") or "").strip(), "company": (j.get("company_name") or "").strip(),
-             "location": (j.get("candidate_required_location") or "").strip(),
-             "url": j.get("url") or "", "html": j.get("description") or ""}
-            for j in resp.json().get("jobs") or []]
-    return _board_jobs("remotive", "Remotive", jobs, keywords, locations, log)
+    # The API takes one search term, so search each keyword and merge — a
+    # single "python" search would drop the "designer" alternative before the
+    # shared matcher ever sees it. No keywords: the software-dev category.
+    queries = [{"search": k} for k in keywords[:_REMOTIVE_MAX_SEARCHES]] or [{"category": "software-dev"}]
+    warnings = [f"remotive: searched only the first {_REMOTIVE_MAX_SEARCHES} keywords"] \
+        if len(keywords) > _REMOTIVE_MAX_SEARCHES else []
+    jobs: list[dict] = []
+    seen: set[str] = set()
+    for params in queries:
+        resp = client.get(_REMOTIVE, params=params)
+        resp.raise_for_status()
+        for j in resp.json().get("jobs") or []:
+            url = j.get("url") or ""
+            if url in seen:
+                continue
+            seen.add(url)
+            jobs.append({"title": (j.get("title") or "").strip(),
+                         "company": (j.get("company_name") or "").strip(),
+                         "location": (j.get("candidate_required_location") or "").strip(),
+                         "url": url, "html": j.get("description") or ""})
+    out = _board_jobs("remotive", "Remotive", jobs, keywords, locations, log)
+    out["warnings"] = warnings
+    return out
 
 
 def parse_wwr_feed(xml_text: str) -> list[dict]:

@@ -468,8 +468,13 @@ def test_runner_relevance_gate_and_failing_discovery(runner):
 def test_runner_errors_without_resume_or_boards(runner, tmp_path):
     out = runner({}, boards="", resume_path=str(tmp_path / "cv.pdf"))
     assert "No usable boards" in out["error"]
-    out = runner({"lever": _FakeAdapter("lever", [])}, boards="lever:x", resume_path=str(tmp_path / "missing.pdf"))
+    out = runner({"lever": _FakeAdapter("lever", [("1", "Backend", "X")])}, boards="lever:x",
+                 resume_path=str(tmp_path / "missing.pdf"))
     assert "Resume file not found" in out["error"]
+    # Nothing to auto-apply to (the board has no matching job): no résumé needed.
+    out = runner({"lever": _FakeAdapter("lever", [("1", "Sales", "X")])}, boards="lever:x",
+                 keywords="backend", resume_path=str(tmp_path / "missing.pdf"))
+    assert "error" not in out and out["jobs_found"] == 0
 
 
 def test_runner_unsupported_platform_warns(runner):

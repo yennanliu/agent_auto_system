@@ -71,6 +71,12 @@ def test_emails_handle_obfuscation_and_sentence_ends():
     assert src._emails(text) == ["jobs@acme.com", "hr@acme.io", "ceo@acme.co", "x@mail.acme.co.uk"]
 
 
+def test_emails_keep_valid_upper_case_domains():
+    assert src._emails("Write to JOBS@ACME.CO.UK today") == ["jobs@acme.co.uk"]
+    assert src._emails("hr@Mail.Acme.Com") == ["hr@mail.acme.com"]
+    assert src._emails("hr@acme.io.Apply now") == ["hr@acme.io"]
+
+
 def test_emails_do_not_join_across_paragraphs():
     assert src._emails(src._text("Email jobs@acme.com.<p>Application tips below")) == ["jobs@acme.com"]
 
@@ -85,7 +91,8 @@ def test_route_keeps_specific_jobs_over_the_bare_board():
     ])
     assert refs == [BoardRef("lever", "acme", "11111111-1111-1111-1111-111111111111"),
                     BoardRef("ashby", "beta")]
-    assert other == ["https://acme.com/careers"]
+    # An ATS we can't apply on is still a link the user can use: a manual lead.
+    assert other == ["https://acme.com/careers", "https://acme.wd1.myworkdayjobs.com/x"]
 
 
 def test_careers_link_prefers_a_jobs_page():
@@ -142,19 +149,58 @@ def test_hn_without_a_thread_raises():
 
 # ── remote boards ────────────────────────────────────────────────────────────
 
-def test_remoteok_routes_the_rare_ats_link_and_lists_the_rest():
+def test_remoteok_lists_listings_and_ignores_a_policy_footer_link():
+    """The fixture's only ATS link is Penumbra's "AAP Policy Statement" footer — a
+    *different* Lever posting. It must not become the Clinical Data Manager
+    listing's application target; the listing stays a manual lead."""
     out = src.remoteok_source(_Client(), [], [], log=lambda _m: None)
-    assert len(out["refs"]) == 1 and out["refs"][0].job_id
-    assert out["manual"] and all(m["url"].lower().startswith("https://remoteok.com/") for m in out["manual"])
+    assert out["refs"] == []
+    titles = [m["title"] for m in out["manual"]]
+    assert "Clinical Data Manager" in titles
+    assert all(m["url"].lower().startswith("https://remoteok.com/") for m in out["manual"])
     assert all("Remote OK" in m["reason"] for m in out["manual"])          # credited, as its terms ask
 
 
-def test_remotive_uses_search_term_and_routes_ats_links():
+@pytest.mark.parametrize("html_text,expected", [
+    ("<p>Apply: <a href='https://jobs.ashbyhq.com/acme/11111111-1111-1111-1111-111111111111'>here</a></p>",
+     ["https://jobs.ashbyhq.com/acme/11111111-1111-1111-1111-111111111111"]),          # single quotes
+    ('Apply <a href="https://jobs.lever.co/acme">at Lever</a>', ["https://jobs.lever.co/acme"]),
+    ('please see <a href="https://jobs.lever.co/acme/x">Our AAP Policy Statement</a>', []),
+    ('We are an equal opportunity employer, see <a href="https://acme.com/eeo">this</a>', []),
+    ("Privacy notice: https://boards.greenhouse.io/acme/jobs/1", []),
+    ("Apply here: https://boards.greenhouse.io/acme/jobs/1", ["https://boards.greenhouse.io/acme/jobs/1"]),
+])
+def test_links_quote_styles_and_boilerplate(html_text, expected):
+    assert src._links(html_text) == expected
+
+
+def test_board_listing_routes_only_a_link_presented_as_how_to_apply():
+    promo = {"title": "Staff DevOps Engineer", "company": "Bloomreach", "location": "Remote",
+             "url": "https://weworkremotely.com/remote-jobs/x",
+             "html": "Not a fit? take a look at the Senior DevOps position - Czechia: "
+                     "https://job-boards.greenhouse.io/bloomreach/jobs/8329244"}
+    apply = {**promo, "url": "https://weworkremotely.com/remote-jobs/y",
+             "html": "To apply: <a href='https://job-boards.greenhouse.io/bloomreach/jobs/1'>here</a>"}
+    out = src._board_jobs("weworkremotely", "We Work Remotely", [promo, apply], [], [], lambda _m: None)
+    assert out["refs"] == [BoardRef("greenhouse", "bloomreach", "1")]
+    assert [m["url"] for m in out["manual"]] == ["https://weworkremotely.com/remote-jobs/x"]
+
+
+def test_remotive_searches_every_keyword_alternative():
+    client = _Client()
+    out = src.remotive_source(client, ["python", "designer"], [], log=lambda _m: None)
+    assert [c[1] for c in client.calls] == [{"search": "python"}, {"search": "designer"}]
+    urls = [m["url"] for m in out["manual"]]
+    assert len(urls) == len(set(urls))                                     # merged, deduped
+    many = _Client()
+    out = src.remotive_source(many, [f"k{i}" for i in range(7)], [], log=lambda _m: None)
+    assert len(many.calls) == 5 and any("first 5 keywords" in w for w in out["warnings"])
     client = _Client()
     out = src.remotive_source(client, ["engineer"], [], log=lambda _m: None)
     assert client.calls[0][1] == {"search": "engineer"}
+    # The captured Lemon.io link has no "apply" context: kept as a manual lead.
     out_all = src.remotive_source(_Client(), [], [], log=lambda _m: None)
-    assert len(out_all["refs"]) == 1
+    assert out_all["refs"] == [] and any("Lemon" in m["company"] for m in out_all["manual"])
     assert all(m["source"] == "remotive" for m in out["manual"])
 
 
@@ -261,6 +307,32 @@ def test_sourced_job_links_are_still_filtered(run):
 def test_pasted_job_links_still_bypass_filters(run):
     run(boards=f"lever:acme/{EXPLICIT}", keywords="sales")      # a "Backend Engineer" job
     assert run.adapters["lever"].applied == [("acme", EXPLICIT)]
+
+
+def test_jobs_interleave_by_board_not_by_link(run, mocker):
+    """Three HN links into one board and one into another: with a cap of 2 the
+    second board still gets a turn."""
+    mocker.patch.object(src, "SOURCES", {"hn": lambda c, kw, loc, log: {
+        "refs": [BoardRef("lever", "acme", "job-1"), BoardRef("lever", "acme", "job-2"),
+                 BoardRef("lever", "acme", EXPLICIT), BoardRef("ashby", "beta")],
+        "manual": [], "warnings": []}})
+    run(sources="hn", keywords="engineer", max_applications=2)
+    assert run.adapters["lever"].applied == [("acme", "job-1")]
+    assert run.adapters["ashby"].applied == [("beta", "a")]
+
+
+def test_case_sensitive_board_tokens_are_listed_separately(run, mocker):
+    calls = []
+
+    def discover(client, ref):
+        calls.append(ref.company)
+        if ref.company == "beta":
+            raise RuntimeError("no such board")
+        return [{"platform": "ashby", "token": ref.company, "job_id": "a", "title": "Backend Engineer",
+                 "company": ref.company, "location": "Remote", "url": "u", "apply_url": "a"}]
+    mocker.patch.object(run.adapters["ashby"], "discover", side_effect=discover)
+    out = run(boards="ashby:beta, ashby:Beta", keywords="engineer")
+    assert calls == ["beta", "Beta"] and out["jobs_found"] == 1
 
 
 def test_board_and_source_refs_are_deduped(run):

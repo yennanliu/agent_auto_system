@@ -247,7 +247,7 @@ def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
     pasted is an explicit pick and skips the filters; a ref found by a discovery
     source (``sourced``) is still filtered by title and location. Each board is
     listed once, however many refs point at it."""
-    groups: list[list[dict]] = []
+    by_board: dict[tuple, list[dict]] = {}  # picked jobs, grouped per board for round-robin
     total = 0
     listings: dict[tuple, list[dict] | None] = {}
     seen: set[tuple] = set()
@@ -258,7 +258,9 @@ def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
             warnings.append(f"{where}: {ref.platform} is not supported yet")
             log(f"⚠ {where}: {ref.platform} is not supported yet — skipped")
             continue
-        board_key = (ref.platform, ref.company.lower(), ref.region)
+        # Exact token: Ashby / SmartRecruiters names are case-sensitive, so a
+        # failed "notion" must not shadow a valid "Notion".
+        board_key = (ref.platform, ref.company, ref.region)
         if board_key not in listings:
             try:
                 listings[board_key] = adapter.discover(client, ref)
@@ -287,8 +289,10 @@ def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
             warnings.append(f"{where}/{ref.job_id}: job not found on the board (closed?)")
         log(f"{where}{'/' + ref.job_id if ref.job_id else ''}: {len(picked)} matching of "
             f"{len(jobs)} open job(s)")
-        groups.append(picked)
-    return interleave(groups), total
+        by_board.setdefault(board_key, []).extend(picked)
+    # One group per board, so three links into board A and one into board B
+    # interleave A1, B1, A2, A3 — not A1, A2, A3, B1.
+    return interleave(list(by_board.values())), total
 
 
 def run_ats_apply(
@@ -388,14 +392,16 @@ def run_ats_apply(
                     refs.append(ref)
                     sourced.add(ref)
             base["manual"] = source_manual[:100]
-        if refs and (not resume_path or not os.path.isfile(resume_path)):
-            return {**base, "manual_count": len(source_manual), "error": (
-                f"Resume file not found ('{resume_path or 'unset'}'). Set resume_path to a "
-                "PDF/DOCX on this server, or ATS_RESUME_PATH in .env.")}
-
         log("Discovering jobs via each ATS's public API...")
         candidates, total_listed = _discover(client, refs, adapters, split_list(keywords),
                                              split_list(location), log, warnings, sourced)
+        # A résumé is only needed when something can actually be auto-applied
+        # to — not for a run whose matches are all manual leads.
+        if any(adapters[c["platform"]].can_apply for c in candidates) \
+                and (not resume_path or not os.path.isfile(resume_path)):
+            return {**base, "manual_count": len(source_manual), "error": (
+                f"Resume file not found ('{resume_path or 'unset'}'). Set resume_path to a "
+                "PDF/DOCX on this server, or ATS_RESUME_PATH in .env.")}
         if not candidates:
             where = ", ".join(board_list + source_list)
             summary = f"No matching jobs to auto-apply to on {where}."
