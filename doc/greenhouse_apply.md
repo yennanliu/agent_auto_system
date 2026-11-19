@@ -18,6 +18,10 @@ account to authenticate.
 
 ## Answer planning
 
+The rules below are the shared, platform-neutral core in `src/automation/tools/ats_common.py`
+(reused by every ATS adapter). Greenhouse-specific parts (standard fields, résumé / cover letter,
+education / employment blocks, EEOC and demographic surveys) stay in `greenhouse_apply_tool.py`.
+
 Rules, in order, applied to each custom question's label:
 
 1. `extra_answers`: `keyword: answer` lines from the user. These win.

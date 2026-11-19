@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Apply — Acme (fixture)</title>
+<style>
+  .menu { border: 1px solid #ccc; }
+  .menu div { padding: 2px 4px; cursor: pointer; }
+  label { display: block; margin-top: 8px; }
+</style>
+</head>
+<body>
+<!--
+  A local stand-in for Greenhouse's embedded application form
+  (job-boards.greenhouse.io/embed/job_app). It mirrors the DOM contract the
+  apply tool relies on (see doc/greenhouse_apply.md, "DOM notes"):
+    - input ids equal the Job Board API field names
+    - selects are react-select comboboxes whose options have ids
+      react-select-<field>-option-N; a decoy phone-country list also uses
+      role=option, so unscoped option queries pick the wrong thing
+    - multi-selects render as a <fieldset id="<field>"> of checkboxes
+    - location / school are async autocompletes (type, then pick)
+    - a required consent checkbox must be ticked
+  On Submit the page POSTs what was filled to /submit as JSON, then shows the
+  confirmation page — or, for job 2, an e-mailed security code prompt.
+-->
+<form id="application_form">
+  <label for="first_name">First Name *</label><input id="first_name" name="first_name" required>
+  <label for="last_name">Last Name *</label><input id="last_name" name="last_name" required>
+  <label for="email">Email *</label><input id="email" name="email" required>
+  <label for="phone">Phone</label><input id="phone" name="phone">
+  <div id="phone-country" style="height:0;overflow:hidden">
+    <div role="option">Afghanistan</div><div role="option">Albania</div>
+  </div>
+
+  <label for="resume">Resume/CV *</label><input id="resume" name="resume" type="file" required>
+
+  <label for="candidate-location">Location (City) *</label>
+  <input id="candidate-location" class="rs" data-async="1"
+         data-options='["Taipei, Taipei City, Taiwan", "Taichung, Taiwan", "Tainan, Taiwan"]'>
+
+  <label for="question_101">LinkedIn Profile</label><input id="question_101" name="question_101">
+
+  <label for="question_102">Are you legally authorized to work in Taiwan? *</label>
+  <input id="question_102" class="rs" data-options='["Yes", "No"]'>
+
+  <label for="question_103">Will you now or in the future require visa sponsorship? *</label>
+  <input id="question_103" class="rs" data-options='["Yes", "No"]'>
+
+  <label for="question_104">How many years of experience do you have? *</label>
+  <input id="question_104" class="rs" data-options='["0-2 years", "3-5 years", "6+ years"]'>
+
+  <fieldset id="question_105[]">
+    <legend>Which languages do you speak?</legend>
+    <label><input type="checkbox" name="question_105[]" value="1"> English</label>
+    <label><input type="checkbox" name="question_105[]" value="2"> Chinese, Cantonese</label>
+    <label><input type="checkbox" name="question_105[]" value="3"> Mandarin Chinese (Putonghua)</label>
+  </fieldset>
+
+  <label for="question_106">Why do you want to join Acme? *</label>
+  <textarea id="question_106" name="question_106"></textarea>
+
+  <label for="school--0">School</label>
+  <input id="school--0" class="rs" data-async="1"
+         data-options='["National Taiwan University (NTU)", "National Taiwan University of Science And Technology"]'>
+  <label for="degree--0">Degree</label>
+  <input id="degree--0" class="rs" data-options='["Bachelor&apos;s Degree", "Master&apos;s Degree"]'>
+
+  <label for="gender">Gender</label>
+  <input id="gender" class="rs" data-options='["Male", "Female", "I don&apos;t wish to answer"]'>
+
+  <label><input type="checkbox" id="consent" required> I consent to the privacy policy *</label>
+
+  <button type="submit">Submit application</button>
+</form>
+<div id="verify" style="display:none">We sent a security code to your email. Enter the verification code.</div>
+
+<script>
+  // Minimal react-select stand-in: click (and type, for async ones) to open a
+  // menu of options with ids react-select-<field>-option-N; click one to pick.
+  document.querySelectorAll("input.rs").forEach((inp) => {
+    const all = JSON.parse(inp.dataset.options);
+    let menu = null;
+    const close = () => { if (menu) { menu.remove(); menu = null; } };
+    const open = () => {
+      close();
+      const typed = inp.dataset.async ? inp.value.trim().toLowerCase() : "";
+      if (inp.dataset.async && !typed) return;  // async lists load only after typing
+      const shown = all.filter((o) => !typed || o.toLowerCase().includes(typed));
+      menu = document.createElement("div");
+      menu.className = "menu";
+      shown.forEach((text, i) => {
+        const d = document.createElement("div");
+        d.id = `react-select-${inp.id}-option-${i}`;
+        d.setAttribute("role", "option");
+        d.textContent = text;
+        d.addEventListener("click", () => { inp.value = text; inp.dataset.chosen = text; close(); });
+        menu.appendChild(d);
+      });
+      inp.after(menu);
+    };
+    inp.addEventListener("click", () => setTimeout(open, 50));
+    inp.addEventListener("input", () => { delete inp.dataset.chosen; setTimeout(open, 50); });
+    inp.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  });
+
+  document.getElementById("application_form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const val = (id) => document.getElementById(id).value;
+    const chosen = (id) => document.getElementById(id).dataset.chosen || null;
+    const file = document.getElementById("resume").files[0];
+    const payload = {
+      job_id: new URLSearchParams(location.search).get("token"),
+      first_name: val("first_name"), last_name: val("last_name"),
+      email: val("email"), phone: val("phone"),
+      resume: file ? file.name : null,
+      location: chosen("candidate-location"),
+      question_101: val("question_101"),
+      question_102: chosen("question_102"), question_103: chosen("question_103"),
+      question_104: chosen("question_104"),
+      question_105: Array.from(document.querySelectorAll("input[name='question_105[]']:checked"))
+        .map((b) => b.closest("label").innerText.trim()),
+      question_106: val("question_106"),
+      school: chosen("school--0"), degree: chosen("degree--0"), gender: chosen("gender"),
+      consent: document.getElementById("consent").checked,
+    };
+    await fetch("/submit", { method: "POST", headers: { "Content-Type": "application/json" },
+                             body: JSON.stringify(payload) });
+    if (payload.job_id === "2") {
+      document.getElementById("verify").style.display = "block";
+    } else {
+      location.href = "/confirmation";
+    }
+  });
+</script>
+</body>
+</html>
