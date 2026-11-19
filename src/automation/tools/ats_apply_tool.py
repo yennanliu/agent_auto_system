@@ -258,8 +258,7 @@ def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
             warnings.append(f"{where}: {ref.platform} is not supported yet")
             log(f"⚠ {where}: {ref.platform} is not supported yet — skipped")
             continue
-        # Exact token: Ashby / SmartRecruiters names are case-sensitive, so a
-        # failed "notion" must not shadow a valid "Notion".
+        # Tokens as written: a failed lookup of one spelling never shadows another.
         board_key = (ref.platform, ref.company, ref.region)
         if board_key not in listings:
             try:

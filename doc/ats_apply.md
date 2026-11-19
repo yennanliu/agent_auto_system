@@ -14,9 +14,9 @@ commas. `tools/ats_router.py` resolves each entry:
 |---|---|---|
 | Greenhouse | `boards.greenhouse.io/<token>[/jobs/<id>]`, `job-boards.greenhouse.io/…` | `greenhouse:figma` |
 | Lever | `jobs.lever.co/<site>[/<uuid>[/apply]]` (and `jobs.eu.lever.co`) | `lever:palantir` |
-| Ashby | `jobs.ashbyhq.com/<page>[/<uuid>]` (the page name is **case-sensitive**) | `ashby:openai` |
+| Ashby | `jobs.ashbyhq.com/<page>[/<uuid>]` | `ashby:openai` |
 | Workable | `apply.workable.com/<account>[/j/<SHORTCODE>]`, `<account>.workable.com/j/…` | `workable:huggingface` |
-| SmartRecruiters | `jobs.smartrecruiters.com/<Company>[/<id>-slug]` (case-sensitive) | `smartrecruiters:BoschGroup` |
+| SmartRecruiters | `jobs.smartrecruiters.com/<Company>[/<id>-slug]` | `smartrecruiters:BoschGroup` |
 
 A job URL applies to that one job and bypasses the keyword and location filters. Workday
 URLs are recognised but not supported, so they show up as a warning. A bare token
@@ -128,6 +128,28 @@ markers (`/thanks`, the "Thank you for applying" and "Application submitted" tex
 from the platforms' known flows and are covered by the hermetic e2e fixtures. A wrong
 marker makes a real application show up as `unconfirmed`. It is still blocked from being
 sent again (see above), so the cost is a manual check, not a duplicate.
+
+## Finding boards by country
+
+`scripts/ats_country_boards.py` is the Lever, Ashby and Workable counterpart of
+`greenhouse_country_boards.py`. It uses the same country presets and engineering-title
+filter.
+
+```bash
+uv run python scripts/ats_country_boards.py scan                  # all three platforms; data/ats_boards.json
+uv run python scripts/ats_country_boards.py scan --platform workable --limit 50
+uv run python scripts/ats_country_boards.py report taiwan uk      # data/ats_reports/<country>_<date>.md
+```
+
+- **Where candidates come from:** the job-board-aggregator Lever and Ashby lists, plus
+  every Lever, Ashby and Workable link in the SimplifyJobs and hiring-without-whiteboards
+  repos (resolved by `ats_router`).
+- **How each board is checked:** with the platform adapter's own `discover()`, the same
+  code `ats_apply` runs.
+- **Dead vs. throttled:** an HTTP 404 means the board is dead. Throttling pauses the scan
+  and retries, so it never marks a board dead.
+- **The report:** its `boards:` line uses `platform:token`, ready to paste into an
+  `ats_apply` job.
 
 ## Env
 

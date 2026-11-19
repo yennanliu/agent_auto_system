@@ -27,6 +27,8 @@ uv run python scripts/tasker_login.py                # persist a tasker.com.tw s
 
 uv run python scripts/greenhouse_country_boards.py scan            # cache live Greenhouse boards (~25 min, throttled)
 uv run python scripts/greenhouse_country_boards.py report spain    # per-country board list for greenhouse_apply
+uv run python scripts/ats_country_boards.py scan                   # same for Lever / Ashby / Workable (ats_apply)
+uv run python scripts/ats_country_boards.py report taiwan           # per-country `platform:token` board list for ats_apply
 ```
 
 ## Architecture

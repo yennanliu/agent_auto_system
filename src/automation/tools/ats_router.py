@@ -82,7 +82,7 @@ def detect_ats(url: str) -> BoardRef | None:
         if not parts or not _TOKEN_RE.match(parts[0]):
             return None
         job = parts[1] if len(parts) > 1 and _UUID_RE.match(parts[1]) else ""
-        # The jobs-page name is case-sensitive in Ashby's API ("Notion" ≠ "notion").
+        # Kept as written (Ashby's API matches the page name case-insensitively).
         return BoardRef("ashby", parts[0], job.lower())
 
     if host == "apply.workable.com":

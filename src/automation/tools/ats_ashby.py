@@ -61,7 +61,7 @@ class AshbyAdapter(Adapter):
     def discover(self, client, ref: BoardRef) -> list[dict]:
         resp = client.get(f"{_BOARD_API}/{ref.company}", params={"includeCompensation": "false"})
         if resp.status_code == 404:
-            raise RuntimeError("no such Ashby job board (the name is case-sensitive)")
+            raise RuntimeError("no such Ashby job board")
         resp.raise_for_status()
         jobs = []
         for j in resp.json().get("jobs") or []:
