@@ -529,3 +529,154 @@ def test_smartrecruiters_paginates_by_offset():
     jobs = SmartRecruitersAdapter().discover(client, BoardRef("smartrecruiters", "Acme"))
     assert [j["job_id"] for j in jobs] == ["1", "2", "3"]
     assert [c[2]["offset"] for c in client.calls] == [0, 2]
+
+
+# ── review fixes (PR #109) ───────────────────────────────────────────────────
+
+from src.automation.tools.ats_common import profile_url_field, url_path_has  # noqa: E402
+
+
+@pytest.mark.parametrize("label,site", [
+    ("LinkedIn", "linkedin"), ("Linkedin (optional)", "linkedin"), ("GitHub profile", "github"),
+    ("What is your LinkedIn URL?", "linkedin"), ("Please share your LinkedIn profile", "linkedin"),
+    ("Please provide a link to your LinkedIn", "linkedin"), ("List your GitHub URL", "github"),
+    ("Portfolio URL", "website"),
+    ("Why GitHub?", None), ("Describe your LinkedIn presence", None), ("Do you have a blog?", None),
+    ("Share 2-3 of your open-source contributions with links (GitHub PRs)", None),
+])
+def test_profile_url_field_is_one_rule_for_both_paths(label, site):
+    """standard_for_label and rule_answer must agree on what a profile-URL field is."""
+    assert profile_url_field(label) == site
+    std = standard_for_label(label)
+    assert std == site
+    expected = {"linkedin": PROFILE["linkedin_url"], "github": PROFILE["github_url"],
+                "website": PROFILE["github_url"], None: None}[site]
+    assert rule_answer(label, PROFILE) == expected
+
+
+def test_why_github_text_field_is_not_filled_with_the_url():
+    ashby = [{"path": "q", "label": "Why GitHub?", "type": "String", "required": True, "options": []}]
+    answers, unanswered = AshbyAdapter().plan(ashby, {}, PROFILE, None)
+    assert answers == [] and unanswered == ["Why GitHub?"]
+    workable = [{"id": "q", "label": "Why GitHub?", "type": "text", "required": True,
+                 "single": True, "options": []}]
+    answers, _ = WorkableAdapter().plan(workable, {}, PROFILE, lambda *a: "Because of Copilot.")
+    assert answers[0]["value"] == "Because of Copilot."          # the LLM answers, not the URL
+
+
+def test_notice_period_parsing_edge_cases():
+    today = date(2026, 11, 19)
+    assert start_date_from_notice("not sure, let me know", today) is None   # "know" is not "now"
+    assert start_date_from_notice("1.5 months", today) is None              # not "5 months"
+    assert start_date_from_notice("available now", today) == today
+
+
+@pytest.mark.parametrize("url", ["https://evilgreenhouse.io/figma", "https://notgreenhouse.io/figma/jobs/1"])
+def test_lookalike_greenhouse_hosts_are_rejected(url):
+    from src.automation.tools.greenhouse_apply_tool import parse_board_ref as gh_parse
+    assert parse_board_ref(url) is None and gh_parse(url) is None
+
+
+def test_smartrecruiters_oneclick_company_is_validated():
+    bad = "https://jobs.smartrecruiters.com/oneclick-ui/company/x?dcr_ci=Evil%2F..%3Fq%3D1"
+    assert parse_board_ref(bad) is None
+
+
+def test_url_path_has_matches_whole_segments_only():
+    assert url_path_has("https://jobs.lever.co/acme/123/thanks", ("thanks",))
+    assert not url_path_has("https://jobs.lever.co/thanksgiving-co/123/apply", ("thanks",))
+    assert not url_path_has("https://apply.workable.com/success-team/j/ABC/apply/", ("success",))
+
+
+def test_unconfirmed_submission_is_pending_counts_toward_cap_and_is_never_resent(runner, tmp_path):
+    lever = _FakeAdapter("lever", [("1", "Backend A", "X"), ("2", "Backend B", "X")],
+                         apply_status="unconfirmed")
+    out = runner({"lever": lever}, boards="lever:acme", dry_run=False, max_applications=1)
+    assert lever.applied == ["1"]                                  # cap 1: job 2 never attempted
+    assert out["submitted_count"] == 0 and out["unconfirmed_count"] == 1
+    led = ats.load_ledger(str(tmp_path / "ledger.json"))
+    assert led["lever:acme/1"]["status"] == "pending"
+    assert "unconfirmed" in out["summary"]
+
+    again = runner({"lever": lever}, boards="lever:acme", dry_run=False, max_applications=1)
+    assert lever.applied == ["1", "2"]                             # job 1 not resent
+    assert "never confirmed" in again["skipped"][0]["reason"]
+
+
+def test_dry_run_unconfirmed_is_not_ledgered(runner, tmp_path):
+    lever = _FakeAdapter("lever", [("1", "Backend", "X")], apply_status="unconfirmed")
+    runner({"lever": lever}, boards="lever:acme", dry_run=True)
+    assert ats.load_ledger(str(tmp_path / "ledger.json")) == {}
+
+
+def test_manual_jobs_are_still_listed_after_the_cap(runner):
+    lever = _FakeAdapter("lever", [("1", "Backend", "X"), ("2", "Backend", "X")])
+    sr = _FakeAdapter("smartrecruiters", [("9", "Backend", "Y"), ("8", "Backend", "Y")], can_apply=False)
+    out = runner({"lever": lever, "smartrecruiters": sr},
+                 boards="lever:acme, smartrecruiters:Beta", max_applications=1)
+    assert lever.applied == ["1"]
+    assert sorted(m["job_id"] for m in out["manual"]) == ["8", "9"]
+
+
+def test_greenhouse_pending_blocks_both_job_types(tmp_path, monkeypatch):
+    from src.automation.tools import greenhouse_apply_tool as gh
+    monkeypatch.setenv("GREENHOUSE_LEDGER", str(tmp_path / "gh.json"))
+    job = {"platform": "greenhouse", "token": "figma", "job_id": "7", "title": "Eng", "company": "Figma"}
+    GreenhouseAdapter().record(str(tmp_path / "ats.json"), job, status="pending")
+    assert ats.load_ledger(str(tmp_path / "ats.json"))["greenhouse:figma/7"]["status"] == "pending"
+    assert "figma/7" in gh.load_ledger(str(tmp_path / "gh.json"))
+
+
+class _Opts:
+    def __init__(self, texts):
+        self.texts, self.clicked = texts, []
+
+    def count(self):
+        return len(self.texts)
+
+    def all_inner_texts(self):
+        return list(self.texts)
+
+    def nth(self, i):
+        outer = self
+        return type("O", (), {"click": lambda self, timeout=0: outer.clicked.append(outer.texts[i])})()
+
+
+class _AcPage:
+    def __init__(self, texts):
+        self.opts = _Opts(texts)
+        self.keyboard = type("K", (), {"press": lambda *_: None})()
+
+    def locator(self, _sel):
+        return self.opts
+
+    def wait_for_timeout(self, _ms):
+        pass
+
+
+class _Input:
+    def click(self, timeout=0):
+        pass
+
+    def is_editable(self, timeout=0):
+        return True
+
+    def fill(self, _v):
+        pass
+
+    def press_sequentially(self, _v, delay=0):
+        pass
+
+
+def test_pick_autocomplete_never_clicks_a_non_matching_option():
+    page = _AcPage(["Taichung, Taiwan", "Tainan, Taiwan"])
+    assert ats.pick_autocomplete(page, _Input(), "Taipei", "x", want="Taipei, Taiwan") is False
+    assert page.opts.clicked == []
+
+
+def test_pick_autocomplete_falls_back_to_city_then_first_without_want():
+    page = _AcPage(["Taipei, Taipei City, TWN", "Taipei County, TWN"])
+    assert ats.pick_autocomplete(page, _Input(), "Taipei", "x", want="Taipei, Taiwan", also=("Taipei",))
+    assert page.opts.clicked == ["Taipei, Taipei City, TWN"]
+    page = _AcPage(["A", "B"])
+    assert ats.pick_autocomplete(page, _Input(), "a", "x") and page.opts.clicked == ["A"]

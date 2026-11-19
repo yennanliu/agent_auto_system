@@ -387,8 +387,26 @@ def _profile_answer(label: str, profile: dict):
     return None
 
 
-_ASKS_FOR_CONTENT = re.compile(r"\b(share|describe|explain|list|tell us|walk us|give us|provide (a|some|examples?)|"
-                               r"examples?|contributions?|pull requests?|prs)\b")
+# Profile-URL fields ("LinkedIn", "What is your GitHub URL?", "Please share your
+# LinkedIn profile") vs questions that only mention a site ("Why GitHub?",
+# "Share 2-3 contributions (GitHub PRs)"). One test for rule_answer and
+# standard_for_label, so the two can never disagree.
+_URL_SITES = (("linkedin", r"linkedin"), ("github", r"github"),
+              ("website", r"website|portfolio|personal site|blog"))
+_CONTENT_Q = re.compile(r"\b(why|describe|explain|tell us|walk us|examples?|contributions?|"
+                        r"pull requests?|prs|projects?)\b")
+_URL_WORDS = re.compile(r"\b(url|urls|profile|link|links|handle|username|page|account)\b")
+
+
+def profile_url_field(label: str) -> str | None:
+    """"linkedin" / "github" / "website" when the label names that profile-URL
+    field, None for anything else — including questions that mention the site."""
+    t = re.sub(r"[*:✱?]", "", (label or "").lower()).strip()
+    t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    site = next((name for name, pat in _URL_SITES if re.search(pat, t)), None)
+    if site is None or _CONTENT_Q.search(t):
+        return None
+    return site if len(t.split()) <= 3 or _URL_WORDS.search(t) else None
 
 
 def rule_answer(label: str, profile: dict):
@@ -402,14 +420,12 @@ def rule_answer(label: str, profile: dict):
     prof = _profile_answer(label, profile)
     if prof:
         return prof
-    # A profile-URL field ("LinkedIn Profile", "GitHub URL"), not a question
-    # that merely mentions the site ("Share 2-3 contributions (GitHub PRs…)").
-    url_field = not _ASKS_FOR_CONTENT.search(lbl)
-    if "linkedin" in lbl and url_field:
+    site = profile_url_field(label)
+    if site == "linkedin":
         return profile.get("linkedin_url") or None
-    if "github" in lbl and url_field:
+    if site == "github":
         return profile.get("github_url") or None
-    if re.search(r"website|portfolio|personal site|blog", lbl) and url_field:
+    if site == "website":
         return profile.get("website_url") or profile.get("github_url") or None
     # "Will you require a work permit…" is a sponsorship question, not "do you
     # have the right to work" — opposite answers.
@@ -728,28 +744,26 @@ _STANDARD_LABELS = (
     ("full_name", r"^(full |legal |your )?name$|^full legal name$"),
     ("email", r"^(e-?mail|email address)$"),
     ("phone", r"^(phone|mobile|cell|telephone)( (number|no\.?))?$"),
-    ("linkedin", r"linkedin"),
-    ("github", r"github"),
-    ("website", r"^(personal )?(website|portfolio)( url| link)?$"),
 )
 
 
 def standard_for_label(label: str) -> str | None:
     """The standard_value() name a plain contact-field label asks for, or None."""
+    site = profile_url_field(label)
+    if site:
+        return site
     t = re.sub(r"[*:✱]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
-    # Contact-field labels are a few words; a sentence that mentions GitHub is
-    # a question ("Share your contributions (GitHub PRs…)"), not the URL field.
-    if len(t.split()) > 5 or _ASKS_FOR_CONTENT.search(t):
+    if len(t.split()) > 5:  # contact-field labels are a few words
         return None
-    t = re.sub(r"\s+(url|profile|link)$", "", t) if re.search(r"linkedin|github", t) else t
     for name, pat in _STANDARD_LABELS:
         if re.search(pat, t):
             return name
     return None
 
 
-_NOTICE_RE = re.compile(r"(\d+)\s*(day|week|month)", re.I)
+# Whole numbers only: "1.5 months" must not read as "5 months".
+_NOTICE_RE = re.compile(r"(?<![\d.])(\d+)(?!\.\d)\s*(day|week|month)", re.I)
 
 
 def start_date_from_notice(notice: str, today=None):
@@ -761,7 +775,7 @@ def start_date_from_notice(notice: str, today=None):
     t = (notice or "").strip().lower()
     if not t:
         return None
-    if re.search(r"immediate|asap|right away|now\b", t):
+    if re.search(r"immediate|asap|right away|\bnow\b", t):
         return today
     m = _NOTICE_RE.search(t)
     if not m:
@@ -781,16 +795,28 @@ def load_ledger(path: str) -> dict:
         return {}
 
 
-def record_applied(path: str, key: str, job: dict) -> None:
-    """Add ``key`` (the adapter's canonical job id) to the ledger at ``path``."""
+def record_applied(path: str, key: str, job: dict, status: str = "applied") -> None:
+    """Add ``key`` (the adapter's canonical job id) to the ledger at ``path``.
+    ``status`` is "applied" (confirmed) or "pending" (Submit was clicked but no
+    confirmation was seen — the employer may have it, so it must not be sent
+    again automatically)."""
     ledger = load_ledger(path)
     ledger[key] = {
         "title": job.get("title", ""), "company": job.get("company", ""),
         "applied_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "status": status,
     }
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(ledger, f, ensure_ascii=False, indent=1)
+
+
+def url_path_has(url: str, segments: tuple[str, ...]) -> bool:
+    """True when the URL's path contains one of ``segments`` as a whole path
+    segment: "/acme/123/thanks" has "thanks"; "/thanksgiving-co/123" does not."""
+    from urllib.parse import urlparse
+    parts = [p for p in urlparse(url or "").path.split("/") if p]
+    return any(seg in parts for seg in segments)
 
 
 # ── browser helpers ──────────────────────────────────────────────────────────

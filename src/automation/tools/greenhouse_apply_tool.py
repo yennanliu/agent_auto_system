@@ -68,6 +68,7 @@ from src.automation.tools.ats_common import (
     parse_extra_answers,
     parse_start,
     split_list,
+    url_path_has,
     visible_text,
     with_job_location,
     years_option,
@@ -122,7 +123,8 @@ def parse_board_ref(ref: str) -> tuple[str, str] | None:
     if "://" not in ref:
         ref = "https://" + ref
     u = urlparse(ref)
-    if not any(u.netloc.endswith(h) for h in _GH_HOSTS):
+    host = u.netloc.lower().split(":")[0]
+    if not any(host == h or host.endswith("." + h) for h in _GH_HOSTS):  # not evilgreenhouse.io
         return None
     q = parse_qs(u.query)
     parts = [p for p in u.path.split("/") if p]
@@ -561,7 +563,7 @@ def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
     submit.click(timeout=8000)
     for _ in range(30):
         page.wait_for_timeout(500)
-        if "/confirmation" in (page.url or "") or visible_text(page, _SUCCESS_TEXTS):
+        if url_path_has(page.url or "", ("confirmation",)) or visible_text(page, _SUCCESS_TEXTS):
             entry.update(status="submitted", submitted=True,
                          confirmation="Greenhouse confirmation page shown")
             log(f"✓ {job['token']}/{job['job_id']}: submitted AND confirmed")

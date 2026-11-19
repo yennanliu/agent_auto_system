@@ -67,7 +67,7 @@ def detect_ats(url: str) -> BoardRef | None:
     parts = [p for p in u.path.split("/") if p]
     q = parse_qs(u.query)
 
-    if host.endswith("greenhouse.io"):
+    if host == "greenhouse.io" or host.endswith(".greenhouse.io"):  # not evilgreenhouse.io
         return _greenhouse(url)
 
     if host in ("jobs.lever.co", "jobs.eu.lever.co"):
@@ -98,8 +98,10 @@ def detect_ats(url: str) -> BoardRef | None:
 
     if host in ("jobs.smartrecruiters.com", "careers.smartrecruiters.com"):
         if parts and parts[0] == "oneclick-ui":
+            # Decoded query value: validate like every other token, so "%2F" /
+            # "%3F" can't add path or query to the API request built from it.
             company = (q.get("dcr_ci") or [""])[0]
-            return BoardRef("smartrecruiters", company) if company else None
+            return BoardRef("smartrecruiters", company) if _TOKEN_RE.match(company) else None
         if not parts or not _TOKEN_RE.match(parts[0]):
             return None
         m = re.match(r"^(\d{6,})", parts[1]) if len(parts) > 1 else None

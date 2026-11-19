@@ -231,7 +231,7 @@ def fill(page, answers: list[dict], log) -> list[str]:
             elif kind == "location":
                 city = (location_parts(value) or [value])[0]
                 if not pick_autocomplete(page, box.locator("input").first, city, "[role='option']",
-                                         want=value):
+                                         want=value, also=(city,)):
                     failed.append(label)
             elif kind == "date":
                 el = box.locator("input").first

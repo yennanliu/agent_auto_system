@@ -20,6 +20,7 @@ uv run python scripts/smoke_test.py                  # e2e smoke test vs a runni
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
 uv run python scripts/run_canaries.py                # read-only scraper drift probes (cron/CI; exit 1 on drift)
+uv run python scripts/ats_live_smoke.py              # live DRY-RUN of the ATS apply adapters (never submits; exit 1 on drift)
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)

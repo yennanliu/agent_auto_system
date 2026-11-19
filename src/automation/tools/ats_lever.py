@@ -192,7 +192,7 @@ class LeverAdapter(Adapter):
         return submit_and_confirm(
             page, job, entry, dry_run=dry_run, label="Lever",
             submit_selectors=SUBMIT_SELECTORS, success_texts=SUCCESS_TEXTS,
-            success_url_parts=("/thanks",), error_selector=ERROR_SELECTOR, log=log)
+            success_path_segments=("thanks",), error_selector=ERROR_SELECTOR, log=log)
 
 
 def _by_name(page, name: str, extra: str = ""):
@@ -221,7 +221,7 @@ def fill(page, answers: list[dict], log) -> list[str]:
                 box = page.locator("#location-input, input[name='location']").first
                 city = (location_parts(value) or [value])[0]
                 if not pick_autocomplete(page, box, city, ".dropdown-results .dropdown-location, "
-                                         ".dropdown-results > div", want=value):
+                                         ".dropdown-results > div", want=value, also=(city,)):
                     box.fill(value)
                     log(f"⚠ location '{value}': no suggestion picked; typed text kept")
             elif control in ("radio", "checkbox"):

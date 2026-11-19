@@ -304,7 +304,10 @@ def test_lever_fills_real_form_and_confirms(site, page, resume):
     assert sent["urls[LinkedIn]"] == "https://linkedin.com/in/ada"
     radios = {k: v for k, v in sent.items() if k.startswith("cards[") and isinstance(v, list)}
     assert ["English (ENG)", "Mandarin (MAN)"] in radios.values()       # checkbox group, never Cantonese
-    assert ["No"] in radios.values() and ["Yes"] in radios.values()     # Singapore job: not authorized / needs sponsorship
+    # Singapore job, US-only authorization — each answer under its own question:
+    work_auth = "cards[1c719ca9-5069-4afe-9e82-39ca420e0edb]"
+    assert sent[f"{work_auth}[field0]"] == ["No"]                       # authorized to work there?
+    assert sent[f"{work_auth}[field1]"] == ["Yes"]                      # will you need sponsorship?
     assert ["Yes, I consent"] in radios.values()
     assert "Stanford University" in sent.values()                       # <select> by label
 
@@ -329,8 +332,9 @@ def test_ashby_fills_real_form_and_confirms(site, page, resume):
     assert sent["_systemfield_email"] == "ada@example.com"
     assert sent["_systemfield_resume"] == "ada_cv.pdf"
     assert sent["_systemfield_location"] == "San Francisco, California, United States"
-    yes_no = {k: v for k, v in sent.items() if v in ("yes", "no")}
-    assert sorted(yes_no.values()) == ["no", "yes", "yes"]              # authorized, no sponsorship, office: yes
+    assert sent["bed95633-1b6e-4cd0-9eaf-c5a9f75ac35d"] == "yes"        # authorized where the job is
+    assert sent["bda78810-f000-4f1c-99c5-f783e161f2f7"] == "no"         # needs sponsorship
+    assert sent["d33e2a8f-3742-4e5e-b91c-b7607d3cdf63"] == "yes"        # office 3 days (extra answer)
     date = next(v for k, v in sent.items() if isinstance(v, str) and v.count("/") == 2)
     assert len(date) == 10                                              # MM/DD/YYYY from the notice period
     acks = [k for k, v in sent.items() if v == ["on"]]

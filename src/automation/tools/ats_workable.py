@@ -148,7 +148,7 @@ class WorkableAdapter(Adapter):
         return submit_and_confirm(
             page, job, entry, dry_run=dry_run, label="Workable",
             submit_selectors=SUBMIT_SELECTORS, success_texts=SUCCESS_TEXTS,
-            success_url_parts=("/success",), verify_texts=VERIFY_TEXTS,
+            verify_texts=VERIFY_TEXTS,
             error_selector=ERROR_SELECTOR, log=log)
 
 

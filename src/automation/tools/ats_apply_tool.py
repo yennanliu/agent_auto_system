@@ -40,6 +40,7 @@ from src.automation.tools.ats_common import (
     off_loop,
     record_applied,
     split_list,
+    url_path_has,
     visible_text,
 )
 from src.automation.tools.ats_router import SUPPORTED, BoardRef, parse_board_ref
@@ -74,11 +75,18 @@ class Adapter:
     def ledger_key(self, job: dict) -> str:
         return f"{job['platform']}:{job['token']}/{job['job_id']}"
 
-    def already_applied(self, job: dict, ledger: dict) -> bool:
-        return self.ledger_key(job) in ledger
+    def ledger_status(self, job: dict, ledger: dict) -> str | None:
+        """"applied", "pending" (submitted, never confirmed) or None."""
+        entry = ledger.get(self.ledger_key(job))
+        if entry is None:
+            return None
+        return entry.get("status", "applied") if isinstance(entry, dict) else "applied"
 
-    def record(self, ledger_path: str, job: dict) -> None:
-        record_applied(ledger_path, self.ledger_key(job), job)
+    def already_applied(self, job: dict, ledger: dict) -> bool:
+        return self.ledger_status(job, ledger) is not None
+
+    def record(self, ledger_path: str, job: dict, status: str = "applied") -> None:
+        record_applied(ledger_path, self.ledger_key(job), job, status)
 
 
 def _adapters() -> dict[str, Adapter]:
@@ -129,7 +137,7 @@ def open_form(page, url: str, ready_selector: str, settle_ms: int = 1000) -> boo
 
 def submit_and_confirm(page, job: dict, entry: dict, *, dry_run: bool, label: str,
                        submit_selectors: list[str], success_texts: tuple[str, ...],
-                       success_url_parts: tuple[str, ...] = (),
+                       success_path_segments: tuple[str, ...] = (),
                        verify_texts: tuple[str, ...] = (),
                        error_selector: str = "", log: Callable = noop) -> dict:
     """Click Submit (unless dry-run) and wait for proof. Success is ONLY the
@@ -147,7 +155,7 @@ def submit_and_confirm(page, job: dict, entry: dict, *, dry_run: bool, label: st
     for _ in range(40):
         page.wait_for_timeout(500)
         url = page.url or ""
-        if any(p in url for p in success_url_parts) or visible_text(page, success_texts):
+        if url_path_has(url, success_path_segments) or visible_text(page, success_texts):
             entry.update(status="submitted", submitted=True,
                          confirmation=f"{label} confirmation shown")
             log(f"✓ {jid}: submitted AND confirmed")
@@ -187,9 +195,11 @@ def tick(locator) -> None:
 
 
 def pick_autocomplete(page, input_locator, typed: str, option_selector: str,
-                      want: str = "") -> bool:
-    """Type into an async autocomplete and click the suggestion best matching
-    ``want`` (default: the first). Leaves the typed text when none appears."""
+                      want: str = "", also: tuple[str, ...] = ()) -> bool:
+    """Type into an async autocomplete and click the suggestion matching
+    ``want`` (then each of ``also``, e.g. just the city). With no ``want`` the
+    first suggestion is taken. Returns False — clicking nothing — when no
+    suggestion appears or none matches: a stranger's option is never picked."""
     from src.automation.tools.ats_common import match_option
     input_locator.click(timeout=5000)
     try:
@@ -207,8 +217,22 @@ def pick_autocomplete(page, input_locator, typed: str, option_selector: str,
     texts = [t.strip() for t in opts.all_inner_texts()] if opts.count() else []
     if not texts:
         return False
-    pick = match_option(texts, want) if want else None
-    idx = texts.index(pick) if pick in texts else 0
+    if want:
+        def _match(w: str) -> str | None:
+            # A fallback like a bare city prefers "Taipei, Taipei City, TWN"
+            # (first part == the city) over a shorter "Taipei County, TWN".
+            exact_head = [t for t in texts if t.split(",")[0].strip().lower() == w.strip().lower()]
+            return exact_head[0] if exact_head else match_option(texts, w)
+        pick = next((p for p in (_match(w) for w in (want, *also) if w) if p), None)
+        if pick is None:
+            try:
+                page.keyboard.press("Escape")
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+        idx = texts.index(pick)
+    else:
+        idx = 0
     opts.nth(idx).click(timeout=5000)
     page.wait_for_timeout(300)
     return True
@@ -366,6 +390,7 @@ def run_ats_apply(
         applied: list[dict] = []
         skipped: list[dict] = []
         manual: list[dict] = []
+        pending: list[dict] = []
         scanned = filtered = 0
         per_board: dict[str, int] = {}
         scans: dict[str, int] = {}
@@ -379,15 +404,18 @@ def run_ats_apply(
             page = None
             try:
                 for job in candidates:
-                    if len(applied) >= max_applications:
-                        break
                     adapter = adapters[job["platform"]]
                     board = f"{job['platform']}:{job['token']}"
                     jid = f"{board}/{job['job_id']}"
                     if not adapter.can_apply:
+                        # Listed even after the cap: they cost nothing to report.
                         manual.append({**job, "status": "manual",
                                        "reason": f"{adapter.label} apply isn't automated yet — "
                                                  "open apply_url to apply by hand"})
+                        continue
+                    # Unconfirmed submissions may have reached the employer, so
+                    # they use up the cap like confirmed ones.
+                    if len(applied) + len(pending) >= max_applications:
                         continue
                     if max_per_board and per_board.get(board, 0) >= max_per_board:
                         continue  # this company's quota is used; keep the others going
@@ -398,7 +426,15 @@ def run_ats_apply(
                     log(f"[{len(applied)}/{max_applications} applied | scan #{scanned}] "
                         f"{jid} — {job['title'][:60]}")
                     try:
-                        if adapter.already_applied(job, ledger):
+                        seen = adapter.ledger_status(job, ledger)
+                        if seen == "pending":
+                            job.update(status="skipped", reason=(
+                                "submitted on an earlier run but never confirmed (ledger) — check "
+                                "your e-mail / the employer's portal; remove it from the ledger to retry"))
+                            log(f"↷ {jid}: earlier submission unconfirmed — not resending")
+                            skipped.append(job)
+                            continue
+                        if seen:
                             job.update(status="skipped", reason="already applied (ledger)")
                             log(f"↷ {jid}: already applied — next")
                             skipped.append(job)
@@ -451,7 +487,14 @@ def run_ats_apply(
                             per_board[board] = per_board.get(board, 0) + 1
                             if entry.get("submitted"):
                                 adapter.record(ledger_path, job)
-                                ledger[adapter.ledger_key(job)] = True
+                                ledger[adapter.ledger_key(job)] = {"status": "applied"}
+                        elif not dry_run and entry.get("status") in ("unconfirmed", "needs_verification"):
+                            # Submit was clicked: the employer may have it. Block a
+                            # resend until the user reconciles; not counted as applied.
+                            adapter.record(ledger_path, job, status="pending")
+                            ledger[adapter.ledger_key(job)] = {"status": "pending"}
+                            pending.append(entry)
+                            skipped.append(entry)
                         else:
                             skipped.append(entry)
                         page.wait_for_timeout(2000)  # human-like pause between jobs
@@ -467,6 +510,8 @@ def run_ats_apply(
         verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
         summary = (f"{scanned} matching job(s) scanned on {len(refs)} board(s), "
                    f"{len(applied)} {verb}, {len(skipped)} skipped")
+        if pending:
+            summary += f", {len(pending)} submitted but unconfirmed (check by hand)"
         if manual:
             summary += f", {len(manual)} listed for manual apply"
         summary += f" ({filtered} filtered by task_filter)." if filtered else "."
@@ -480,6 +525,7 @@ def run_ats_apply(
             "skipped_count": len(skipped),
             "filtered_count": filtered,
             "manual_count": len(manual),
+            "unconfirmed_count": len(pending),
             **base,
             "applied": applied,
             "skipped": [{k: v for k, v in e.items() if k != "answers"} for e in skipped],

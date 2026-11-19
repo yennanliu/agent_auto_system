@@ -61,16 +61,34 @@ form is rendered in web components, and there is no public form-definition API, 
 questions can't be planned before the browser opens. Matching jobs are returned under
 `manual[]` with their `apply_url` instead. That adapter is a follow-up.
 
+## Unconfirmed submissions
+
+If Submit is clicked but no confirmation appears, the employer **may still have
+received the application**. Sending it again on a later run could duplicate it. So such
+a job (`unconfirmed`, or `needs_verification` when the board e-mailed a code):
+
+- is written to the ledger with `"status": "pending"`. Later runs skip it with
+  "submitted on an earlier run but never confirmed", and **never resend it
+  automatically**. Check your e-mail or the employer's portal, then delete the entry from
+  the ledger if you want it retried;
+- is **not** counted in `applied` or `submitted_count`; `unconfirmed_count` reports it;
+- **does** use up `max_applications`, so an uncertain submission can't push a run past
+  its cap.
+
+Confirmation is matched on the platform's own route (a whole URL path segment such as
+`thanks`, never a substring that a company slug could contain) or on its confirmation
+text.
+
 ## Not verified live
 
 Every adapter has been **dry-run against real boards** (Palantir on Lever, OpenAI on
 Ashby, Hugging Face on Workable): the forms were opened and filled and the Submit button
 was found. The **post-submit confirmation** for Lever, Ashby and Workable has **not**
 been observed on a live site, because that would mean sending a real application. The
-success markers (`/thanks`, the "Thank you for applying" and "Application submitted"
-texts) come from the platforms' documented flows and are covered by the hermetic e2e
-fixtures. When no marker appears, the job counts as `unconfirmed` (not applied), so a
-wrong marker under-reports rather than over-reports.
+markers (`/thanks`, the "Thank you for applying" and "Application submitted" texts) come
+from the platforms' known flows and are covered by the hermetic e2e fixtures. A wrong
+marker makes a real application show up as `unconfirmed`. It is still blocked from being
+sent again (see above), so the cost is a manual check, not a duplicate.
 
 ## Env
 
@@ -86,4 +104,4 @@ ATS_HEADLESS=0                         # headed real Chrome by default (captchas
 |---|---|
 | `tests/unit/test_ats_apply.py` | router, each adapter's discovery, form parsing and planning against **real captured responses** (`tests/fixtures/ats/`), the shared runner with fake adapters, and the flow |
 | `tests/e2e/test_ats_apply_browser.py` | hermetic Chromium runs on locally served copies of each platform's **real form DOM** (`tests/e2e/ats_fixture/`), plus a full `run_ats_apply` funnel through Lever. Checks the exact values submitted |
-| `tests/e2e/test_ats_apply_live.py` | opt-in (`ATS_LIVE_E2E=1`) dry-run against the live Lever, Ashby and Workable boards. Never submits |
+| `scripts/ats_live_smoke.py` | **operational check, not pytest** (tests stay offline): a dry run against live Greenhouse, Lever, Ashby and Workable boards. Never submits. Exits 1 on API or form drift |
