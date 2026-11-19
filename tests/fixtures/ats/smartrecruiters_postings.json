@@ -1,0 +1,45 @@
+{
+ "offset": 0,
+ "limit": 2,
+ "totalFound": 305,
+ "content": [
+  {
+   "id": "744000162345149",
+   "name": "Senior Gameplay Programmer",
+   "company": {
+    "identifier": "Ubisoft2",
+    "name": "Ubisoft"
+   },
+   "location": {
+    "city": "Barcelona",
+    "region": "CT",
+    "country": "es",
+    "remote": false,
+    "hybrid": false,
+    "latitude": "41.3874374",
+    "longitude": "2.1686496",
+    "fullLocation": "Barcelona, CT, Spain"
+   },
+   "releasedDate": "2026-11-18T16:15:06.488Z"
+  },
+  {
+   "id": "744000162344821",
+   "name": "QC Tester",
+   "company": {
+    "identifier": "Ubisoft2",
+    "name": "Ubisoft"
+   },
+   "location": {
+    "city": "Barcelona",
+    "region": "CT",
+    "country": "es",
+    "remote": false,
+    "hybrid": false,
+    "latitude": "41.3874374",
+    "longitude": "2.1686496",
+    "fullLocation": "Barcelona, CT, Spain"
+   },
+   "releasedDate": "2026-11-18T16:14:34.392Z"
+  }
+ ]
+}

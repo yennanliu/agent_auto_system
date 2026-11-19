@@ -24,6 +24,7 @@ tasker_apply: &browser_apply >-
 tw104_apply: *browser_apply
 linkedin_apply: *browser_apply
 greenhouse_apply: *browser_apply
+ats_apply: *browser_apply
 pipeline: >-
   A composition of other job types with no prompt of its own; its steps are
   covered (or skipped) under their own job types.

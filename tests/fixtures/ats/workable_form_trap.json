@@ -1,0 +1,171 @@
+[
+ {
+  "fields": [
+   {
+    "id": "firstname",
+    "label": "First name",
+    "required": true,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "lastname",
+    "label": "Last name",
+    "required": true,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "email",
+    "label": "Email",
+    "required": true,
+    "maxLength": 255,
+    "type": "email"
+   }
+  ],
+  "name": "Personal information"
+ },
+ {
+  "fields": [
+   {
+    "id": "summary",
+    "label": "Summary",
+    "required": false,
+    "type": "paragraph"
+   },
+   {
+    "id": "resume",
+    "label": "Resume",
+    "required": true,
+    "maxFileSize": 12000000,
+    "supportedFileTypes": [
+     ".pdf",
+     ".doc",
+     ".docx",
+     ".odt",
+     ".rtf"
+    ],
+    "supportedMimeTypes": [
+     "application/pdf",
+     "application/msword",
+     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "application/vnd.oasis.opendocument.text",
+     "application/rtf"
+    ],
+    "type": "file"
+   },
+   {
+    "id": "CA_47143",
+    "label": "Github profile",
+    "required": true,
+    "type": "paragraph"
+   },
+   {
+    "id": "CA_47383",
+    "label": "Linkedin",
+    "required": true,
+    "type": "paragraph"
+   }
+  ],
+  "name": "Profile"
+ },
+ {
+  "fields": [
+   {
+    "id": "cover_letter",
+    "label": "Cover letter",
+    "required": false,
+    "maxLength": 200000,
+    "type": "paragraph"
+   },
+   {
+    "id": "CA_10626",
+    "label": "Expected salary",
+    "required": false,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "CA_10627",
+    "label": "Notice period / availability",
+    "required": false,
+    "options": [
+     {
+      "name": "139527",
+      "value": "Available immediately"
+     },
+     {
+      "name": "139528",
+      "value": " 1 week"
+     },
+     {
+      "name": "139529",
+      "value": " 2 weeks"
+     },
+     {
+      "name": "139530",
+      "value": " 3 weeks"
+     },
+     {
+      "name": "139531",
+      "value": " 1 month"
+     },
+     {
+      "name": "139532",
+      "value": " 2 months"
+     },
+     {
+      "name": "139533",
+      "value": " 3 months or more"
+     }
+    ],
+    "singleOption": true,
+    "type": "dropdown"
+   },
+   {
+    "id": "CA_10628",
+    "label": "Are you eligible to work in the country you are applying?",
+    "required": false,
+    "type": "boolean"
+   },
+   {
+    "id": "CA_10629",
+    "label": "How did you hear about us?",
+    "required": false,
+    "maxLength": 127,
+    "type": "text"
+   },
+   {
+    "id": "QA_12487756",
+    "label": "Can you confirm that everything in this application is true and your own, including your experience and identity?",
+    "required": true,
+    "type": "boolean"
+   },
+   {
+    "id": "QA_12487757",
+    "label": "Did you start your first written answer below with the exact phrase we asked for in the job description?",
+    "required": true,
+    "type": "boolean"
+   },
+   {
+    "id": "QA_12487758",
+    "label": "Do you have a public track record of open-source contributions, such as merged pull requests to impactful libraries, or projects you've authored or actively maintain?",
+    "required": true,
+    "type": "boolean"
+   },
+   {
+    "id": "QA_12487759",
+    "label": "Why Hugging Face, and where would you make the biggest difference in this role? Write it yourself, in your own words. We read every answer and we're after the specifics only you could give us, so generic or copy-pasted ones won't get far. 🤗",
+    "required": true,
+    "type": "paragraph"
+   },
+   {
+    "id": "QA_12487760",
+    "label": "Share 2–3 of your open-source contributions with links (GitHub PRs, issues, or projects you maintain), and a quick note on your role and what each one involved.\nThis one really matters to us, so please give it a real go. Blank or \"N/A\" answers won't move forward. Don't overthink it though, small or in-progress work is genuinely welcome, we just want to see something real.",
+    "required": true,
+    "type": "paragraph"
+   }
+  ],
+  "name": "Details"
+ }
+]

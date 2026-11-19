@@ -20,6 +20,7 @@ uv run python scripts/smoke_test.py                  # e2e smoke test vs a runni
 uv run python scripts/smoke_test.py --no-run         # skip real LLM runs (offline/CI)
 
 uv run python scripts/run_canaries.py                # read-only scraper drift probes (cron/CI; exit 1 on drift)
+uv run python scripts/ats_live_smoke.py              # live DRY-RUN of the ATS apply adapters (never submits; exit 1 on drift)
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
@@ -149,7 +150,7 @@ External packages can register specs via entry points — `spec.load_plugins()`,
 
 **Deterministic-funnel flows** (e.g. `email_collect`, `tasker_apply`) — drive the tools directly in the flow (fast/cheap/reliable) and use the crew only for the LLM-judgement step; don't make the agent orchestrate many tool calls. Return partial results + a `warnings` list from scraper tools instead of raising.
 
-**ATS apply adapters share `tools/ats_common.py`.** The platform-neutral answer rules (`Question` → `answer_question` / `plan_questions`), title matching, the keyed "already applied" ledger and the stealth browser helpers live there; an adapter (Greenhouse today) only maps its form to `Question`s and fills the DOM. Keep its "skip the job rather than guess a required answer" policy. See [doc/job-platforms-automation-plan.md](doc/job-platforms-automation-plan.md) (Phase 0).
+**ATS apply adapters share `tools/ats_common.py`.** The platform-neutral answer rules (`Question` → `answer_question` / `plan_questions`), title matching, the keyed "already applied" ledger and the stealth browser helpers live there. `ats_apply` routes boards by URL (`tools/ats_router.py`) to one `Adapter` per platform (`tools/ats_<platform>.py`: discover → read the form without a browser → plan → fill/submit); `greenhouse_apply` stays its own job type and shares the core. Keep the "skip the job rather than guess a required answer" policy. See [doc/ats_apply.md](doc/ats_apply.md).
 
 **`email_collect` discovery is multi-source.** The `sources` payload field picks any of `maps` (Google Maps), `association` (TW 公會/工會 member directories — `tw_association_tool.py`) and `govbiz` (經濟部 商工登記 open-data API — `moea_gcis_tool.py`). Each source returns the funnel's business shape and is merged/deduped on registrable domain — falling back to the normalized company name (alias/spacing/台-臺 folded) when the source knows no website, as the registry never does — then interleaved so one source can't eat the whole `limit`. A new source is one function returning `{"businesses", "warnings"}` plus a branch in `EmailCollectFlow._run_source`. Registry rows have no website; `maps_search_tool.resolve_websites()` bridges that and **must keep its name-corroboration check** — Maps answers an unlisted company with whatever was nearest, so an unchecked hit files a stranger's email under a real company. See [doc/email_collect/README.md](doc/email_collect/README.md).
 

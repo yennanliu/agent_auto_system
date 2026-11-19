@@ -39,6 +39,8 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'linkedin_keyword_expander', "name": 'LinkedIn Keyword Expander', "yaml_key": 'keyword_expander', "tools": [], "crew": 'LinkedInKeywordCrew', "task": 'expand_keywords_task', "job_type": 'linkedin_apply', "source_file": 'src/automation/crews/linkedin_keyword_crew/config/agents.yaml'},
     {"id": 'greenhouse_relevance_judge', "name": 'Greenhouse Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'greenhouse_screening_answerer', "name": 'Greenhouse Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
+    {"id": 'ats_relevance_judge', "name": 'ATS Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
+    {"id": 'ats_screening_answerer', "name": 'ATS Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
 ]
 
@@ -297,6 +299,32 @@ _CATALOG: dict = {
             ],
             "used_by": ["GreenhouseApplyFlow"],
             "source_file": "src/automation/tools/greenhouse_apply_tool.py",
+        },
+        {
+            "id": "ats_apply",
+            "name": "ATS Apply",
+            "class": "ATSApplyTool",
+            "description": (
+                "Auto-apply across applicant-tracking systems — Greenhouse, Lever, Ashby and "
+                "Workable; SmartRecruiters jobs are listed for manual apply. No login. Routes "
+                "each board / job URL to its platform adapter, lists jobs via the platform's "
+                "public API, reads each form's questions without a browser (Lever HTML, Ashby "
+                "GraphQL, Workable form API, Greenhouse Job Board API), answers them with the "
+                "shared rules (skipping a job when a required question can't be answered), then "
+                "fills the form in a browser and clicks Submit only when dry_run is false — "
+                "counting success only on the platform's confirmation."
+            ),
+            "inputs": [
+                {"name": "boards",           "type": "str",  "description": "Board / job URLs or platform:token (lever:palantir), comma-separated"},
+                {"name": "keywords",         "type": "str",  "description": "Title filter phrases, comma-separated (blank = all)"},
+                {"name": "location",         "type": "str",  "description": "Job-location substrings, comma-separated (blank = any)"},
+                {"name": "first_name / last_name / email / phone", "type": "str", "description": "Applicant contact fields"},
+                {"name": "resume_path",      "type": "str",  "description": "Resume file on the server (default ATS_RESUME_PATH)"},
+                {"name": "max_applications", "type": "int (1–200)", "description": "Number of jobs to actually apply to (default 5)"},
+                {"name": "dry_run",          "type": "bool", "description": "If true (default), fill the form but do NOT click Submit"},
+            ],
+            "used_by": ["ATSApplyFlow"],
+            "source_file": "src/automation/tools/ats_apply_tool.py",
         },
         {
             "id": "maps_search",

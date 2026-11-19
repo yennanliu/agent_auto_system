@@ -52,7 +52,8 @@ from pydantic import BaseModel
 from src.automation.tools.ats_common import (
     Question,
     answer_question,
-    countries_in,
+    build_profile,
+    countries_in,  # noqa: F401 — re-exported for callers / tests
     decline_option,
     expand_keywords,  # noqa: F401 — re-exported for callers / tests
     first_visible,
@@ -67,6 +68,7 @@ from src.automation.tools.ats_common import (
     parse_extra_answers,
     parse_start,
     split_list,
+    url_path_has,
     visible_text,
     with_job_location,
     years_option,
@@ -121,7 +123,8 @@ def parse_board_ref(ref: str) -> tuple[str, str] | None:
     if "://" not in ref:
         ref = "https://" + ref
     u = urlparse(ref)
-    if not any(u.netloc.endswith(h) for h in _GH_HOSTS):
+    host = u.netloc.lower().split(":")[0]
+    if not any(host == h or host.endswith("." + h) for h in _GH_HOSTS):  # not evilgreenhouse.io
         return None
     q = parse_qs(u.query)
     parts = [p for p in u.path.split("/") if p]
@@ -560,7 +563,7 @@ def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
     submit.click(timeout=8000)
     for _ in range(30):
         page.wait_for_timeout(500)
-        if "/confirmation" in (page.url or "") or visible_text(page, _SUCCESS_TEXTS):
+        if url_path_has(page.url or "", ("confirmation",)) or visible_text(page, _SUCCESS_TEXTS):
             entry.update(status="submitted", submitted=True,
                          confirmation="Greenhouse confirmation page shown")
             log(f"✓ {job['token']}/{job['job_id']}: submitted AND confirmed")
@@ -669,30 +672,20 @@ def run_greenhouse_apply(
             fd, cover_tmp = tempfile.mkstemp(prefix="cover_letter_", suffix=".txt")
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(cover_letter.strip())
-        profile = {
-            "first_name": first_name.strip(), "last_name": last_name.strip(),
-            "email": email.strip(), "phone": (phone or "").strip(),
-            "location": (current_location or "").strip(),
-            "linkedin_url": linkedin_url.strip(), "github_url": github_url.strip(),
-            "website_url": website_url.strip(), "years": years,
-            "salary": (salary_expectation or "").strip(),
-            "work_authorized": bool(work_authorized),
-            "needs_sponsorship": bool(needs_sponsorship),
-            "authorized_countries": set().union(*(countries_in(c) for c in split_list(authorized_countries))),
-            "resume_path": resume_path, "cover_letter_path": cover_tmp,
-            "extra_answers": parse_extra_answers(extra_answers),
-            "current_salary": (current_salary or "").strip(),
-            "notice_period": (notice_period or "").strip(),
-            "languages": languages or "",
-            "programming_languages": programming_languages or "",
-            "ai_experience": (ai_experience or "").strip(),
-            "reason_for_leaving": (reason_for_leaving or "").strip(),
-            "has_criminal_record": bool(has_criminal_record),
-            "education": {"school": school.strip(), "degree": degree.strip(),
-                          "discipline": discipline.strip()},
-            "employment": {"company": current_company.strip(), "title": current_title.strip(),
-                           **parse_start(current_start)},
-        }
+        profile = build_profile(
+            first_name=first_name, last_name=last_name, email=email, phone=phone,
+            current_location=current_location, linkedin_url=linkedin_url,
+            github_url=github_url, website_url=website_url, years_experience=years,
+            salary_expectation=salary_expectation, work_authorized=work_authorized,
+            needs_sponsorship=needs_sponsorship, authorized_countries=authorized_countries,
+            resume_path=resume_path, cover_letter_path=cover_tmp, extra_answers=extra_answers,
+            current_salary=current_salary, notice_period=notice_period, languages=languages,
+            programming_languages=programming_languages, ai_experience=ai_experience,
+            reason_for_leaving=reason_for_leaving, has_criminal_record=has_criminal_record,
+            school=school, degree=degree, discipline=discipline,
+            current_company=current_company, current_title=current_title,
+            current_start=current_start,
+        )
         ledger = load_ledger(ledger_path)
 
         applied: list[dict] = []
