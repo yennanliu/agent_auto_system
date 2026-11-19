@@ -458,6 +458,26 @@ def _email_run(case: Case, provider: str, model: str) -> object:
         return _kickoff(case.job_type, case.payload, provider, model)
 
 
+# freelancer_bids — the API search is a deterministic fetch; the prompt-sensitive
+# part is drafting (incl. declining a project the background doesn't fit). Feed
+# canned API projects into the real filters + drafting crew; the ledger is off.
+def _freelancer_fixture_problems(case: Case) -> list[str]:
+    projects = case.fixtures.get("projects")
+    ok = isinstance(projects, list) and projects and all(
+        isinstance(p, dict) and p.get("id") and p.get("title") for p in projects)
+    return [] if ok else ["fixtures.projects must be a non-empty list of Freelancer API "
+                          "projects ({id, title, description, budget, currency, ...})"]
+
+
+def _freelancer_run(case: Case, provider: str, model: str) -> object:
+    from src.automation.tools import freelancer_tool as ft
+    projects = [ft.normalize(p) for p in case.fixtures["projects"]]
+    with mock.patch.object(ft, "search", lambda client, keywords, log=None: (projects, [])), \
+            mock.patch.object(ft, "load_ledger", lambda path: {}), \
+            mock.patch.object(ft, "record_drafted", lambda path, project: None):
+        return _kickoff(case.job_type, case.payload, provider, model)
+
+
 # custom:<slug> — the definition normally lives in the DB; a case carries it in
 # `fixtures.custom` and runs the same no-tools DynamicCrew as executor._run_custom.
 def _custom_fixture_problems(case: Case) -> list[str]:
@@ -487,6 +507,7 @@ _ADAPTERS: dict[str, Adapter] = {
                                       "google_sheet_reader"),
     "profit_health_check": Adapter(_profit_fixture_problems, _profit_run, _profit_consistency),
     "email_collect": Adapter(_email_fixture_problems, _email_run),
+    "freelancer_bids": Adapter(_freelancer_fixture_problems, _freelancer_run),
 }
 _CUSTOM_ADAPTER = Adapter(_custom_fixture_problems, _custom_run)
 

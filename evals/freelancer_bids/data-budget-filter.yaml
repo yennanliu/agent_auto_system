@@ -1,0 +1,95 @@
+id: data-budget-filter
+job_type: freelancer_bids
+description: >-
+  Budget filtering in USD across currencies plus drafting. A fictional INR project whose
+  budget converts to about $107 is below the $200 minimum and is filtered out before the
+  LLM. A fictional EUR data-pipeline project fits and must be drafted using only the
+  background's facts. The API search is stubbed.
+payload:
+  keywords: "data pipeline, airflow"
+  min_budget_usd: 200
+  max_drafts: 3
+  candidate_background: >-
+    Data engineer, 5 years. Apache Airflow DAGs, dbt models and BigQuery for a retail
+    analytics team; Python and SQL. Wrote an Airflow-on-Kubernetes migration guide at
+    https://notes.example/airflow-k8s.
+fixtures:
+  projects:
+    - id: 9101
+      title: "Airflow data pipeline to BigQuery (fictional)"
+      type: fixed
+      description: >-
+        Move three nightly cron jobs into Airflow, load results into BigQuery, and alert on
+        failures in Slack. Existing scripts are Python.
+      budget: {minimum: 600, maximum: 1200}
+      currency: {code: EUR, sign: "€", exchange_rate: 1.08}
+      bid_stats: {bid_count: 7, bid_avg: 1500}
+      jobs: [{name: Python}, {name: Data Engineering}]
+      seo_url: python/Airflow-data-pipeline-fictional
+      frontend_project_status: open
+      time_submitted: 1795080000
+    - id: 9102
+      title: "Small data pipeline cleanup (fictional)"
+      type: fixed
+      description: "Tidy a pandas script."
+      budget: {minimum: 1500, maximum: 10000}
+      currency: {code: INR, sign: "₹", exchange_rate: 0.0107}
+      bid_stats: {bid_count: 4, bid_avg: 5000}
+      jobs: [{name: Python}]
+      seo_url: python/Small-data-pipeline-cleanup-fictional
+      frontend_project_status: open
+      time_submitted: 1795079000
+expect:
+  contains:
+    - "Airflow data pipeline to BigQuery (fictional)"
+    - "< $200"
+  assertions:
+    - {path: "projects_found", equals: 2}
+    - {path: "drafted", type: list, min_len: 1, max_len: 1}
+    - {path: "drafted[0].id", equals: "9101"}
+    - {path: "drafted[0].proposal", type: str, non_empty: true, max_len: 1600}
+    - {path: "drafted[0].suggested_bid", equals: 900}
+    - {path: "skipped", type: list, min_len: 1, max_len: 1}
+  min_judge_score: 65
+reference_output:
+  summary: "2 project(s) found, 1 passed the filters, 1 proposal(s) drafted (not submitted), 1 skipped."
+  projects_found: 2
+  drafted_count: 1
+  skipped_count: 1
+  drafted:
+    - id: "9101"
+      title: "Airflow data pipeline to BigQuery (fictional)"
+      url: "https://www.freelancer.com/projects/python/Airflow-data-pipeline-fictional"
+      type: fixed
+      currency: EUR
+      budget_min: 600
+      budget_max: 1200
+      budget_min_usd: 648.0
+      budget_max_usd: 1296.0
+      bid_count: 7
+      skills: ["Python", "Data Engineering"]
+      bid_avg: 1500
+      suggested_bid: 900
+      proposal: >-
+        You want three nightly cron jobs moved into Airflow, their results loaded into
+        BigQuery, and Slack alerts when something fails. I would wrap each existing Python
+        script as a task in one DAG with retries, load into BigQuery with an explicit schema
+        so bad rows fail loudly, and add an on-failure callback that posts the task and log
+        link to Slack. I build Airflow DAGs and BigQuery models for a retail analytics team
+        today, and wrote up an Airflow-on-Kubernetes migration at
+        https://notes.example/airflow-k8s. Are the three jobs independent, or does one need
+        another's output first?
+  skipped:
+    - id: "9102"
+      title: "Small data pipeline cleanup (fictional)"
+      url: "https://www.freelancer.com/projects/python/Small-data-pipeline-cleanup-fictional"
+      type: fixed
+      currency: INR
+      budget_min: 1500
+      budget_max: 10000
+      budget_min_usd: 16.05
+      budget_max_usd: 107.0
+      bid_count: 4
+      reason: "budget up to $107 < $200"
+  warnings: []
+  note: "Draft-only: review each proposal and place the bid on Freelancer.com yourself."

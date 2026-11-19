@@ -641,6 +641,58 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
+    job_type="freelancer_bids", desc="Find Freelancer.com projects and draft bid proposals",
+    name="Freelancer Bids", icon="🪙",
+    flow_module="src.automation.flows.freelancer_bids_flow", flow_class="FreelancerBidsFlow",
+    start_log="Searching Freelancer.com projects", temperature=0.5,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Search", "Searching Freelancer.com projects"), ("Draft", "drafting complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("drafted"), list) and r.get("projects_found") is not None,
+        "no projects processed",
+    ),
+    rubric=("Matching Freelancer.com projects were found and each drafted proposal is specific to "
+            "its project, uses only facts from the candidate background (no invented experience, "
+            "clients or links), contains no price or placeholders, and ends with a question. "
+            "Projects the background doesn't fit are declined (skipped with a reason), not "
+            "drafted. Nothing is submitted: this is draft-only by design."),
+    # Read-only probe of the official public search endpoint the tool uses.
+    canary=Canary(
+        kind="http",
+        url="https://www.freelancer.com/api/projects/0.1/projects/active/?query=python&limit=1&compact=true",
+        expect=('"success"', '"projects"'),
+        source="src.automation.tools.freelancer_tool",
+    ),
+    name_template="Freelancer: {keywords}",
+    fields=(
+        Field("keywords", "text", "Search Keywords", required=True, placeholder="python, django, web scraping",
+              help="Comma-separated; one Freelancer.com search per keyword (max 5). A project matches when "
+                   "its title or skills contain a keyword."),
+        Field("candidate_background", "textarea", "Your Background", required=True,
+              help="Skills, experience and links the proposals may use — the only facts about you the LLM "
+                   "is allowed to state. Projects your background doesn't fit are declined, not drafted."),
+        Field("min_budget_usd", "number", "Min Budget (USD)", default=0, min=0,
+              help="Skip projects whose budget can't reach this (converted to USD). 0 = any."),
+        Field("max_budget_usd", "number", "Max Budget (USD)", default=0, min=0,
+              help="Skip projects whose budget starts above this. 0 = any."),
+        Field("project_type", "select", "Project Type", default="any",
+              options=(("any", "Fixed or hourly"), ("fixed", "Fixed price"), ("hourly", "Hourly"))),
+        Field("max_bids", "number", "Max Existing Bids", default=50, min=0,
+              help="Skip crowded projects with more bids than this. 0 = any."),
+        Field("max_drafts", "number", "Proposals To Draft (1–25)", default=5, min=1, max=25),
+        Field("proposal_template", "textarea", "Proposal Template (optional)",
+              help="Reusable text (portfolio links, sign-off) kept verbatim; the rest is tailored."),
+        Field("task_filter", "textarea", "Relevance Filter (LLM, optional)",
+              placeholder="Only backend / data work; no WordPress"),
+    ),
+    help_note=(
+        "Draft-only: searches Freelancer.com's official public API (no login), drafts a proposal and "
+        "a suggested bid per matching project, and never places a bid — review each and bid on "
+        "Freelancer.com yourself. Projects already drafted in an earlier run are skipped."
+    ),
+))
+
+register(AutomationSpec(
     job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby and Workable boards",
     name="ATS Apply", icon="🧭",
     flow_module="src.automation.flows.ats_apply_flow", flow_class="ATSApplyFlow",
