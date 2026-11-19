@@ -25,6 +25,8 @@ KNOWN = SUPPORTED + ("workday",)
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 _WORKABLE_SHORTCODE_RE = re.compile(r"^[A-Z0-9]{6,12}$")
+_WORKABLE_RESERVED = {"www", "apply", "jobs", "help", "resources", "app", "api", "blog",
+                      "careers", "status", "developers", "marketplace", "id"}
 
 
 @dataclass(frozen=True)
@@ -91,7 +93,9 @@ def detect_ats(url: str) -> BoardRef | None:
     if host.endswith(".workable.com") and host.count(".") == 2:
         # Legacy <account>.workable.com/j/<SHORTCODE>
         account = host.split(".")[0]
-        if account in ("www", "apply", "help", "resources"):
+        # Workable's own subdomains, not employer accounts (jobs.workable.com is
+        # its job-seeker search site).
+        if account in _WORKABLE_RESERVED:
             return None
         job = parts[1] if len(parts) > 1 and parts[0] in ("j", "jobs") else ""
         return BoardRef("workable", account, job.upper() if _WORKABLE_SHORTCODE_RE.match(job.upper()) else "")

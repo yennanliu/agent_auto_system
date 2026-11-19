@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss">
+  <channel>
+    <title>We Work Remotely: Remote jobs in design, programming, marketing and more</title>
+    <link>https://weworkremotely.com/categories/remote-programming-jobs.rss</link>
+    <description>We Work Remotely: Remote jobs in design, programming, marketing and more</description>
+    <language>en-US</language>
+    <ttl>60</ttl>
+    <item>
+      <title>Jumio: Principal Enterprise Architect</title>
+      <region>Anywhere in the World</region>
+      <category>Full-Stack Programming</category>
+      <description>
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; India (remote)
+&lt;/p&gt;
+
+&lt;h1&gt;&lt;strong&gt;Enterprise Architect - Cloud &amp;amp; AI&lt;/strong&gt;&lt;/h1&gt;
+&lt;h2&gt;&lt;strong&gt;Role Overview&lt;/strong&gt;&lt;/h2&gt;
+&lt;p&gt;Jumio is not just processing transactions; we are pioneering the future of identity intelligence. To lead this transformation, you serve as a visionary &lt;strong&gt;AI Adoption Catalyst and Systems Architect&lt;/strong&gt;, redefining our technical landscape. In this role, you aren’t a traditional gatekeeper—you are a &lt;strong&gt;Developer Advocate&lt;/strong&gt; and mission-driven leader. You take end-to-end ownership of our architecture, positioning machine learning and GenAI at the heart of our DNA. Leveraging your deep expertise in AWS and cloud-native engineering, you provide the engine that empowers our developers to innovate at lightning speed, ensuring our multi-tenant SaaS platform remains the global benchmark for performance and scale.&lt;/p&gt;
+&lt;p&gt;This is a mandate for a technical doer who thrives on the front lines. Building on our strong, scalable cloud foundation, you will actively champion the adoption of GenAI tools across the software development lifecycle while driving continuous architectural improvement, evolution, and operational cost optimization. Your proven experience in AWS is the toolkit you use to clear architectural roadblocks and optimize performance, enabling engineering teams to move with unprecedented velocity.&lt;/p&gt;
+&lt;p&gt;As a strategic technical leader who stays close to the code, you inspire an AI-First culture. You bridge the gap between visionary enterprise design and pragmatic execution, driving cross-departmental impact while fostering self-service capabilities and cloud efficiency to ensure that as Jumio grows, our technology scales predictably and elegantly.&lt;/p&gt;
+&lt;h2&gt;&lt;strong&gt;Key Responsibilities&lt;/strong&gt;&lt;/h2&gt;
+&lt;h3&gt;&lt;strong&gt;End-to-End System Architecture &amp;amp; Optimization&lt;/strong&gt;&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Own the technical vision for scalable, high-performance, cost-efficient systems.&lt;/li&gt;
+&lt;li&gt;Define modern architecture patterns that enable growth, high TPS, and seamless scaling.&lt;/li&gt;
+&lt;li&gt;Architect and optimize multi-tenant SaaS platforms, ensuring configurability and performance.&lt;/li&gt;
+&lt;li&gt;Design self-service capabilities to reduce engineering overhead (e.g., self-service workflow designer, self-service rules engine, self-service reporting).&lt;/li&gt;
+&lt;li&gt;Lead cloud cost efficiency initiatives, optimizing infrastructure, model execution, and compute resources.&lt;/li&gt;
+&lt;li&gt;Collaborate closely with AWS Support and Solution Architects to optimize infrastructure and leverage cutting-edge cloud capabilities.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;&lt;strong&gt;Data &amp;amp; AI Infrastructure&lt;/strong&gt;&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Architect high-scale, distributed data processing pipelines for batch and real-time workloads.&lt;/li&gt;
+&lt;li&gt;Optimize data storage, retrieval, and processing layers to enhance system performance and reduce cost.&lt;/li&gt;
+&lt;li&gt;Enable data self-service for analytics, ML, and real-time business use cases.&lt;/li&gt;
+&lt;li&gt;Ensure data governance, security, and compliance across all systems.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;&lt;strong&gt;Technical Leadership &amp;amp; Hands-on Architecture&lt;/strong&gt;&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Guide engineering teams on architectural best practices and pragmatic execution.&lt;/li&gt;
+&lt;li&gt;Coach teams on scalable microservices, event-driven architectures, and cloud-native patterns.&lt;/li&gt;
+&lt;li&gt;Practice "Architecting by Example" through technical prototyping and proof-of-concepts to validate architectural decisions.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;&lt;strong&gt;GenAI Acceleration &amp;amp; Architectural Advocacy&lt;/strong&gt;&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;You serve as the AI Adoption Catalyst and engineering champion, actively partnering with developers and business units to integrate LLMs and agentic workflows that securely hyper-automate the development lifecycle.&lt;/li&gt;
+&lt;li&gt;You clear roadblocks and deploy agile architectural guardrails that empower teams to experiment rapidly with automated AI tools, building a self-service AI culture while maintaining rigorous cost-performance optimization.&lt;/li&gt;
+&lt;li&gt;Your leadership evolves architectural governance into a collaborative platform for ensuring system-wide coherence, security, and world-class scalability.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;&lt;strong&gt;Architectural Governance &amp;amp; ARC Leadership&lt;/strong&gt;&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Lead the Jumio Architecture Review Council (ARC) to drive cross-functional alignment and the evolution of our technical landscape.&lt;/li&gt;
+&lt;li&gt;Establish and enforce architectural standards, ensuring consistency, security, and scalability across all product teams.&lt;/li&gt;
+&lt;li&gt;Facilitate cross-team architectural reviews to identify technical debt, drive alignment, and ensure strategic coherence.&lt;/li&gt;
+&lt;li&gt;Serve as the primary decision-maker for complex architectural trade-offs, balancing immediate delivery needs with long-term system health.&lt;/li&gt;
+&lt;li&gt;Mentor engineering leadership on architectural best practices and standardized decision-making processes.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;h2&gt;&lt;strong&gt;Who You Are&lt;/strong&gt;&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Strategic Visionary—you connect long-term business goals with robust technical roadmaps.&lt;/li&gt;
+&lt;li&gt;Ultra-technical—you design, build, and optimize systems with a hands-on approach.&lt;/li&gt;
+&lt;li&gt;System-First Thinker—you prioritize architecture, efficiency, and scale in every decision.&lt;/li&gt;
+&lt;li&gt;Cloud-Native Expert—you utilize your deep AWS knowledge to optimize costs while improving system performance.&lt;/li&gt;
+&lt;li&gt;Pragmatic Decision Maker—your impact-driven solutions ensure technical excellence without sacrificing speed.&lt;/li&gt;
+&lt;li&gt;Builder’s Mentality—you thrive on automation, self-service, and reducing engineering toil through GenAI adoption.&lt;/li&gt;
+&lt;li&gt;Growth-Oriented Mentor—you teach, coach, and elevate the engineering teams through architectural advocacy.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;&lt;strong&gt;Must-Have Skills &amp;amp; Experience&lt;/strong&gt;&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;12+ years of hands-on experience in system architecture, data engineering, cloud engineering, or technical leadership roles.&lt;/li&gt;
+&lt;li&gt;Experience with multi-tenant architectures and designing frameworks for configurable SaaS platforms.&lt;/li&gt;
+&lt;li&gt;Deep, hands-on expertise in AWS (e.g., EKS, IAM, Lambda, networking) is required; professional experience with GCP is a strong plus.&lt;/li&gt;
+&lt;li&gt;Strong experience with distributed systems, microservices, event-driven architectures, and caching strategies.&lt;/li&gt;
+&lt;li&gt;Hands-on knowledge of AI/ML model execution—understanding model inference performance, cost trade-offs, and optimization strategies.&lt;/li&gt;
+&lt;li&gt;Proficiency in high-scale transactional systems.&lt;/li&gt;
+&lt;li&gt;Experience with infrastructure automation (Terraform, CI/CD, Kubernetes, Docker).&lt;/li&gt;
+&lt;li&gt;Strong coding skills (Expert in Java, Strong in Python,&amp;nbsp; Knowledgeable in JavaScript/TypeScript &amp;amp; Kotlin).&lt;/li&gt;
+&lt;li&gt;Strong experience leading architectural review processes and fostering engineering standards.&lt;/li&gt;
+&lt;li&gt;Proven expertise in integrating GenAI and ML methodologies into the software development lifecycle.&lt;/li&gt;
+&lt;li&gt;Proven ability in strategic stakeholder management and complex financial/TCO (Total Cost of Ownership) analysis for enterprise technology.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;&lt;strong&gt;Nice-to-Have Skills&lt;/strong&gt;&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Experience with high-volume, real-time data processing and distributed streaming architectures.&lt;/li&gt;
+&lt;li&gt;Experience building petabyte-scale distributed data platforms.&lt;/li&gt;
+&lt;li&gt;Familiarity with fraud prevention, identity verification, or authentication technologies.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;&lt;strong&gt;Why Join Us?&lt;/strong&gt;&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Impact at scale&lt;/strong&gt;—we process &lt;strong&gt;millions of transactions&lt;/strong&gt; and solve &lt;strong&gt;real-world security and identity challenges&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Modern technical foundation with room to innovate&lt;/strong&gt;—leverage our established, scalable cloud architecture while actively driving continuous modernization, operational cost optimization, and solving complex technical challenges.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Hands-on architecture leadership&lt;/strong&gt;—you won’t be stuck in meetings; you’ll drive execution.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Work alongside top engineers and AI/ML experts&lt;/strong&gt;, pushing the limits of what’s possible.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Competitive compensation and high ownership&lt;/strong&gt;—your work will define how Jumio scales.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;&lt;div class="content-conclusion"&gt;&lt;p&gt;&lt;strong&gt;Jumio Values:&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;span&gt;IDEAL: Integrity, Diversity, Empowerment, Accountability, Leading Innovation &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Equal Opportunities&lt;/strong&gt;&lt;span&gt;&lt;strong&gt;: &lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;span&gt;Jumio is a collaboration of people with different ideas, strengths, interests and cultures. We welcome applications and colleagues from all backgrounds and of all statuses.&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;About Jumio:&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Jumio is a B2B technology company dedicated to eradicating online identity fraud, money laundering and other financial crimes to help make the internet safer. We leverage AI, biometrics, machine learning, liveness detection and automation to create solutions that are trusted by leading brands worldwide and respected by industry thought leaders.&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;Jumio is the leading provider of online identity verification, eKYC and AML solutions. With a global footprint, we’re expanding the team to meet strong client demand across a range of industries including Financial Services, Travel, Sharing Economy, Fintech, Gaming, and others.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Applicant Data Privacy &lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;We will only use your personal information in connection with Jumio’s application, recruitment, and hiring processes, as described in Jumio’s &lt;a href="https://www.jumio.com/legal-information/privacy-notices/candidate-notice/"&gt;Applicant Privacy Notice.&lt;/a&gt; If you have any questions or comments, please send an email to &lt;a href="mailto:jobs@example.com"&gt;jobs@example.com&lt;/a&gt;.&lt;/p&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/jumio-principal-enterprise-architect"&gt;https://weworkremotely.com/remote-jobs/jumio-principal-enterprise-architect&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Fri, 30 Oct 2026 07:31:21 +0000</pubDate>
+      <guid>https://weworkremotely.com/remote-jobs/jumio-principal-enterprise-architect</guid>
+      <link>https://weworkremotely.com/remote-jobs/jumio-principal-enterprise-architect</link>
+    </item><item>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0074/8032/logo.gif" type="image/png"/>
+      <title>Storetasker: Senior Shopify Developer (Remote + Flexible)</title>
+      <region>Anywhere in the World</region>
+      <category>Full-Stack Programming</category>
+      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0074/8032/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Brooklyn, NY
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://resources.storetasker.com/become-an-expert?apply=true&amp;amp;source=weworkremotely_best_2021"&gt;https://resources.storetasker.com/become-an-expert?apply=true&amp;amp;source=weworkremotely_best_2021&lt;/a&gt;
+&lt;/p&gt;
+
+&lt;h1&gt;Shopify developers love to freelance with Storetasker.&lt;/h1&gt;&lt;ul&gt;&lt;li&gt;&lt;strong&gt;Endless, quality clients: &lt;/strong&gt;from well known DTC brands to top agencies.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Fully remote, flexible: &lt;/strong&gt;work as much or as little as you want, wherever you want.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;A talented and helpful community: &lt;/strong&gt;it's freelance (with a team).&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Earn $100-$200 per hour: &lt;/strong&gt;pick your clients, and send your own quotes or retainers.&amp;nbsp;&lt;br&gt;&lt;br&gt;&lt;/li&gt;&lt;/ul&gt;&lt;div&gt;We've connected our community of Shopify developers to over 32,000 e-commerce brands. From new brands pre-launch, to some of the most successful Shopify Plus sites, to top creative agencies. Clients include: &lt;a href="https://www.alphaindustries.com/"&gt;Alpha Industries&lt;/a&gt;, &lt;a href="https://www.bollandbranch.com/"&gt;Boll &amp;amp; Branch&lt;/a&gt;, &lt;a href="https://getsuperfluid.com"&gt;Superfluid&lt;/a&gt;, &lt;a href="https://jackhenry.co/"&gt;Jack Henry&lt;/a&gt;, &lt;a href="http://plenaire.co/"&gt;Plenaire&lt;/a&gt;, and &lt;a href="https://walkfulton.com/"&gt;Fulton&lt;/a&gt; among many more. &lt;br&gt;&lt;br&gt;&lt;strong&gt;Why Storetasker?&lt;/strong&gt;&lt;/div&gt;&lt;ul&gt;&lt;li&gt;&lt;strong&gt;Endless clients &amp;amp; project opportunities:&lt;/strong&gt; you’ll see between 5 - 50 new opportunities per day and can pick any lead you want.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;You’ll earn more:&lt;/strong&gt; some experts are making $250k+ per year.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;A high quality community:&lt;/strong&gt; we carefully select about 5% of those who apply.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Remote:&lt;/strong&gt; work from anywhere, anytime.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Flexible:&lt;/strong&gt; take on as many clients as you want.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;No external ratings:&lt;/strong&gt; you’re already a professional. No need to prove it.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Great Software:&lt;/strong&gt; that makes it easy to manage more clients and increase billable hours.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Support when you need it:&lt;/strong&gt; we offer project support 7 days per week.&amp;nbsp;&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Community (not competition):&lt;/strong&gt; you pick your clients, projects, and never compete against other Experts in the community.&amp;nbsp;&lt;/li&gt;&lt;/ul&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;a href="https://www.storetasker.com/become-an-expert?&amp;amp;source=weworkremotely_best_2021"&gt;&lt;strong&gt;Learn more and join&lt;/strong&gt;&lt;/a&gt;! It’s confidential, and takes less than 5 minutes. &lt;br&gt;&lt;br&gt;&lt;strong&gt;Here's who we're looking for:&lt;/strong&gt;&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Ambitious part time and full-time freelancers and boutique agencies.&lt;/li&gt;&lt;li&gt;Who have 3+ years of Shopify experience, and 5+ years of web development experience.&amp;nbsp;&lt;/li&gt;&lt;li&gt;And who have managed projects, deadlines, and communication successfully.&amp;nbsp;&lt;/li&gt;&lt;/ul&gt;&lt;div&gt;&lt;br&gt;&lt;strong&gt;Especially people with some of these skills:&lt;/strong&gt;&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Front-end or full-stack Shopify development&lt;/li&gt;&lt;li&gt;Headless e-commerce development&lt;/li&gt;&lt;li&gt;Conversion rate optimization&lt;/li&gt;&lt;li&gt;E-commerce expertise and strategy&lt;/li&gt;&lt;li&gt;SEO&amp;nbsp;&lt;/li&gt;&lt;li&gt;Site Speed&lt;/li&gt;&lt;li&gt;Builder and/or Shogun&lt;/li&gt;&lt;/ul&gt;&lt;div&gt;&lt;br&gt;&lt;a href="https://www.storetasker.com/become-an-expert?&amp;amp;source=weworkremotely_best_2021"&gt;&lt;strong&gt;It takes just a few minutes to join.&lt;/strong&gt;&lt;/a&gt;&lt;br&gt;&lt;br&gt;&lt;strong&gt;Here's what a few current members have to say:&lt;/strong&gt;&lt;br&gt;&lt;br&gt;"Storetasker has changed my life - I'm not only making more, but I'm getting quality leads, a diverse slate of projects, and access to an amazing group of developers. Plus, I love the HQ team!" - Adan, United States, Storetasker Expert since March 2020&lt;br&gt;&lt;br&gt;"Storetasker has connected me with clients that would never have been possible without them. That combined with an incredible support network and community makes joining an amazing opportunity for any developer”" - Mark, England, Storetasker Expert since 2019&lt;br&gt;&lt;br&gt;"Storetasker has allowed me to live out my dreams as an independent developer - to move to Toronto and continue doing what I love: solving interesting problems and helping apparel companies grow." - Siah, Canada, Storetasker Expert since 2017&lt;br&gt;&lt;br&gt;&lt;strong&gt;Our Mission: &lt;/strong&gt;&lt;br&gt;&lt;br&gt;We're a company built by ex-freelancers who know the ins and outs of being an independent entrepreneur. We've experienced first-hand the shortcomings of other freelance platforms and the pain-points of being fully independent. Our mission is to empower e-commerce entrepreneurs by giving them the experts, insights, and resources to succeed.&amp;nbsp; &lt;br&gt;&lt;br&gt;&lt;strong&gt;Questions?&lt;/strong&gt; Reach out at jobs@example.com.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/storetasker-senior-shopify-developer-remote-flexible-3"&gt;https://weworkremotely.com/remote-jobs/storetasker-senior-shopify-developer-remote-flexible-3&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Mon, 13 May 2024 03:14:30 +0000</pubDate>
+      <guid>https://weworkremotely.com/remote-jobs/storetasker-senior-shopify-developer-remote-flexible-3</guid>
+      <link>https://weworkremotely.com/remote-jobs/storetasker-senior-shopify-developer-remote-flexible-3</link>
+    </item><item>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0171/6655/logo.gif" type="image/png"/>
+      <title>Bitovi: Backend / Platform Developer Consultant (Temporal &amp; Kubernetes)</title>
+      <region>Anywhere in the World</region>
+      <category>Back-End Programming</category>
+      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0171/6655/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; United States
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://bitovi.com"&gt;https://bitovi.com&lt;/a&gt;
+&lt;/p&gt;
+
+&lt;h2&gt;JOIN OUR TEAM!&lt;/h2&gt;
+&lt;p&gt;Bitovi is looking for a Backend / Platform Developer Consultant to join us as we transform technology delivery. We build and operate durable, distributed systems for enterprise clients — heavy on Java Services, Temporal for workflow orchestration, Kafka for event streaming, and Kubernetes-native platform engineering on AWS to run it all reliably. If you want to build exceptional systems, take orchestration, systems engineering, and infrastructure seriously, and have ideas for making delivery more collaborative, validation-driven, and swift, we want to work with you!&lt;br&gt;&lt;br&gt;&lt;strong&gt;Compensation:&lt;/strong&gt; $120,000 to $190,000 annually, depending on experience, plus annual bonus opportunity.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;PLEASE NOTE: At this time, we are only considering candidates located in and authorized to work in the United States.&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;h2&gt;WHO YOU ARE&lt;/h2&gt;
+&lt;p&gt;You're experienced building and running applications at the enterprise level, and you're comfortable owning both the code and the infrastructure it runs on. You think like a systems engineer — reasoning about the whole platform, from JVM services and event streams to the clusters and cloud infrastructure underneath them. You thrive when given opportunities to deliver real-world platforms as an integral team member, including large-scale migrations, and you have the expertise to interface and communicate confidently with stakeholders.&lt;/p&gt;
+&lt;p&gt;You'll excel in this role at Bitovi if you have:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Strong working knowledge of Java and the JVM ecosystem (Spring Boot or similar); experience with additional backend languages (Go, Python, TypeScript/JavaScript, C#, etc.) is a plus&lt;/li&gt;
+&lt;li&gt;Hands-on experience with a durable execution / workflow engine — Temporal preferred (Apache Airflow, Prefect, or similar also relevant) — including modeling workflows and activities, handling retries and timeouts, and reasoning about idempotency and failure modes&lt;/li&gt;
+&lt;li&gt;Experience designing and operating Kafka-based event streaming systems: topic and partition design, consumer groups, schema management, and reasoning about ordering, delivery guarantees, and consumer lag&lt;/li&gt;
+&lt;li&gt;Experience designing and building GraphQL APIs — schema design, resolvers, and performance concerns (N+1, caching, pagination); federation experience a plus&lt;/li&gt;
+&lt;li&gt;Deep, hands-on AWS experience: architecting, deploying, and operating production systems (EKS, networking, IAM, messaging, and data services)&lt;/li&gt;
+&lt;li&gt;Solid Kubernetes experience: deploying, operating, and debugging production workloads&lt;/li&gt;
+&lt;li&gt;A systems engineering mindset: understanding of complex scaling issues, concurrency, backpressure, caching strategies, and failure modes across distributed systems&lt;/li&gt;
+&lt;li&gt;Experience planning and executing migrations — application replatforming, workflow engine migrations, data/schema migrations, or moving workloads between environments with minimal downtime&lt;/li&gt;
+&lt;li&gt;A thorough understanding of CI/CD pipelines and GitOps-style delivery&lt;/li&gt;
+&lt;li&gt;Experience with observability in practice — logging, metrics, and tracing (OpenTelemetry a plus)&lt;/li&gt;
+&lt;li&gt;Experience building modern microservice-based or serverless applications&lt;/li&gt;
+&lt;li&gt;Database schema design and development expertise&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Other skills we value&lt;/h2&gt;
+&lt;p&gt;Temporal depth&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Running Temporal in production — self-hosted on Kubernetes and/or Temporal Cloud&lt;/li&gt;
+&lt;li&gt;Workflow versioning and patching, safe deployments, and long-running workflow migrations&lt;/li&gt;
+&lt;li&gt;Worker deployment and tuning (pollers, task queues, concurrency/slot configuration)&lt;/li&gt;
+&lt;li&gt;Namespace management, mTLS (SPIFFE/SPIRE or private CA), and capacity/scaling concerns (e.g. APS/TRU on Temporal Cloud&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Kafka &amp;amp; event streaming depth&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Operating Kafka in production (MSK, Confluent, or self-managed on Kubernetes)&lt;/li&gt;
+&lt;li&gt;Kafka Connect, Kafka Streams, and schema registry workflows (Avro/Protobuf)&lt;/li&gt;
+&lt;li&gt;Migrating between clusters or providers, and integrating Kafka with downstream analytical stores&lt;/li&gt;
+&lt;li&gt;Experience with different techniques for processing large datasets, such as Lambda and Kappa architectures&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;Platform / DevOps depth&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Building or operating an internal developer platform (IDP) — self-service, paved-path infrastructure for application teams&lt;/li&gt;
+&lt;li&gt;GitOps with ArgoCD (or Flux) and a low- or zero-manual-apply delivery model&lt;/li&gt;
+&lt;li&gt;Infrastructure as code: Terraform/OpenTofu, and provisioning AWS resources via Crossplane, ACK, or similar&lt;/li&gt;
+&lt;li&gt;Writing Kubernetes controllers/operators (controller-runtime, kubebuilder) and working with CRDs&lt;/li&gt;
+&lt;li&gt;Helm chart authoring and distribution (including OCI/registry-based)&lt;/li&gt;
+&lt;li&gt;Secrets management (External Secrets Operator, etc.), autoscaling (Karpenter, KEDA), and service mesh concepts (Istio, SPIFFE/SPIRE)&lt;/li&gt;
+&lt;li&gt;EKS or comparable managed Kubernetes at scale&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;General&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Interest in working across multiple backend languages&lt;/li&gt;
+&lt;li&gt;Additional queueing and messaging technologies (AWS SQS/SNS, RabbitMQ)&lt;/li&gt;
+&lt;li&gt;API design across paradigms (GraphQL, REST, gRPC)&lt;/li&gt;
+&lt;li&gt;AuthN/AuthZ and related technologies (sessions, API tokens, JWTs)&lt;/li&gt;
+&lt;li&gt;Automated testing across the stack (unit, integration, performance/benchmarking)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;WHO WE ARE&lt;/h2&gt;
+&lt;p&gt;Bitovi partners with companies to build outcome-focused apps and platforms. Our collaborative approach is driven by validation to deliver the swiftest route to the most valuable solution.&lt;/p&gt;
+&lt;p&gt;We design and build high-profile applications and the infrastructure behind them — with tests, full docs, and a real deployment process. We run a serious Temporal practice (including large-scale migration and security work for enterprise clients) alongside deep Kubernetes, AWS, and platform engineering work. We discuss and design architectures, review code, and research new technologies. We talk to our clients, guiding them through the process, identifying potential problems and unknowns, and tackling challenges.&lt;/p&gt;
+&lt;p&gt;We help one another freely. We keep a Slack channel called ask-help, which is constantly used. We develop new skills, build better developer tools, and work on new types of projects regularly.&lt;/p&gt;
+&lt;p&gt;Our fully remote team comprises about 70 developers and designers. We welcome diversity and non-traditional paths into professions — we want the right person, not the right collection of tech keywords.&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;h2&gt;WHAT YOU'LL DO AT BITOVI&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Build durable systems.&lt;/strong&gt; Design and implement Java services, Temporal workflows, and Kafka-based event pipelines, and help clients adopt durable execution and event streaming the right way — from first workflow to production scale.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Lead modernization efforts.&lt;/strong&gt; Plan and execute large-scale modernization efforts — moving workflows, services, and data between platforms, clusters, and clouds — with safety, observability, and minimal disruption as first-class requirements.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Own the platform.&lt;/strong&gt; Build and operate Kubernetes-native infrastructure and CI/CD on AWS so application teams can ship safely and quickly. Treat reliability, observability, and repeatability as part of the deliverable, not an afterthought.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Consult and manage.&lt;/strong&gt; Consult with clients to build outcome-driven applications and platforms, guiding them through the process, identifying potential problems and unknowns, and tackling challenges.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Travel.&lt;/strong&gt; This is a remote, full-time position that requires the ability to travel. We travel an average of 3–5 days every quarter, and we'll always do our best to work with your schedule.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Teach.&lt;/strong&gt; We'll discuss opportunities for you to present at conferences, attend and give training, plan and run meetups or local groups, and create various kinds of content in your area of expertise.&lt;/p&gt;
+&lt;h2&gt;&amp;nbsp;&lt;/h2&gt;
+&lt;h2&gt;BENEFITS WE OFFER&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Competitive salary and annual bonus opportunity&lt;/li&gt;
+&lt;li&gt;Completely remote work with flexible hours&lt;/li&gt;
+&lt;li&gt;401(k) matching&lt;/li&gt;
+&lt;li&gt;4 weeks of paid time off in addition to 8 paid holidays&lt;/li&gt;
+&lt;li&gt;Health, dental, and vision insurance offerings&lt;/li&gt;
+&lt;li&gt;Paid maternity and paternity leave&lt;/li&gt;
+&lt;li&gt;STD, LTD, and Life Insurance coverage&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;HOW TO APPLY&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Please share a resume or LinkedIn profile and answer the additional questions via the application link.&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;OTHER&amp;nbsp;&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Please note that we are not interested in working with recruiters.&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;ID Verification required if invited to an interview.&lt;/p&gt;
+&lt;p&gt;All job offers are contingent on passing a background check.&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;Candidates must be located in and authorized to work in the United States; we are unable to provide visa sponsorship at this time.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/bitovi-backend-platform-developer-consultant-temporal-kubernetes"&gt;https://weworkremotely.com/remote-jobs/bitovi-backend-platform-developer-consultant-temporal-kubernetes&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Thu, 29 Oct 2026 22:31:03 +0000</pubDate>
+      <guid>https://weworkremotely.com/remote-jobs/bitovi-backend-platform-developer-consultant-temporal-kubernetes</guid>
+      <link>https://weworkremotely.com/remote-jobs/bitovi-backend-platform-developer-consultant-temporal-kubernetes</link>
+    </item>
+</channel>
+</rss>

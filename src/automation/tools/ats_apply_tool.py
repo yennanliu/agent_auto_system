@@ -241,9 +241,16 @@ def pick_autocomplete(page, input_locator, typed: str, option_selector: str,
 # ── orchestration ────────────────────────────────────────────────────────────
 
 def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
-              locations: list[str], log: Callable, warnings: list) -> tuple[list[dict], int]:
+              locations: list[str], log: Callable, warnings: list,
+              sourced: set | frozenset = frozenset()) -> tuple[list[dict], int]:
+    """Matching jobs across ``refs``, interleaved by board. A job ref the user
+    pasted is an explicit pick and skips the filters; a ref found by a discovery
+    source (``sourced``) is still filtered by title and location. Each board is
+    listed once, however many refs point at it."""
     groups: list[list[dict]] = []
     total = 0
+    listings: dict[tuple, list[dict] | None] = {}
+    seen: set[tuple] = set()
     for ref in refs:
         adapter = adapters.get(ref.platform)
         where = f"{ref.platform}:{ref.company}"
@@ -251,31 +258,42 @@ def _discover(client, refs: list[BoardRef], adapters: dict, keywords: list[str],
             warnings.append(f"{where}: {ref.platform} is not supported yet")
             log(f"⚠ {where}: {ref.platform} is not supported yet — skipped")
             continue
-        try:
-            jobs = adapter.discover(client, ref)
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"{where}: could not list jobs ({exc})")
-            log(f"⚠ {where}: could not list jobs ({exc})")
+        board_key = (ref.platform, ref.company.lower(), ref.region)
+        if board_key not in listings:
+            try:
+                listings[board_key] = adapter.discover(client, ref)
+                total += len(listings[board_key])
+            except Exception as exc:  # noqa: BLE001
+                listings[board_key] = None
+                warnings.append(f"{where}: could not list jobs ({exc})")
+                log(f"⚠ {where}: could not list jobs ({exc})")
+        jobs = listings[board_key]
+        if jobs is None:
             continue
-        total += len(jobs)
+        explicit = ref not in sourced
         picked = []
         for j in jobs:
-            if ref.job_id:
-                if j["job_id"].lower() != ref.job_id.lower():
-                    continue
-            elif not match_title(j.get("title", ""), j.get("location", ""), keywords, locations):
+            if ref.job_id and j["job_id"].lower() != ref.job_id.lower():
                 continue
+            if not (ref.job_id and explicit) and \
+                    not match_title(j.get("title", ""), j.get("location", ""), keywords, locations):
+                continue
+            key = (j["platform"], j["token"].lower(), j["job_id"].lower())
+            if key in seen:
+                continue
+            seen.add(key)
             picked.append(j)
-        if ref.job_id and not picked:
+        if ref.job_id and explicit and not picked:
             warnings.append(f"{where}/{ref.job_id}: job not found on the board (closed?)")
-        log(f"{where}: {len(picked)} matching of {len(jobs)} open job(s)")
+        log(f"{where}{'/' + ref.job_id if ref.job_id else ''}: {len(picked)} matching of "
+            f"{len(jobs)} open job(s)")
         groups.append(picked)
     return interleave(groups), total
 
 
 def run_ats_apply(
     *,
-    boards: str,
+    boards: str = "",
     first_name: str,
     last_name: str,
     email: str,
@@ -307,6 +325,7 @@ def run_ats_apply(
     ai_experience: str = "",
     reason_for_leaving: str = "",
     has_criminal_record: bool = False,
+    sources: str = "",
     max_applications: int = 5,
     max_per_board: int = 0,
     max_scans_per_board: int = 0,
@@ -342,28 +361,49 @@ def run_ats_apply(
             continue
         refs.append(ref)
 
-    base = {"boards": board_list, "keywords": keywords, "location": location,
-            "dry_run": dry_run, "applied": [], "skipped": [], "manual": [], "warnings": warnings}
-    if not refs:
-        return {**base, "error": "No usable boards given. Paste board URLs or use "
-                                 f"platform:token with one of: {', '.join(SUPPORTED)}."}
-    if not resume_path or not os.path.isfile(resume_path):
-        return {**base, "error": (
-            f"Resume file not found ('{resume_path or 'unset'}'). Set resume_path to a "
-            "PDF/DOCX on this server, or ATS_RESUME_PATH in .env.")}
+    source_list = split_list(sources)
+    base = {"boards": board_list, "sources": source_list, "keywords": keywords,
+            "location": location, "dry_run": dry_run, "applied": [], "skipped": [],
+            "manual": [], "warnings": warnings}
+    if not refs and not source_list:
+        return {**base, "error": "No usable boards or sources given. Paste board URLs, use "
+                                 f"platform:token with one of: {', '.join(SUPPORTED)}, or pick "
+                                 "discovery sources (e.g. hn)."}
 
     owns_client = client is None
     client = client or httpx.Client(timeout=25, follow_redirects=True,
                                     headers={"User-Agent": USER_AGENT})
     cover_tmp = None
     try:
+        source_manual: list[dict] = []
+        sourced: set[BoardRef] = set()
+        if source_list:
+            from src.automation.tools.ats_sources import collect
+            log(f"Collecting jobs from discovery sources: {', '.join(source_list)}...")
+            found = collect(client, source_list, split_list(keywords), split_list(location), log)
+            warnings.extend(found["warnings"])
+            source_manual = found["manual"]
+            for ref in found["refs"]:
+                if ref not in refs:
+                    refs.append(ref)
+                    sourced.add(ref)
+            base["manual"] = source_manual[:100]
+        if refs and (not resume_path or not os.path.isfile(resume_path)):
+            return {**base, "manual_count": len(source_manual), "error": (
+                f"Resume file not found ('{resume_path or 'unset'}'). Set resume_path to a "
+                "PDF/DOCX on this server, or ATS_RESUME_PATH in .env.")}
+
         log("Discovering jobs via each ATS's public API...")
         candidates, total_listed = _discover(client, refs, adapters, split_list(keywords),
-                                             split_list(location), log, warnings)
+                                             split_list(location), log, warnings, sourced)
         if not candidates:
+            where = ", ".join(board_list + source_list)
+            summary = f"No matching jobs to auto-apply to on {where}."
+            if source_manual:
+                summary += f" {len(source_manual)} lead(s) listed for manual apply."
             return {**base, "jobs_found": 0, "total_listed": total_listed,
-                    "warnings": warnings[:50],
-                    "summary": f"No matching jobs on {', '.join(board_list)}."}
+                    "manual_count": len(source_manual), "warnings": warnings[:50],
+                    "summary": summary}
         log(f"{len(candidates)} matching job(s) across {len(refs)} board(s)")
 
         if cover_letter.strip():
@@ -389,7 +429,7 @@ def run_ats_apply(
 
         applied: list[dict] = []
         skipped: list[dict] = []
-        manual: list[dict] = []
+        manual: list[dict] = list(source_manual)
         pending: list[dict] = []
         scanned = filtered = 0
         per_board: dict[str, int] = {}
@@ -508,7 +548,9 @@ def run_ats_apply(
 
         submitted_n = sum(1 for e in applied if e.get("submitted"))
         verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
-        summary = (f"{scanned} matching job(s) scanned on {len(refs)} board(s), "
+        summary = (f"{scanned} matching job(s) scanned on {len(refs)} board(s)"
+                   + (f" (incl. {len(sourced)} found via {', '.join(source_list)})" if sourced else "")
+                   + ", "
                    f"{len(applied)} {verb}, {len(skipped)} skipped")
         if pending:
             summary += f", {len(pending)} submitted but unconfirmed (check by hand)"

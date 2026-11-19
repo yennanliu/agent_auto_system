@@ -22,6 +22,36 @@ A job URL applies to that one job and bypasses the keyword and location filters.
 URLs are recognised but not supported, so they show up as a warning. A bare token
 (`palantir`) is ambiguous and is rejected.
 
+## Discovery sources (`sources`)
+
+Besides boards you name, `sources` finds jobs elsewhere (`tools/ats_sources.py`). Each
+source splits what it finds in two:
+
+- **links to a supported ATS** are added to the run like a board would be. Unlike a job URL
+  you paste, they are **still filtered** by `keywords` and `location`. When a post links
+  specific jobs, only those jobs are used, not the company's whole board;
+- **everything else** (a careers page, an e-mail address, a job-board listing) is
+  returned in `manual[]` with `source` and a `source_url` linking back.
+
+`boards` is optional when `sources` is set. A run that finds only manual leads returns
+them without needing a résumé.
+
+| Source | Where | What it yields (checked live, Nov 2026) |
+|---|---|---|
+| `hn` | the latest "Ask HN: Who is hiring?" thread (official Algolia API) | The best source. Of 243 posts, 36 linked a supported ATS directly (mostly Ashby, then Lever, Greenhouse, Workable) and 74 gave an e-mail address. Keywords and location are matched against the whole post. Posts marked "no longer hiring" are skipped. |
+| `remoteok` | `remoteok.com/api` | **Discovery only.** The apply button (`/l/<id>`) redirects back to Remote OK even in a real browser. 2 of 97 listings had an ATS link in their text, and those get routed. |
+| `remotive` | `remotive.com/api/remote-jobs` (`search=` uses the first keyword) | **Discovery only.** The employer link isn't on the job page. 1 of 16 listings had an ATS link in its text. |
+| `weworkremotely` | the programming and devops RSS feeds | **Discovery only.** Job pages need a job-seeker account and sit behind a Cloudflare check. The RSS descriptions had no ATS links. |
+
+The job boards' API terms ask for a link back and credit. Every lead keeps the board's own
+job URL and names the board in `reason`.
+
+**Not built:** **Built In** only shows the employer link to signed-in users (`applyUrl` is
+empty when signed out), and its Apply button opens a login popup. **Google Jobs** has no
+official API, and the usual route (SerpAPI) needs a paid key, so it couldn't be tested
+here. A new source is one function that returns `{"refs", "manual", "warnings"}`,
+registered in `SOURCES`.
+
 ## Funnel
 
 Each platform is an `Adapter` (`tools/ats_<platform>.py`). The runner
@@ -104,4 +134,5 @@ ATS_HEADLESS=0                         # headed real Chrome by default (captchas
 |---|---|
 | `tests/unit/test_ats_apply.py` | router, each adapter's discovery, form parsing and planning against **real captured responses** (`tests/fixtures/ats/`), the shared runner with fake adapters, and the flow |
 | `tests/e2e/test_ats_apply_browser.py` | hermetic Chromium runs on locally served copies of each platform's **real form DOM** (`tests/e2e/ats_fixture/`), plus a full `run_ats_apply` funnel through Lever. Checks the exact values submitted |
-| `scripts/ats_live_smoke.py` | **operational check, not pytest** (tests stay offline): a dry run against live Greenhouse, Lever, Ashby and Workable boards. Never submits. Exits 1 on API or form drift |
+| `tests/unit/test_ats_sources.py` | each source against **real captured responses** (HN thread, Remote OK, Remotive, We Work Remotely RSS, with e-mail addresses scrubbed to `@example.com`), plus how source refs flow through the runner: filtering, de-duplication, leads-only runs |
+| `scripts/ats_live_smoke.py` | **operational check, not pytest** (tests stay offline): a dry run against live Greenhouse, Lever, Ashby and Workable boards and every discovery source. Never submits. Exits 1 on API or form drift |
