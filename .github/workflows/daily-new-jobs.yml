@@ -1,0 +1,51 @@
+name: Daily new jobs
+
+# Scrapes today's SWE / backend / full-stack / AI / FDE postings from big-tech and
+# top-AI companies' official careers boards (scripts/daily_new_jobs.py) and commits
+# report/YYYYMMDD/new_job.txt back to main. "Today" is the UTC date, so the run sits
+# near the end of the UTC day to catch most of it.
+
+on:
+  schedule:
+    - cron: "30 23 * * *"   # 23:30 UTC = 07:30 Asia/Taipei next morning
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Report date YYYY-MM-DD (blank = today UTC)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-new-jobs
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Scrape today's new jobs   # stdlib only, no install step
+        env:
+          REPORT_DATE: ${{ inputs.date }}
+        run: |
+          echo "REPORT_DATE=${REPORT_DATE:-$(date -u +%F)}" >> "$GITHUB_ENV"
+          python scripts/daily_new_jobs.py --date "${REPORT_DATE:-$(date -u +%F)}"
+
+      - name: Commit and push report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add report/
+          if git diff --cached --quiet; then echo "No changes."; exit 0; fi
+          git commit -m "report: new jobs ${REPORT_DATE}"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
