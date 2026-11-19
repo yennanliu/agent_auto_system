@@ -469,13 +469,21 @@ def _freelancer_fixture_problems(case: Case) -> list[str]:
                           "projects ({id, title, description, budget, currency, ...})"]
 
 
+def _no_bids(*_a, **_k):
+    raise AssertionError("eval runs never place Freelancer bids")
+
+
 def _freelancer_run(case: Case, provider: str, model: str) -> object:
     from src.automation.tools import freelancer_tool as ft
     projects = [ft.normalize(p) for p in case.fixtures["projects"]]
+    # Evals judge drafting only: bidding is forced off whatever the case says,
+    # and the bid endpoints are stubbed to fail loudly as a second guard.
+    payload = {**case.payload, "submit_bids": False}
     with mock.patch.object(ft, "search", lambda client, keywords, log=None: (projects, [])), \
             mock.patch.object(ft, "load_ledger", lambda path: {}), \
-            mock.patch.object(ft, "record_drafted", lambda path, project: None):
-        return _kickoff(case.job_type, case.payload, provider, model)
+            mock.patch.object(ft, "record_drafted", lambda path, project, status="drafted": None), \
+            mock.patch.object(ft, "whoami", _no_bids), mock.patch.object(ft, "place_bid", _no_bids):
+        return _kickoff(case.job_type, payload, provider, model)
 
 
 # custom:<slug> — the definition normally lives in the DB; a case carries it in

@@ -353,7 +353,9 @@ def test_an_auth_error_stops_bidding_but_keeps_the_drafts(bidding):
     out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
         "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
     assert len(bidding.posts) == 1                                           # stopped after the 401
-    assert out["drafted"][0]["bid"]["status"] == "failed" and "bid" not in out["drafted"][1]
+    assert out["drafted"][0]["bid"]["status"] == "failed"
+    assert out["drafted"][1]["bid"]["status"] == "not_placed"                # still reported
+    assert "authentication error" in out["drafted"][1]["bid"]["reason"]
     assert len(out["drafted"]) == 2 and any("bidding stopped" in w for w in out["warnings"])
 
 
@@ -371,6 +373,8 @@ def test_submit_bids_without_a_token_drafts_only(bidding, monkeypatch):
         "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
     assert bidding.posts == [] and len(out["drafted"]) == 2
     assert any("FREELANCER_OAUTH_TOKEN is not set" in w for w in out["warnings"])
+    assert all(d["bid"] == {"status": "not_placed", "reason": "FREELANCER_OAUTH_TOKEN is not set"}
+               for d in out["drafted"])
 
 
 def test_an_invalid_token_is_caught_before_any_bid(bidding):
@@ -378,3 +382,31 @@ def test_an_invalid_token_is_caught_before_any_bid(bidding):
     out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
         "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
     assert bidding.posts == [] and any("could not verify the Freelancer token" in w for w in out["warnings"])
+    assert all(d["bid"]["status"] == "not_placed" and "could not be verified" in d["bid"]["reason"]
+               for d in out["drafted"])
+
+
+
+# ── eval adapter safety (PR #116 review) ─────────────────────────────────────
+
+def test_eval_runs_never_bid_and_accept_the_ledger_status(mocker, monkeypatch):
+    """The eval adapter must force submit_bids off and stub the bid endpoints,
+    and its record_drafted stand-in must take the new status argument."""
+    from src.automation.harness import evalset
+    monkeypatch.setenv("FREELANCER_OAUTH_TOKEN", "real-token-on-this-machine")
+    seen = {}
+
+    def fake_kickoff(job_type, payload, provider, model):
+        seen["payload"] = payload
+        ft.record_drafted("ledger.json", {"id": "1", "title": "t"}, "bid_placed")   # no TypeError
+        with pytest.raises(AssertionError, match="never place"):
+            ft.place_bid(None, "tok", bidder_id=1, project={}, amount=1, period_days=1,
+                         milestone_percentage=1, description="x")
+        with pytest.raises(AssertionError):
+            ft.whoami(None, "tok")
+        return "{}"
+    mocker.patch.object(evalset, "_kickoff", side_effect=fake_kickoff)
+    case = type("C", (), {"job_type": "freelancer_bids", "fixtures": {"projects": [RAW["result"]["projects"][0]]},
+                          "payload": {"keywords": "python", "submit_bids": True}})()
+    evalset._ADAPTERS["freelancer_bids"].run(case, "openai", "gpt")
+    assert seen["payload"]["submit_bids"] is False and seen["payload"]["keywords"] == "python"

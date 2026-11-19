@@ -115,8 +115,10 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
 
         # Bidding is opt-in and needs the token; resolve the bidder once.
         bidder, bid_client = None, None
+        no_bid_reason = ""  # with submit_bids on, why a draft wasn't bid on
         token = os.getenv("FREELANCER_OAUTH_TOKEN", "").strip()
         if st.submit_bids and not token:
+            no_bid_reason = "FREELANCER_OAUTH_TOKEN is not set"
             warnings.append("submit_bids is on but FREELANCER_OAUTH_TOKEN is not set — drafts only")
         elif st.submit_bids:
             import httpx
@@ -125,6 +127,7 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                 bidder = ft.whoami(bid_client, token)
                 log(f"Bidding as {bidder['username'] or bidder['id']}")
             except Exception as exc:  # noqa: BLE001
+                no_bid_reason = f"the Freelancer token could not be verified ({exc})"
                 warnings.append(f"could not verify the Freelancer token ({exc}) — drafts only")
         for p in found["candidates"] if llm is not None else []:
             if len(drafted) >= max_drafts:
@@ -168,7 +171,11 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                     status = "bid_placed"
                 elif entry["bid"].get("auth_error"):
                     warnings.append(f"bidding stopped: {entry['bid']['reason']}")
+                    no_bid_reason = f"bidding stopped after an authentication error ({entry['bid']['reason']})"
                     bidder = None  # a token problem won't fix itself mid-run
+            elif st.submit_bids:
+                # Every draft reports an outcome when bidding was asked for.
+                entry["bid"] = {"status": "not_placed", "reason": no_bid_reason or "bidding unavailable"}
             drafted.append(entry)
             try:
                 ft.record_drafted(os.getenv("FREELANCER_LEDGER", ft.DEFAULT_LEDGER_PATH), p, status)
