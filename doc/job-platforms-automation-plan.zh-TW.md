@@ -30,9 +30,10 @@ DOM 或反機器人機制的內容，開工前都必須再對照實際網站確�
 | 階段 | 狀態 | 已上線內容 |
 |---|---|---|
 | 0. 共用 ATS 核心 | ✅ #107 | `tools/ats_common.py`：共用答題規則（`Question` → `answer_question`）、比對、ledger、瀏覽器 helper。Greenhouse 已搬到上面，行為不變 |
-| 1. ATS adapter | ✅ #109 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。SmartRecruiters 只做探索。新 ATS 的國家職缺頁掃描器**尚未完成** |
+| 1. ATS adapter | ✅ #109、#112 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。SmartRecruiters 只做探索。國家職缺頁掃描器 `scripts/ats_country_boards.py`（#112） |
 | 2. 探索來源 | ✅ #110 | `sources`：**HN「Who is hiring」**、Remote OK、Remotive、We Work Remotely 接進 adapter；其餘一律成為手動 lead |
 | 3. 台灣求職網站 | ⏸ 暫緩 | 已實測調查，未實作（見下方） |
+| 6（部分）. Workday 探索 | ✅ #113 | 透過公開的 `/wday/cxs` API 找到 Workday 職缺並列為手動 lead；已加入職缺頁掃描器。**在 Workday 上應徵**（每個雇主各需一個帳號）尚未完成 |
 | 4–6 | 尚未開始 | — |
 
 **真實網站的實測結果（皆在真實瀏覽器中確認，而非假設）：**

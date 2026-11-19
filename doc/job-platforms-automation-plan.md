@@ -33,9 +33,10 @@ must be re-checked against the site before work starts.
 | Phase | Status | What shipped |
 |---|---|---|
 | 0. Shared ATS core | ✅ #107 | `tools/ats_common.py`: shared answer rules (`Question` → `answer_question`), matching, ledger and browser helpers. Greenhouse moved onto it with no behaviour change |
-| 1. ATS adapters | ✅ #109 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). SmartRecruiters is discovery-only. The country board scanner for the new ATSs is **still to do** |
+| 1. ATS adapters | ✅ #109, #112 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). SmartRecruiters is discovery-only. Country board scanner `scripts/ats_country_boards.py` (#112) |
 | 2. Discovery sources | ✅ #110 | `sources`: **HN "Who is hiring"**, Remote OK, Remotive and We Work Remotely feed the adapters; everything else becomes a manual lead |
 | 3. Taiwan boards | ⏸ skipped for now | Investigated live, nothing built (findings below) |
+| 6 (part). Workday discovery | ✅ #113 | Workday jobs found via the public `/wday/cxs` API and listed as manual leads; in the board scanner. **Applying on Workday** (an account per employer) is still to do |
 | 4–6 | not started | — |
 
 **What the live sites showed (each checked in a real browser, not assumed):**
