@@ -615,7 +615,7 @@ def answer_question(q: Question, profile: dict,
             pick = match_option(options, call_answer_fn(answer_fn, label, "select", options))
         if pick is None and required:
             pick = next((o for o in options if _DECLINE_RE.search(o)), None) \
-                if re.search(r"gender|race|ethnic|veteran|disabilit|pronoun", label, re.I) else None
+                if re.search(r"gender|\bsex\b|race|ethnic|veteran|disabilit|pronoun|sexual orientation", label, re.I) else None
         if pick is None:
             return None
         return ans_dict([pick] if kind == "multiselect" else pick)

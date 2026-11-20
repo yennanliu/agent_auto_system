@@ -405,3 +405,13 @@ def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
 
 def test_how_many_years_still_returns_the_number():
     assert ac.rule_answer("How many years of experience do you have?", {**PROFILE, "years": 4}) == "4"
+
+
+def test_required_sex_question_declines():
+    """Found in the Workday e2e: 3M asks 'Please select your sex.' — a voluntary
+    self-identification question, answered only with the decline option."""
+    q = Question("q", "Please select your sex.", "select", required=True,
+                 options=["Female", "Male", "I do not wish to answer"])
+    assert ac.answer_question(q, PROFILE)["value"] == "I do not wish to answer"
+    q = Question("q", "Essex office location", "select", required=True, options=["Yes", "No"])
+    assert ac.answer_question(q, PROFILE) is None                        # 'sex' only as a word
