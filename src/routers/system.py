@@ -328,8 +328,8 @@ _CATALOG: dict = {
             "name": "ATS Apply",
             "class": "ATSApplyTool",
             "description": (
-                "Auto-apply across applicant-tracking systems — Greenhouse, Lever, Ashby and "
-                "Workable; SmartRecruiters jobs are listed for manual apply. No login. Routes "
+                "Auto-apply across applicant-tracking systems — Greenhouse, Lever, Ashby, "
+                "Workable and SmartRecruiters (no login), and Workday with a stored account. Routes "
                 "each board / job URL to its platform adapter, lists jobs via the platform's "
                 "public API, reads each form's questions without a browser (Lever HTML, Ashby "
                 "GraphQL, Workable form API, Greenhouse Job Board API), answers them with the "

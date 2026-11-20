@@ -1,0 +1,240 @@
+<!doctype html>
+<!--
+  A local stand-in for SmartRecruiters' one-click apply page, built from the
+  shapes read on a live Wise posting (2026-11-20):
+  * spl-* web components with OPEN shadow roots; the real <input> inside has
+    the same id as its host (first-name-input, email-input, …);
+  * option / radio text is the element's `label` PROPERTY, never an attribute;
+  * spl-radio and spl-checkbox ARE the controls (role + aria-checked), with no
+    inner <input>;
+  * select options live in a menu whose id is the input's aria-controls;
+  * two file inputs: the first is "Easy apply" résumé parsing, which rewrites
+    the form; the LAST is the Resume drop zone;
+  * Next validates page 1 and moves to /screening; Submit posts and shows a
+    "Thank you for applying" page.
+  ?blocked=1 shows the DataDome wall; ?noscreening=1 a job without questions.
+-->
+<html><head><meta charset="utf-8"><title>Easy apply - Senior Engineer - Acme</title>
+<style>body { font: 14px sans-serif; margin: 16px; } sr-question-field-text, sr-question-field-select,
+sr-question-field-radio, sr-question-field-info, sr-question-field-languages { display: block; margin: 10px 0; }
+spl-radio, spl-checkbox, spl-select-option { display: block; cursor: pointer; }</style></head>
+<body><main id="main"></main>
+<script>
+(function () {
+  const qs = new URLSearchParams(location.search);
+  const main = document.getElementById('main');
+  const state = window.__state = { page1: {}, answers: {}, submitted: false };
+
+  if (qs.get('blocked')) { main.innerHTML = '<h1>Access is temporarily restricted</h1>'; return; }
+  // DataDome's interactive check: the form appears only after a person slides.
+  if (qs.get('captcha') && !sessionStorage.getItem('passed')) {
+    // Like DataDome: the check lives in an iframe from captcha-delivery.com,
+    // so the page's own text never says "Verification Required".
+    main.innerHTML = '<iframe id="dd" src="https://geo.captcha-delivery.com/captcha/?initialCid=x" ' +
+      'srcdoc="<h2>Verification Required</h2><p>Slide right to secure your access</p><button id=human-slider>→</button>"></iframe>';
+    document.getElementById('dd').addEventListener('load', () => {
+      const btn = document.getElementById('dd').contentDocument.getElementById('human-slider');
+      btn.onclick = () => { sessionStorage.setItem('passed', '1'); location.reload(); };
+      window.__slider = btn;
+    });
+    return;
+  }
+
+  // ── components ──
+  class SplInput extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const r = this.attachShadow({ mode: 'open' });
+      const tag = this.getAttribute('type') === 'textarea' ? 'textarea' : 'input';
+      r.innerHTML = '<label>' + (this.getAttribute('label') || '') + '</label><' + tag + ' id="' + this.id + '" type="' +
+        (this.getAttribute('type') || 'text') + '"' + (this.hasAttribute('required') ? ' required' : '') + '>' + (tag === 'textarea' ? '</textarea>' : '');
+      this.input = r.querySelector(tag);
+    }
+    get value() { return this.input ? this.input.value : ''; }
+    set value(v) { if (this.input) this.input.value = v; }
+  }
+  customElements.define('spl-input', SplInput);
+
+  class SplSelectOption extends HTMLElement {
+    connectedCallback() { if (!this.shadowRoot) { this.attachShadow({ mode: 'open' }).innerHTML = '<span></span>'; }
+                          this.shadowRoot.querySelector('span').textContent = this.label || ''; }
+  }
+  customElements.define('spl-select-option', SplSelectOption);
+
+  // Autocomplete / select: the menu (id = input's aria-controls) holds options
+  // whose text is ONLY the `label` property.
+  class SplAutocomplete extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const r = this.attachShadow({ mode: 'open' });
+      const id = this.id, multi = this.tagName === 'SPL-MULTISELECT-AUTOCOMPLETE';
+      r.innerHTML = '<input id="' + id + '" type="text" role="combobox" aria-controls="menu-' + id + '"' +
+        (this.hasAttribute('required') ? ' required' : '') + '><div id="menu-' + id + '"></div><div class="tags"></div>';
+      this.input = r.querySelector('input'); this.menu = r.querySelector('div'); this.tags = r.querySelector('.tags');
+      this.picked = [];
+      const render = (items) => {
+        this.menu.innerHTML = '';
+        for (const it of items) {
+          const o = document.createElement('spl-select-option');
+          o.label = it;                       // property only — no attribute
+          o.addEventListener('click', () => {
+            if (multi) { this.picked.push(it); const t = document.createElement('spl-tag'); t.textContent = it; this.appendChild(t); }
+            else { this.input.value = it; }
+            this.menu.innerHTML = ''; this.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          this.menu.appendChild(o);
+        }
+      };
+      const source = () => (this.options || []);
+      this.input.addEventListener('click', () => render(source()));
+      this.input.addEventListener('input', () => {
+        const q = this.input.value.toLowerCase();
+        setTimeout(() => render(source().filter(x => x.toLowerCase().includes(q))), 300);
+      });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') this.menu.innerHTML = ''; });
+    }
+    get value() { return this.tagName === 'SPL-MULTISELECT-AUTOCOMPLETE' ? '' : (this.input ? this.input.value : ''); }
+  }
+  customElements.define('spl-autocomplete', SplAutocomplete);
+  customElements.define('spl-multiselect-autocomplete', class extends SplAutocomplete {});
+
+  class SplRadio extends HTMLElement {          // the control itself
+    connectedCallback() {
+      this.setAttribute('role', 'radio'); this.setAttribute('aria-checked', 'false');
+      if (!this.shadowRoot) this.attachShadow({ mode: 'open' }).innerHTML = '<span>' + (this.label || '') + '</span>';
+      this.addEventListener('click', () => {
+        this.parentElement.querySelectorAll('spl-radio').forEach(r => r.setAttribute('aria-checked', 'false'));
+        this.setAttribute('aria-checked', 'true');
+      });
+    }
+  }
+  customElements.define('spl-radio', SplRadio);
+  customElements.define('spl-radio-group', class extends HTMLElement {});
+
+  class SplCheckbox extends HTMLElement {       // the control itself
+    connectedCallback() {
+      this.setAttribute('role', 'checkbox'); this.setAttribute('aria-checked', 'false');
+      this.addEventListener('click', () => this.setAttribute('aria-checked', this.getAttribute('aria-checked') === 'true' ? 'false' : 'true'));
+    }
+  }
+  customElements.define('spl-checkbox', SplCheckbox);
+
+  class SplButton extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      this.attachShadow({ mode: 'open' }).innerHTML = '<button type="button">' + this.getAttribute('text') + '</button>';
+      this.shadowRoot.querySelector('button').addEventListener('click', () => this.dispatchEvent(new Event('press', { bubbles: true })));
+    }
+  }
+  customElements.define('spl-button', SplButton);
+
+  // ── page 1 ──
+  const CITIES = ['London, England, United Kingdom', 'London, Ontario, Canada', 'London, OH, US', 'Brent, England, United Kingdom'];
+  function page1() {
+    main.innerHTML =
+      '<h2>Easy Apply</h2><input type="file" id="spl-dropzone-file-input-2">' +
+      '<spl-input id="first-name-input" label="First name" required></spl-input>' +
+      '<spl-input id="last-name-input" label="Last name" required></spl-input>' +
+      '<spl-input id="email-input" label="Email" type="email" required></spl-input>' +
+      '<spl-input id="confirm-email-input" label="Confirm your email" type="email" required></spl-input>' +
+      '<oc-location-autocomplete><spl-autocomplete id="spl-form-element_10" label="City" required></spl-autocomplete></oc-location-autocomplete>' +
+      '<spl-input id="spl-form-element_5" label="Phone number" type="tel"></spl-input>' +
+      '<spl-input id="linkedin-input" label="LinkedIn"></spl-input><spl-input id="website-input" label="Website"></spl-input>' +
+      '<h3>Resume *</h3><input type="file" id="spl-dropzone-file-input-1"><div id="files"></div>' +
+      '<spl-input id="hiring-manager-message-input" label="Message to the Hiring Team" type="textarea"></spl-input>' +
+      '<p id="errors"></p><spl-button text="Next" id="next"></spl-button>';
+    document.getElementById('spl-form-element_10').options = CITIES;
+    const val = id => { const h = document.getElementById(id); return h ? h.value : ''; };
+    // "Easy apply" parsing rewrites the form (the trap).
+    document.getElementById('spl-dropzone-file-input-2').addEventListener('change', () => {
+      document.getElementById('email-input').value = 'parsed@example.com';
+      document.getElementById('last-name-input').value = 'Parsed';
+    });
+    document.getElementById('spl-dropzone-file-input-1').addEventListener('change', (e) => {
+      const name = e.target.files[0].name;
+      setTimeout(() => {
+        state.page1.resume = name;
+        document.getElementById('files').innerHTML = '<span>' + name + '</span><button aria-label="Delete file ' + name + '">x</button>';
+        // the Resume drop zone parses too: it overwrites name / e-mail
+        document.getElementById('email-input').value = 'parsed@example.com';
+        document.getElementById('first-name-input').value = 'PARSED';
+      }, 500);
+    });
+    document.getElementById('next').addEventListener('press', () => {
+      const p = state.page1;
+      Object.assign(p, { first: val('first-name-input'), last: val('last-name-input'), email: val('email-input'),
+                         confirm: val('confirm-email-input'), city: val('spl-form-element_10'),
+                         phone: val('spl-form-element_5'), linkedin: val('linkedin-input'),
+                         message: val('hiring-manager-message-input') });
+      const errs = [];
+      if (!p.first || !p.last) errs.push('Name is required');
+      if (!p.email || p.email !== p.confirm) errs.push('Please provide a valid email address');
+      if (!CITIES.includes(p.city)) errs.push('City is required.');
+      if (!p.resume) errs.push('Resume is required');
+      if (errs.length) { document.getElementById('errors').innerHTML = errs.map(x => '<span role="alert">' + x + '</span>').join(''); return; }
+      if (qs.get('noscreening')) return final(false);
+      history.pushState({}, '', location.pathname.replace(/\/?$/, '') + '/screening' + location.search);
+      screening();
+    });
+  }
+
+  // ── screening ──
+  const ELIGIBLE = ['I hold citizenship or permanent residency (No visa/sponsorship required)',
+                    'I do not currently have work authorization and will require visa sponsorship', 'Other'];
+  const DECL = 'I prefer not to answer';
+  function screening() {
+    main.innerHTML = '<h2>Preliminary questions</h2>' +
+      '<sr-question-field-text>What is your notice period? *<spl-input id="question_notice" required></spl-input></sr-question-field-text>' +
+      '<sr-question-field-select>How are you eligible to work in this location? *<spl-autocomplete id="question_elig" required></spl-autocomplete></sr-question-field-select>' +
+      '<sr-question-field-radio>Are you currently an Acme customer? *<spl-radio-group required><spl-radio></spl-radio><spl-radio></spl-radio></spl-radio-group></sr-question-field-radio>' +
+      '<sr-question-field-info><p>To build an inclusive team, please fill out the survey below.</p></sr-question-field-info>' +
+      '<sr-question-field-select>What gender do you most closely identify with? *<spl-autocomplete id="question_gender" required></spl-autocomplete></sr-question-field-select>' +
+      '<sr-question-field-text>If you have chosen to self describe, please specify below<spl-input id="question_selfdesc"></spl-input></sr-question-field-text>' +
+      '<sr-question-field-select>What race/ethnicity do you most closely identify with (mark all that apply): *<spl-multiselect-autocomplete id="question_race" required></spl-multiselect-autocomplete></sr-question-field-select>' +
+      '<sr-question-field-radio>Does the advertised salary band meet your expectations?<spl-radio-group><spl-radio></spl-radio><spl-radio></spl-radio></spl-radio-group></sr-question-field-radio>' +
+      '<spl-checkbox required>You declare that you have read and agree to the privacy notice of Acme.</spl-checkbox>' +
+      '<spl-checkbox>Send me job alerts</spl-checkbox>' +
+      '<p id="errors"></p><spl-button text="Back"></spl-button><spl-button text="Submit" id="submit"></spl-button>';
+    document.getElementById('question_elig').options = ELIGIBLE;
+    document.getElementById('question_gender').options = ['Man', 'Woman', 'Self describe', DECL];
+    document.getElementById('question_race').options = ['Asian', 'Black', 'White', DECL];
+    document.querySelectorAll('spl-radio-group').forEach(g => {
+      const [y, n] = g.querySelectorAll('spl-radio'); y.label = 'Yes'; n.label = 'No';
+      y.connectedCallback(); n.connectedCallback();   // re-render with the label property set
+      y.shadowRoot.querySelector('span').textContent = 'Yes'; n.shadowRoot.querySelector('span').textContent = 'No';
+    });
+    wireSubmit(true);
+  }
+
+  function final(withQuestions) {
+    main.innerHTML = '<spl-checkbox required>You declare that you have read and agree to the privacy notice of Acme.</spl-checkbox>' +
+      '<p id="errors"></p><spl-button text="Submit" id="submit"></spl-button>';
+    wireSubmit(withQuestions);
+  }
+
+  function wireSubmit(withQuestions) {
+    document.getElementById('submit').addEventListener('press', async () => {
+      const a = state.answers, v = id => { const h = document.getElementById(id); return h ? h.value : ''; };
+      if (withQuestions) {
+        const radio = k => { const g = document.querySelectorAll('sr-question-field-radio')[k];
+                             const c = g.querySelector('spl-radio[aria-checked=true]'); return c ? c.label : ''; };
+        Object.assign(a, { notice: v('question_notice'), eligible: v('question_elig'), customer: radio(0),
+                           gender: v('question_gender'), selfdesc: v('question_selfdesc'),
+                           race: document.getElementById('question_race').picked, salary: radio(1) });
+      }
+      a.privacy = document.querySelector('spl-checkbox[required]').getAttribute('aria-checked') === 'true';
+      a.alerts = document.querySelectorAll('spl-checkbox')[1] ? document.querySelectorAll('spl-checkbox')[1].getAttribute('aria-checked') === 'true' : false;
+      const missing = withQuestions && (!a.notice || !a.eligible || !a.customer || !a.gender || !(a.race || []).length);
+      if (missing || !a.privacy) {
+        document.getElementById('errors').innerHTML = '<span role="alert">Please answer all required questions</span>'; return;
+      }
+      await fetch('/submit', { method: 'POST', body: JSON.stringify(state) });
+      state.submitted = true;
+      history.pushState({}, '', '/oneclick-ui/company/acme/publication/x/confirmation');
+      main.innerHTML = '<h1>Thank you for applying!</h1>';
+    });
+  }
+
+  if (/\/screening/.test(location.pathname)) screening(); else page1();
+})();
+</script></body></html>

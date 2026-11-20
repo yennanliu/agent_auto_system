@@ -705,7 +705,7 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
-    job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby and Workable boards",
+    job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Workday boards",
     name="ATS Apply", icon="🧭",
     flow_module="src.automation.flows.ats_apply_flow", flow_class="ATSApplyFlow",
     start_log="Discovering jobs via each ATS", temperature=0.2, browser=True,
@@ -718,7 +718,7 @@ register(AutomationSpec(
     rubric=("Matching jobs were found and an accurate applied[] list reflects real "
             "applications (a submission counts only when the platform showed its "
             "confirmation); jobs skipped as already-applied, 'filtered out', or for an "
-            "unanswerable required question, and SmartRecruiters jobs listed under manual[], "
+            "unanswerable required question, and Workday jobs without a stored account listed under manual[], "
             "are correct behavior, not failures."),
     # Login-free, like Greenhouse: take a live posting id from Lever's public
     # Postings API and check the apply form's name field and Submit button.
@@ -736,9 +736,9 @@ register(AutomationSpec(
         for g in (
             (Field("boards", "text", "Job Boards",
                    placeholder="lever:palantir, https://jobs.ashbyhq.com/openai, workable:huggingface",
-                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable or SmartRecruiters, "
-                        "or platform:token (greenhouse:figma). A job URL applies to that one job. "
-                        "SmartRecruiters jobs are listed for manual apply. Optional when "
+                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable, SmartRecruiters or "
+                        "Workday, or platform:token (greenhouse:figma). A job URL applies to that one job. "
+                        "SmartRecruiters' apply page needs headed Chrome (its bot wall blocks headless). Optional when "
                         "Discovery Sources are set."),
              Field("sources", "text", "Discovery Sources", placeholder="hn, remoteok, jobstreet_sg, seek_au",
                    help="Also find jobs here: hn (this month's HN 'Who is hiring?'), remoteok, "
