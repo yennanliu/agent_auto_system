@@ -2,7 +2,9 @@
 
 Status: **Workday apply is implemented** (`tools/ats_workday.py`, see
 [ats_apply.md](ats_apply.md#workday)) and verified live as a dry run on one employer
-(3M) up to Review. SmartRecruiters is still a design. The original design, based on
+(3M), including a real submission. SmartRecruiters guest apply is implemented too
+(`tools/ats_smartrecruiters.py`; see [ats_apply.md](ats_apply.md#smartrecruiters-guest-apply-planned-in-the-browser)),
+verified as a dry run on a live Wise posting up to Submit. The original design, based on
 read-only probes of live sites (2026-11-20), follows. Discovery for
 both already ships: SmartRecruiters in #109, Workday in #113. Their jobs are listed under
 `manual[]`. This doc covers turning them into `ats_apply` adapters that can apply, and the

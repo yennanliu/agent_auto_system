@@ -193,7 +193,8 @@ QUESTIONS_JS = r"""() => { const out = []; const count = {};
     let value = '';
     if (ctl && 'value' in ctl) value = ctl.value || '';
     if (multi) value = Array.from(e.querySelectorAll('spl-tag, [data-test*=tag]')).map(t => t.innerText.trim()).join(', ');
-    out.push({type: type === 'SELECT' && multi ? 'SELECT' : type, ordinal, label: lines[0] || '',
+    out.push({type: type === 'SELECT' && multi ? 'SELECT' : type, ordinal,
+              label: (lines[0] || '').replace(/\s*\*\s*$/, ''),
               required: !!((ctl && ctl.hasAttribute('required')) || (group && group.hasAttribute('required')) ||
                            e.querySelector('[required]')),
               id: ctl ? ctl.id : '', multiple: multi, options: radios, value: checked ? 'checked' : value});

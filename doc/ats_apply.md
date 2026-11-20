@@ -1,9 +1,9 @@
 # ATS Apply (`ats_apply`)
 
 Auto-apply on employers' job boards across applicant-tracking systems, with no login.
-It applies on **Greenhouse, Lever, Ashby and Workable**, and on **Workday** at employers
-where you have an account and stored its password. **SmartRecruiters** jobs, and Workday
-jobs at employers without a stored account, are discovered and listed for manual apply. A sibling of `greenhouse_apply`: same profile
+It applies on **Greenhouse, Lever, Ashby, Workable and SmartRecruiters**, and on **Workday**
+at employers where you have an account and stored its password. Workday jobs at employers
+without a stored account are discovered and listed for manual apply. A sibling of `greenhouse_apply`: same profile
 fields, same LLM gates, same answer rules (shared through `tools/ats_common.py`).
 
 ## Boards
@@ -94,13 +94,38 @@ answerer only runs with `candidate_background`. Platform specifics:
 - Radio buttons and checkboxes are ticked and then **verified**. A click that lands on an
   overlay falls back to a DOM click (`ats_apply_tool.tick`).
 
-## SmartRecruiters: discovery only
+## SmartRecruiters: guest apply, planned in the browser
 
-The Posting API lists jobs, but the one-click apply page sits behind a DataDome bot wall.
-Headless browsers get "Access is temporarily restricted"; headed Chrome gets through. The
-form is rendered in web components, and there is no public form-definition API, so
-questions can't be planned before the browser opens. Matching jobs are returned under
-`manual[]` with their `apply_url` instead. That adapter is a follow-up.
+No account is needed. The Posting API lists jobs; each posting's `applyUrl` opens the
+one-click apply page. That page sits behind DataDome: **headless browsers get "Access is
+temporarily restricted", headed Chrome gets through** (the default, `ATS_HEADLESS=0`). A
+blocked job is reported as `blocked` and not retried. There is no public form-definition API
+and the screening questions are rendered into the page, so the adapter plans in the browser
+(`plans_in_browser`), as on Workday:
+
+1. **Page 1.** The résumé goes into the *Resume* drop zone **first**: SmartRecruiters parses
+   it and rewrites name / e-mail / phone, so the profile's values are typed after it. The
+   city is an autocomplete: only a suggestion naming that city (and country, when the
+   profile gives one) is picked, never "London, Ontario" for London, UK. The phone is typed as
+   the full international number. LinkedIn / website, and the cover letter as the message to
+   the hiring team. *Next*.
+2. **Screening questions** (`/screening`, when the job has any). Each `sr-question-field-<type>`
+   (TEXT, SELECT incl. multi-select, RADIO, LANGUAGES, INFO) is read and answered with the
+   shared rules. **Diversity questions** (age, gender, ethnicity, disability, first
+   generation, veteran, …) only ever get the "prefer not to answer" option. A required
+   question with no confident answer skips the job and is listed in `unanswered`; add it to
+   `extra_answers`. The required privacy-notice box is ticked; other boxes are left alone.
+3. **Submit** unless dry-run (`prepared`, stopped before Submit). Counted only on the
+   confirmation page.
+
+Learned on a live posting (Wise): the `spl-*` web components have open shadow roots (Playwright
+pierces them); option and radio text is the element's `label` **property**, not an
+attribute; `spl-radio` / `spl-checkbox` are the controls themselves (role + `aria-checked`,
+no inner `<input>`); select options live in the menu named by the input's `aria-controls`.
+`tests/e2e/test_smartrecruiters_apply_browser.py` runs the flow, submit included, against a
+local stand-in with those shapes. **A real submission hasn't been made yet**, so the
+confirmation check (a `confirmation` / `success` path, or "Thank you for applying") is
+verified only on the stand-in.
 
 ## Workday
 

@@ -1,7 +1,7 @@
 """
 Auto-apply across applicant-tracking systems: Greenhouse, Lever, Ashby,
-Workable and Workday (apply; Workday only with a stored per-employer account),
-SmartRecruiters (discovery only — listed for manual apply).
+Workable, SmartRecruiters (guest apply) and Workday (only with a stored
+per-employer account). SmartRecruiters and Workday plan in the browser.
 
 Phase 1 of ``doc/job-platforms-automation-plan.md``. Every platform plugs in as
 an ``Adapter`` with four steps; everything else — title / location matching,
@@ -662,7 +662,7 @@ class ATSApplyTool(BaseTool):
     name: str = "ats_apply"
     description: str = (
         "Auto-apply to jobs on company job boards hosted by Greenhouse, Lever, Ashby, "
-        "Workable or Workday (with a stored account; SmartRecruiters jobs are listed for manual apply). Args: boards (board "
+        "Workable, SmartRecruiters or Workday (with a stored account). Args: boards (board "
         "URLs or platform:token, comma-separated), first_name, last_name, email, keywords "
         "(title filter), location, phone, resume_path, max_applications, dry_run. Reads "
         "each form's questions without a browser, answers them from the profile, fills "
