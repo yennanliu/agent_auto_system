@@ -432,6 +432,13 @@ def test_prior_employment_is_about_the_hiring_company_only():
     # Another employer is a fact about the person: never guessed.
     assert ac.rule_answer("Have you ever been employed by PricewaterhouseCoopers?", at) is None
     assert ac.rule_answer("Have you ever worked for Epic Systems in the past?", at) is None
+    # Never a prefix match: "a state government" is not "acme" (PR review).
+    acme = {"job_company": "acme"}
+    assert ac.rule_answer("Have you ever been employed by a State government?", acme) is None
+    assert ac.rule_answer("Have you ever worked for Armanino before?", {"job_company": "arm"}) is None
+    assert ac.rule_answer("Have you previously worked for Acme's subsidiaries?", acme) == "No"
+    assert ac.rule_answer("Have you ever worked for Metropolitan Hospital before?",
+                          {"job_company": "metropolitan-hospital"}) == "No"
     # Without the job's company (legacy callers) the old answer stands.
     assert ac.rule_answer("Have you ever worked at Acme before?", {}) == "No"
 
@@ -440,3 +447,9 @@ def test_with_job_location_attaches_the_company():
     p = ac.with_job_location({}, None, "3m")
     assert p == {"job_company": "3m"}
     assert ac.with_job_location({}, None) == {}
+
+
+def test_have_you_agreed_to_the_terms_is_consent():
+    # PR review: "agreed to" is the wording of consent boxes, not of a factual question.
+    assert ac.rule_answer("Have you read and agreed to the terms and conditions?", {}) == "__agree__"
+    assert ac.rule_answer("Have you signed an agreement containing a non-compete?", {}) != "__agree__"

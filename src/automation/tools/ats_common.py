@@ -447,9 +447,11 @@ def _prior_employment(lbl: str, profile: dict):
     target = m.group(1).strip()
     if _US_TARGET.match(target):
         return "No"
-    words = [_norm(w) for w in target.split()]
-    if any("".join(words[:n]).startswith(company) or company.startswith("".join(words[:n]))
-           for n in (1, 2, 3) if "".join(words[:n])):
+    # The whole name, as its first one to three words ("3M or a subsidiary",
+    # "Metropolitan Hospital"): never a prefix, or "a state government" would
+    # pass for "acme".
+    words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
+    if any("".join(words[:n]) == company for n in (1, 2, 3)):
         return "No"
     return None
 
@@ -531,7 +533,9 @@ def rule_answer(label: str, profile: dict):
     # agreement with a previous employer containing a non-compete…?") is NOT
     # a consent box — answering it "Yes / I agree" states a falsehood.
     factual = re.search(r"\b(have|has|had|did|were|was|are|is) you\b.{0,60}\b(sign(ed)?|enter(ed)?( into)?|"
-                        r"executed|bound by|party to|subject to|agreed to)\b", lbl)
+                        r"executed|bound by|party to|subject to|agreed to)\b", lbl) \
+        and not re.search(r"\b(terms|conditions|privacy|policy|notice|statement)\b", lbl)
+    # ↑ "Have you read and agreed to the terms?" is a consent box, not a fact.
     if not factual and re.search(r"consent|acknowledge|agree|privacy|certify|attest|confirm that|terms|"
                                  r"i understand", lbl):
         return "__agree__"
