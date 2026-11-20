@@ -25,6 +25,7 @@ from src.automation.tools import ats_apply_tool as ats
 from src.automation.tools.ats_ashby import AshbyAdapter
 from src.automation.tools.ats_common import build_profile, load_ledger
 from src.automation.tools.ats_lever import LeverAdapter, parse_form
+from src.automation.tools.ats_smartrecruiters import SmartRecruitersAdapter
 from src.automation.tools.ats_workable import WorkableAdapter
 
 pytestmark = pytest.mark.e2e
@@ -400,7 +401,18 @@ def test_run_ats_apply_full_funnel_through_lever(site, resume, tmp_path, monkeyp
                                           "totalFound": len(_api("smartrecruiters_postings.json")["content"])}),
     })
     ledger = str(tmp_path / "ledger.json")
-    kw = dict(boards="lever:palantir, smartrecruiters:Ubisoft2", first_name="Ada", last_name="Lovelace",
+
+    class ManualSmartRecruiters(SmartRecruitersAdapter):
+        """A platform that only lists jobs (manual[]): SmartRecruiters' real
+        adapter applies in a live browser, which a hermetic test must never do."""
+        can_apply = False
+        plans_in_browser = False
+
+        def apply_url(self, job):  # pragma: no cover — must never be reached
+            raise AssertionError("hermetic test reached the live apply page")
+
+    kw = dict(boards="lever:palantir, smartrecruiters:Ubisoft2",
+              adapters={**ats._adapters(), "smartrecruiters": ManualSmartRecruiters()}, first_name="Ada", last_name="Lovelace",
               email="ada@example.com", phone="+1 415 555 0100", current_location="San Francisco, CA",
               authorized_countries="United States", languages="English, Chinese",
               school="Stanford University", resume_path=resume, ledger_path=ledger,
