@@ -422,3 +422,21 @@ def test_required_sex_question_declines():
 def test_decline_option_wordings(decline):
     assert ac.decline_option(["Female", "Male", decline]) == decline
     assert ac.decline_option(["Female", "Male"]) is None
+
+
+def test_prior_employment_is_about_the_hiring_company_only():
+    at = {"job_company": "figma"}
+    assert ac.rule_answer("Have you ever worked for Figma before?", at) == "No"
+    assert ac.rule_answer("Have you ever worked for us before?", at) == "No"
+    assert ac.rule_answer("Are you a former employee?", at) == "No"
+    # Another employer is a fact about the person: never guessed.
+    assert ac.rule_answer("Have you ever been employed by PricewaterhouseCoopers?", at) is None
+    assert ac.rule_answer("Have you ever worked for Epic Systems in the past?", at) is None
+    # Without the job's company (legacy callers) the old answer stands.
+    assert ac.rule_answer("Have you ever worked at Acme before?", {}) == "No"
+
+
+def test_with_job_location_attaches_the_company():
+    p = ac.with_job_location({}, None, "3m")
+    assert p == {"job_company": "3m"}
+    assert ac.with_job_location({}, None) == {}

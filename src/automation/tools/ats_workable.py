@@ -100,7 +100,7 @@ class WorkableAdapter(Adapter):
         return fields
 
     def plan(self, form: list[dict], job: dict, profile: dict, answer_fn):
-        profile = with_job_location(profile, job.get("location"))
+        profile = with_job_location(profile, job.get("location"), job.get("company"))
         answers: list[dict] = []
         unanswered: list[str] = []
         for f in form:

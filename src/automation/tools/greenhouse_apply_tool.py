@@ -226,7 +226,8 @@ def plan_answers(job_data: dict, profile: dict,
     """
     answers: list[dict] = []
     unanswered: list[str] = []
-    profile = with_job_location(profile, (job_data.get("location") or {}).get("name"))
+    profile = with_job_location(profile, (job_data.get("location") or {}).get("name"),
+                                job_data.get("company_name"))
 
     def add(field: str, kind: str, value, label: str) -> None:
         answers.append({"field": field, "kind": kind, "value": value, "label": label})

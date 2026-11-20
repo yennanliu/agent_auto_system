@@ -1,6 +1,9 @@
 # Workday and SmartRecruiters apply: design
 
-Status: **design, based on read-only probes of live sites (2026-11-20).** Discovery for
+Status: **Workday apply is implemented** (`tools/ats_workday.py`, see
+[ats_apply.md](ats_apply.md#workday)) and verified live as a dry run on one employer
+(3M) up to Review. SmartRecruiters is still a design. The original design, based on
+read-only probes of live sites (2026-11-20), follows. Discovery for
 both already ships: SmartRecruiters in #109, Workday in #113. Their jobs are listed under
 `manual[]`. This doc covers turning them into `ats_apply` adapters that can apply, and the
 decisions that need the user first. Order agreed with the user: **Workday first, then
@@ -47,7 +50,15 @@ exist after sign-in.
 4. **Throttling and safety.** The 429 handling from discovery stays. At most a few
    applications per tenant per run. Headed Chrome by default (the account form has a captcha).
 
-**Needs the user before it can be built and verified:**
+**As built** (differs from the plan above): accounts are **never created** by the
+automation. The user creates one per employer, and its password is read from
+`WORKDAY_PASSWORD_<TENANT>_<WDN>`, the encrypted settings store
+(`scripts/workday_password.py`), or the macOS Keychain. At 3M, account creation needed no
+e-mail verification. *Apply Manually* is used, so Workday doesn't parse the résumé; work
+history and education are left to the résumé. Submitting hasn't been verified live; the
+confirmation check (`userHome` or "Application Submitted") is tested only on the local stand-in.
+
+**Needed the user before it could be built and verified (answered):**
 - **consent to create real Workday accounts in their name**, and which e-mail address to
   use;
 - **one employer and one job** to build against, with a dry run up to the Review step and

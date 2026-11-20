@@ -37,6 +37,20 @@ class _Client:
         return self.responses.pop(0)
 
 
+@pytest.fixture(autouse=True)
+def _no_stored_passwords(monkeypatch):
+    """Never read the real Keychain / settings DB: no tenant has a password
+    unless a test sets WORKDAY_PASSWORD_*."""
+    import src.automation.tools.ats_workday as wd
+    real = wd.password_for
+
+    def env_only(host, email=""):
+        import os
+        return os.getenv(wd.env_name(host)) or None
+    monkeypatch.setattr(wd, "password_for", env_only)
+    yield real
+
+
 def _adapter():
     sleeps = []
     return WorkdayAdapter(sleep=sleeps.append), sleeps
@@ -112,7 +126,8 @@ def test_runner_lists_workday_jobs_as_manual_without_a_resume(tmp_path, mocker):
                             first_name="A", last_name="B", email="a@b.c", resume_path="",
                             client=client, adapters={"workday": ad}, ledger_path=str(tmp_path / "l.json"))
     assert "error" not in out and out["manual_count"] == len(FIX["jobPostings"])
-    assert all("its own Workday candidate account" in m["reason"] for m in out["manual"])
+    assert all("no Workday account stored for 3m.wd1" in m["reason"] for m in out["manual"])
+    assert all("WORKDAY_PASSWORD_3M_WD1" in m["reason"] for m in out["manual"])
     launch.assert_not_called()
 
 
@@ -176,3 +191,172 @@ def test_board_listing_adapters_still_list_each_board_once(tmp_path, mocker):
                       first_name="A", last_name="B", email="a@b.c", client=_Client(),
                       adapters={"lever": Board()}, ledger_path=str(tmp_path / "l.json"))
     assert len(calls) == 1
+
+
+# ── apply (Workday wizard, planned in the browser) ──────────────────────────
+
+from src.automation.tools import ats_workday as wd  # noqa: E402
+from src.automation.tools.ats_common import build_profile  # noqa: E402
+
+PROFILE = build_profile(first_name="Ada", last_name="Lovelace", email="ada@example.com",
+                        phone="+1 415 555 0100", current_location="San Francisco, CA",
+                        authorized_countries="United States", years_experience=5,
+                        extra_answers="relative presently employed: No")
+
+
+def _f(label, kind="listbox", required=True, options=(), value=""):
+    return {"index": 0, "label": label, "kind": kind, "required": required,
+            "options": list(options), "value": value}
+
+
+def test_host_and_env_name():
+    assert wd.host_of("3m.wd1/Search") == "3m.wd1"
+    assert wd.host_of("Wf.WD1/WellsFargoJobs") == "wf.wd1"
+    assert wd.env_name("3m.wd1") == "WORKDAY_PASSWORD_3M_WD1"
+
+
+def test_password_from_env_first(monkeypatch, _no_stored_passwords):
+    real = _no_stored_passwords
+    monkeypatch.setenv("WORKDAY_PASSWORD_ACME_WD5", "s3cret!")
+    assert real("acme.wd5", "a@b.c") == "s3cret!"
+
+
+def test_password_falls_back_to_the_settings_store(monkeypatch, _no_stored_passwords, mocker):
+    real = _no_stored_passwords
+    monkeypatch.delenv("WORKDAY_PASSWORD_ACME_WD5", raising=False)
+    mocker.patch("src.settings_store.get_workday_password", return_value="from-db")
+    assert real("acme.wd5", "") == "from-db"
+
+
+def test_workday_system_fields_get_defaults():
+    plan = wd.plan_field(_f("Phone Device Type", options=["Select One", "Landline", "Mobile"]), PROFILE)
+    assert plan == {"action": "pick", "value": "Mobile"}
+    plan = wd.plan_field(_f("Country", options=["Canada", "United States", "Mexico"]), PROFILE)
+    assert plan["value"] == "United States"                     # from "San Francisco, CA"
+    plan = wd.plan_field(_f("How Did You Hear About Us?", options=["LinkedIn", "3M Website", "Referral"]),
+                         PROFILE)
+    assert plan["value"] == "3M Website"
+
+
+def test_names_come_from_the_profile_by_label():
+    assert wd.plan_field(_f("First Name", "text"), PROFILE) == {"action": "fill", "value": "Ada"}
+    assert wd.plan_field(_f("Last Name", "text"), PROFILE)["value"] == "Lovelace"
+
+
+def test_work_authorization_and_sponsorship():
+    yn = ["Yes", "No"]
+    assert wd.plan_field(_f("Are you legally authorized to work in the United States?", "radio",
+                            options=yn), PROFILE)["value"] == "Yes"
+    assert wd.plan_field(_f("Will you now or in the future require sponsorship?", options=yn),
+                         PROFILE)["value"] == "No"
+
+
+def test_job_country_reads_the_first_segment():
+    from src.automation.tools.ats_common import job_countries
+    assert wd.job_country("US-Minnesota-Maplewood") == "United States"
+    assert job_countries(wd.job_country("Canada-Ontario-London")) == {"canada"}   # not the UK
+    assert job_countries(wd.job_country("2 Locations")) == set()                  # unknown stays unknown
+
+
+def test_personal_facts_are_never_guessed_but_extra_answers_count():
+    yn = ["Yes", "No"]
+    at_3m = {**PROFILE, "job_company": "3m"}
+    assert wd.plan_field(_f("Have you ever been employed by Epic Systems?", options=yn), at_3m) is None
+    assert wd.plan_field(_f("Have you ever been employed by a State government?", options=yn), at_3m) is None
+    assert wd.plan_field(_f("Have you ever been employed by 3M or any of its subsidiaries?", options=yn),
+                         at_3m)["value"] == "No"
+    assert wd.plan_field(_f("Do you have a relative presently employed by 3M?", options=yn),
+                         PROFILE)["value"] == "No"
+
+
+def test_signed_agreement_is_not_consent():
+    lbl = "Have you signed an agreement with a current or former employer containing a non-compete?"
+    assert wd.plan_field(_f(lbl, options=["Yes", "No"]), PROFILE) is None
+
+
+def test_demographics_decline():
+    plan = wd.plan_field(_f("Please select your sex.", options=["Male", "Female", "Not declared"]), PROFILE)
+    assert plan["value"] == "Not declared"
+
+
+def test_only_a_required_terms_box_is_ticked():
+    terms = _f("Terms and Conditions", "checkbox", options=["I have read and consent to the terms"])
+    assert wd.plan_field(terms, PROFILE) == {"action": "tick", "value": "checked"}
+    assert wd.plan_field({**terms, "required": False}, PROFILE) is None
+    assert wd.plan_field(_f("Subscribe to job alerts", "checkbox", options=["Yes"]), PROFILE) is None
+
+
+def test_unknown_widgets_are_left_alone():
+    assert wd.plan_field(_f("Skills", "selectinput"), PROFILE) is None
+    assert wd.plan_field(_f("Start date", "other"), PROFILE) is None
+
+
+def _job(i="Sr-Engineer_R1"):
+    return {"platform": "workday", "token": "3m.wd1/Search", "job_id": i, "title": "Senior Engineer",
+            "company": "3m", "location": "US", "url": f"https://3m.wd1.myworkdayjobs.com/Search/job/US/{i}",
+            "apply_url": f"https://3m.wd1.myworkdayjobs.com/Search/job/US/{i}"}
+
+
+class _LiveFake(wd.WorkdayAdapter):
+    """Discovery and the browser are faked; the runner's routing is real."""
+
+    def __init__(self, result):
+        super().__init__(sleep=lambda _s: None)
+        self.result, self.calls = result, []
+
+    def discover(self, client, ref, search=()):
+        return [_job()]
+
+    def load_form(self, client, job):
+        raise AssertionError("plans_in_browser adapters never load a form over HTTP")
+
+    def apply_live(self, page, job, profile, answer_fn, dry_run, log):
+        self.calls.append((job["job_id"], profile["email"], dry_run))
+        return {**ats.entry_for(job, []), **self.result}
+
+
+@pytest.fixture
+def live_runner(tmp_path, mocker, monkeypatch):
+    mocker.patch("playwright.sync_api.sync_playwright")
+    mocker.patch.object(ats, "launch_browser")
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF-1.4")
+
+    def run(adapter, **kw):
+        return ats.run_ats_apply(boards="workday:3m.wd1/Search", keywords="engineer", first_name="A",
+                                 last_name="B", email="a@b.c", resume_path=str(resume),
+                                 adapters={"workday": adapter}, client=object(),
+                                 ledger_path=str(tmp_path / "l.json"), **kw)
+    return run
+
+
+def test_with_a_stored_password_the_runner_applies_in_the_browser(live_runner, monkeypatch):
+    monkeypatch.setenv("WORKDAY_PASSWORD_3M_WD1", "pw")
+    ad = _LiveFake({"status": "prepared", "submitted": False})
+    out = live_runner(ad)
+    assert ad.calls == [("Sr-Engineer_R1", "a@b.c", True)]
+    assert out["applied_count"] == 1 and out["manual_count"] == 0
+
+
+def test_without_a_password_the_job_is_manual_and_no_browser_opens(live_runner):
+    ad = _LiveFake({"status": "prepared"})
+    out = live_runner(ad)
+    assert ad.calls == [] and out["manual_count"] == 1
+    assert "no Workday account stored for 3m.wd1" in out["manual"][0]["reason"]
+
+
+def test_an_unanswerable_step_skips_the_job_with_its_questions(live_runner, monkeypatch):
+    monkeypatch.setenv("WORKDAY_PASSWORD_3M_WD1", "pw")
+    ad = _LiveFake({"status": "skipped", "submitted": False, "unanswered": ["Epic Systems?"],
+                    "reason": "unanswered required question(s): Epic Systems?"})
+    out = live_runner(ad)
+    assert out["applied_count"] == 0 and out["skipped"][0]["unanswered"] == ["Epic Systems?"]
+
+
+def test_an_unconfirmed_live_submit_is_recorded_pending(live_runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("WORKDAY_PASSWORD_3M_WD1", "pw")
+    ad = _LiveFake({"status": "unconfirmed", "submitted": False})
+    out = live_runner(ad, dry_run=False)
+    assert out["unconfirmed_count"] == 1
+    from src.automation.tools.ats_common import load_ledger
+    assert load_ledger(str(tmp_path / "l.json"))["workday:3m.wd1/Search/Sr-Engineer_R1"]["status"] == "pending"

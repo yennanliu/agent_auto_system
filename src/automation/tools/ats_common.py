@@ -427,6 +427,33 @@ def _years_required(lbl: str) -> int | None:
     return int(n) if n.isdigit() else _NUM_WORDS[n]
 
 
+_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|intern)\s+(?:for|at|by|with)\s+(.{1,60})")
+_US_TARGET = re.compile(r"(us|our|this|the company|the organi[sz]ation|here)\b")
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _prior_employment(lbl: str, profile: dict):
+    """ "Have you worked for <X> before?" is "No" when X is the hiring company,
+    which is the question's usual meaning. When the job's company is known
+    (``job_company``) and X is someone else ("…employed by Epic Systems",
+    "…by a State government") it is a fact about the person: never guessed."""
+    company = _norm(profile.get("job_company") or "")
+    m = _PRIOR_AT.search(lbl)
+    if not company or m is None:
+        return "No"
+    target = m.group(1).strip()
+    if _US_TARGET.match(target):
+        return "No"
+    words = [_norm(w) for w in target.split()]
+    if any("".join(words[:n]).startswith(company) or company.startswith("".join(words[:n]))
+           for n in (1, 2, 3) if "".join(words[:n])):
+        return "No"
+    return None
+
+
 def rule_answer(label: str, profile: dict):
     """Heuristic answer for a custom question label, or None when unsure. The
     caller maps the answer onto a select's options when the field is a select.
@@ -467,7 +494,7 @@ def rule_answer(label: str, profile: dict):
         return yes_no(needs)
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
-        return "No"
+        return _prior_employment(lbl, profile)
     if re.search(r"were you referred|referred by|referral", lbl):
         return "No"
     if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
@@ -658,10 +685,14 @@ def plan_questions(questions: list[Question], profile: dict,
     return answers, unanswered
 
 
-def with_job_location(profile: dict, location: str | None) -> dict:
+def with_job_location(profile: dict, location: str | None, company: str | None = None) -> dict:
     """The profile with the job's countries attached, so a generic "are you
     authorized to work in the country you applied for?" is judged against the
-    job. ``None`` (no location known) leaves the profile as it is."""
+    job. ``None`` (no location known) leaves the profile as it is. ``company``
+    (the hiring company) tells "have you worked for us before?" apart from a
+    question about another employer."""
+    if company:
+        profile = {**profile, "job_company": company}
     if location is None:
         return profile
     return {**profile, "job_countries": job_countries(location)}

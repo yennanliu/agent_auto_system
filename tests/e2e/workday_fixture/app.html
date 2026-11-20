@@ -1,0 +1,232 @@
+<!doctype html>
+<!--
+  A local stand-in for a Workday tenant's careers site, built from the hooks
+  and behaviours seen live on 3M (doc/workday-smartrecruiters-apply-design.md):
+  data-automation-id attributes, the create-account form with a Sign In link,
+  a Sign In button covered by a transparent click_filter div, a sign-in form
+  that re-mounts (values typed before it settles are lost), "Apply" turning
+  into "Continue Application" when a draft exists, steps that render blank
+  first with a disabled footer button, listboxes opened by a button whose
+  aria-controls names the popup, and a Review step with Submit.
+  State lives in sessionStorage (sign-in) and localStorage (the draft).
+-->
+<html><head><meta charset="utf-8"><title>Acme careers</title>
+<style>
+  body { font: 14px sans-serif; margin: 0; }
+  header { background: #000; color: #fff; padding: 8px; display: flex; gap: 8px; justify-content: flex-end; }
+  main { padding: 16px; max-width: 760px; }
+  [data-automation-id^="formField"] { margin: 10px 0; }
+  .btnwrap { position: relative; display: inline-block; }
+  [data-automation-id="click_filter"] { position: absolute; inset: 0; }
+  [role=listbox] { border: 1px solid #888; background: #fff; list-style: none; padding: 0; }
+  [role=option] { padding: 4px 8px; cursor: pointer; }
+</style></head>
+<body>
+<header><button data-automation-id="utilityMenuButton">English</button><span id="acct"></span></header>
+<main id="main"></main>
+<script>
+(function () {
+  const EMAIL = "ada@example.com", PASSWORD = "Corr3ct-Horse!";
+  const path = location.pathname;
+  const isApply = /\/apply\/applyManually$/.test(path);
+  const ss = sessionStorage, ls = localStorage;
+  const main = document.getElementById('main');
+  const draft = () => JSON.parse(ls.getItem('draft') || 'null');
+  const saveDraft = (d) => ls.setItem('draft', JSON.stringify(d));
+  window.__state = () => draft();
+
+  function header() {
+    document.getElementById('acct').innerHTML = ss.getItem('user')
+      ? '<button data-automation-id="utilityMenuButton">' + ss.getItem('user') + '</button>'
+      : '<button data-automation-id="utilityButtonSignIn">Sign In</button>';
+  }
+  header();
+
+  // ── job page ──
+  if (!isApply) {
+    main.innerHTML = '<h2>Senior Engineer</h2><div id="cta"></div>';
+    const cta = document.getElementById('cta');
+    cta.innerHTML = '<button data-automation-id="adventureButton">Apply</button>';
+    const wire = () => {
+      const a = document.querySelector('[data-automation-id=adventureButton]');
+      if (a) a.onclick = () => {
+        cta.insertAdjacentHTML('beforeend', '<div role="dialog"><button data-automation-id="applyManually">Apply Manually</button></div>');
+        document.querySelector('[data-automation-id=applyManually]').onclick = () => { location.href = path + '/apply/applyManually'; };
+      };
+      const c = document.querySelector('[data-automation-id=continueButton]');
+      if (c) c.onclick = () => { ss.setItem('resume', '1'); location.href = path + '/apply/applyManually'; };
+    };
+    // "Apply" first; a signed-in user with a draft sees "Continue Application" a moment later.
+    setTimeout(() => {
+      if (ss.getItem('user') && draft()) cta.innerHTML = '<button data-automation-id="continueButton">Continue Application</button>';
+      wire();
+    }, 700);
+    wire();
+    return;
+  }
+
+  // ── apply flow ──
+  const STEPS = ['My Information', 'My Experience', 'Application Questions', 'Voluntary Disclosures', 'Review'];
+  if (ss.getItem('user') && draft() && !ss.getItem('resume')) {
+    main.innerHTML = '<p data-automation-id="errorMessage">Something went wrong</p>';
+    return;
+  }
+  if (!ss.getItem('user')) return createAccount();
+  wizard();
+
+  function createAccount() {
+    main.innerHTML = '<div data-automation-id="progressBarActiveStep">current step 1 of 6 Create Account/Sign In</div>' +
+      '<h3>Create Account</h3><input data-automation-id="email"><input type="password" data-automation-id="password">' +
+      '<input type="password" data-automation-id="verifyPassword"><button data-automation-id="createAccountSubmitButton">Create Account</button>' +
+      '<button data-automation-id="signInLink">Sign In</button>';
+    document.querySelector('[data-automation-id=signInLink]').onclick = () => {
+      main.innerHTML = '<p>loading…</p>';
+      setTimeout(signInForm, 400);
+    };
+  }
+
+  function signInForm() {
+    const html = '<h3>Sign In</h3><input data-automation-id="email"><input type="password" data-automation-id="password">' +
+      '<span class="btnwrap"><button data-automation-id="signInSubmitButton">Sign In</button>' +
+      '<div data-automation-id="click_filter" aria-label="Sign In" role="button"></div></span>' +
+      '<p data-automation-id="errorMessage" id="err"></p>';
+    main.innerHTML = html;
+    // Re-mount once, like React settling: anything typed before this is gone.
+    setTimeout(() => {
+      main.innerHTML = html;
+      const vals = {};
+      main.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { vals[i.dataset.automationId] = i.value; }));
+      document.querySelector('[data-automation-id=click_filter]').onclick = () => {
+        if (vals.email === EMAIL && vals.password === PASSWORD) {
+          ss.setItem('user', EMAIL); header(); wizard();
+        } else {
+          document.getElementById('err').textContent = 'Wrong email address or password';
+        }
+      };
+    }, 800);
+  }
+
+  function step() { return (draft() || {}).step || 0; }
+
+  function wizard() {
+    const d = draft() || { step: 0, values: {}, files: [] };
+    saveDraft(d);
+    const i = d.step, name = STEPS[i];
+    main.innerHTML = '<div data-automation-id="progressBarActiveStep">current step ' + (i + 1) + ' of ' +
+      STEPS.length + ' ' + name + '</div><div id="fields"></div>' +
+      '<p id="errs"></p><button data-automation-id="' + (name === 'Review' ? 'pageFooterSubmitButton' : 'pageFooterNextButton') +
+      '" disabled>' + (name === 'Review' ? 'Submit' : 'Save and Continue') + '</button>';
+    // Each step renders blank first.
+    setTimeout(() => renderStep(name), 600);
+  }
+
+  const FIELDS = {
+    'My Information': [
+      { id: 'country', label: 'Country', kind: 'listbox', required: true, options: ['Canada', 'United States', 'Mexico'] },
+      { id: 'source', label: 'How Did You Hear About Us?', kind: 'listbox', required: true, options: ['LinkedIn', 'Acme Website', 'Referral'] },
+      { id: 'first', label: 'First Name', kind: 'text', required: true, after: 'country' },
+      { id: 'last', label: 'Last Name', kind: 'text', required: true, after: 'country' },
+      { id: 'device', label: 'Phone Device Type', kind: 'listbox', required: true, options: ['Landline', 'Mobile'] },
+      { id: 'phone', label: 'Phone Number', kind: 'text', required: true },
+      { id: 'middle', label: 'Middle Name', kind: 'text', required: false },
+    ],
+    'My Experience': [
+      { id: 'linkedin', label: 'LinkedIn', kind: 'text', required: false },
+    ],
+    'Application Questions': [
+      { id: 'auth', label: 'Are you legally authorized to work in the United States?', kind: 'radio', required: true, options: ['Yes', 'No'] },
+      { id: 'sponsor', label: 'Will you now or in the future require sponsorship for employment visa status?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
+      { id: 'former', label: 'Have you ever been employed by Acme or any of its subsidiaries?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
+      { id: 'epic', label: 'Have you ever been employed by Epic Systems?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
+      { id: 'noncompete', label: 'Have you signed an agreement with a current or former employer containing a non-compete?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
+    ],
+    'Voluntary Disclosures': [
+      { id: 'sex', label: 'Please select your sex.', kind: 'listbox', required: true, options: ['Male', 'Female', 'Not declared'] },
+      { id: 'terms', label: 'Terms and Conditions', kind: 'checkbox', required: true, options: ['Yes, I have read and consent to the terms and conditions'] },
+      { id: 'alerts', label: 'Job alerts', kind: 'checkbox', required: false, options: ['Send me job alerts'] },
+    ],
+  };
+
+  function renderStep(name) {
+    const d = draft();
+    const box = document.getElementById('fields');
+    const btn = document.querySelector('[data-automation-id^=pageFooter]');
+    if (name === 'Review') {
+      box.innerHTML = '<pre id="review">' + JSON.stringify(d.values, null, 1) + '</pre>';
+      btn.disabled = false;
+      btn.onclick = async () => {
+        await fetch('/submit', { method: 'POST', body: JSON.stringify({ values: d.values, files: d.files }) });
+        main.innerHTML = '<h2>Application Submitted</h2>';
+      };
+      return;
+    }
+    if (name === 'My Experience') {
+      box.innerHTML = '<div data-automation-id="attachments-FileUpload"><input type="file" data-automation-id="file-upload-input-ref">' +
+        d.files.map(f => '<div data-automation-id="file-upload-item"><span data-automation-id="file-upload-item-name">' + f +
+          '</span><span data-automation-id="file-upload-successful">Successfully Uploaded!</span></div>').join('') + '</div>';
+      box.querySelector('input[type=file]').onchange = (e) => {
+        const dd = draft(); dd.files.push(e.target.files[0].name); saveDraft(dd);
+        setTimeout(() => renderStep(name), 300);
+      };
+    } else box.innerHTML = '';
+    const ids = (FIELDS[name] || []).filter(f => !f.after || d.values[f.after]);
+    const ctr = (Math.random() * 1e6) | 0;   // ids change on every render, like Workday's
+    for (const f of (FIELDS[name] || [])) {
+      if (f.after && !d.values[f.after]) continue;
+      const star = f.required ? '<abbr>*</abbr>' : '';
+      const val = d.values[f.id];
+      let h = '<div data-automation-id="formField-' + f.id + '">';
+      if (f.kind === 'text') {
+        h += '<label for="t' + ctr + f.id + '">' + f.label + star + '</label><input type="text" id="t' + ctr + f.id + '" value="' + (val || '') + '">';
+      } else if (f.kind === 'listbox') {
+        h += '<label>' + f.label + star + '</label><button aria-haspopup="listbox" aria-controls="lb-' + f.id + '" id="b' + ctr + f.id + '">' + (val || 'Select One') + '</button>';
+      } else if (f.kind === 'radio') {
+        h += '<fieldset><legend>' + f.label + star + '</legend>' + f.options.map((o, k) =>
+          '<input type="radio" name="' + f.id + '" id="r' + ctr + f.id + k + '"' + (val === o ? ' checked' : '') + '><label for="r' + ctr + f.id + k + '">' + o + '</label>').join('') + '</fieldset>';
+      } else if (f.kind === 'checkbox') {
+        h += '<label>' + f.label + star + '</label>' + f.options.map((o, k) =>
+          '<input type="checkbox" id="c' + ctr + f.id + k + '"' + (val ? ' checked' : '') + '><label for="c' + ctr + f.id + k + '">' + o + '</label>').join('');
+      }
+      box.insertAdjacentHTML('beforeend', h + '</div>');
+    }
+    // wire controls: every change is saved to the draft, as Workday does
+    const set = (id, v) => { const dd = draft(); dd.values[id] = v; saveDraft(dd); };
+    for (const f of (FIELDS[name] || [])) {
+      const el = box.querySelector('[data-automation-id="formField-' + f.id + '"]');
+      if (!el) continue;
+      if (f.kind === 'text') el.querySelector('input').addEventListener('input', e => set(f.id, e.target.value));
+      if (f.kind === 'radio') el.querySelectorAll('input').forEach((r, k) => r.addEventListener('change', () => set(f.id, f.options[k])));
+      if (f.kind === 'checkbox') el.querySelectorAll('input').forEach(c => c.addEventListener('change', () => set(f.id, c.checked)));
+      if (f.kind === 'listbox') {
+        const b = el.querySelector('button');
+        b.onclick = () => {
+          document.querySelectorAll('[role=listbox]').forEach(x => x.remove());
+          const ul = document.createElement('ul');
+          ul.setAttribute('role', 'listbox'); ul.id = 'lb-' + f.id;
+          ul.innerHTML = '<li role="option">Select One</li>' + f.options.map(o => '<li role="option">' + o + '</li>').join('');
+          ul.querySelectorAll('[role=option]').forEach(li => li.onclick = () => {
+            ul.remove();
+            if (li.textContent === 'Select One') return;
+            set(f.id, li.textContent);
+            // a choice re-renders the step (new ids; dependent fields appear)
+            setTimeout(() => renderStep(name), 200);
+          });
+          document.body.appendChild(ul);
+        };
+      }
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('[role=listbox]').forEach(x => x.remove()); });
+    btn.disabled = false;
+    btn.onclick = () => {
+      const dd = draft();
+      const missing = (FIELDS[name] || []).filter(f => f.required && !dd.values[f.id]).map(f => f.label);
+      if (missing.length) {
+        document.getElementById('errs').innerHTML = missing.map(m => '<span data-automation-id="errorMessage">' + m + ' is required</span>').join('');
+        return;
+      }
+      dd.step += 1; saveDraft(dd); wizard();
+    };
+  }
+})();
+</script>
+</body></html>
