@@ -28,9 +28,15 @@ spl-radio, spl-checkbox, spl-select-option { display: block; cursor: pointer; }<
   if (qs.get('blocked')) { main.innerHTML = '<h1>Access is temporarily restricted</h1>'; return; }
   // DataDome's interactive check: the form appears only after a person slides.
   if (qs.get('captcha') && !sessionStorage.getItem('passed')) {
-    main.innerHTML = '<h2>Verification Required</h2><p>Slide right to secure your access</p>' +
-      '<button id="human-slider">→</button>';
-    document.getElementById('human-slider').onclick = () => { sessionStorage.setItem('passed', '1'); location.reload(); };
+    // Like DataDome: the check lives in an iframe from captcha-delivery.com,
+    // so the page's own text never says "Verification Required".
+    main.innerHTML = '<iframe id="dd" src="https://geo.captcha-delivery.com/captcha/?initialCid=x" ' +
+      'srcdoc="<h2>Verification Required</h2><p>Slide right to secure your access</p><button id=human-slider>→</button>"></iframe>';
+    document.getElementById('dd').addEventListener('load', () => {
+      const btn = document.getElementById('dd').contentDocument.getElementById('human-slider');
+      btn.onclick = () => { sessionStorage.setItem('passed', '1'); location.reload(); };
+      window.__slider = btn;
+    });
     return;
   }
 

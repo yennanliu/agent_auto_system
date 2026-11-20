@@ -56,6 +56,7 @@ BLOCKED_TEXTS = ("Access is temporarily restricted", "temporarily restricted")
 # solved by the automation: a person may complete it in a headed browser
 # when the run allows a wait (ATS_HUMAN_CHECK_WAIT seconds).
 HUMAN_CHECK_TEXTS = ("Verification Required", "Slide right to secure your access")
+HUMAN_CHECK_FRAME = "iframe[src*='captcha-delivery.com']"
 SUCCESS_TEXTS = ("Thank you for applying", "Thanks for applying", "application has been sent",
                  "application has been submitted", "application was sent", "successfully applied",
                  "We have received your application", "Application submitted")
@@ -235,11 +236,14 @@ class OneClick:
         p = self.page
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         form = lambda: p.locator("input#first-name-input").count()  # noqa: E731
-        ok = self._wait(lambda: form() or visible_text(p, BLOCKED_TEXTS)
-                        or visible_text(p, HUMAN_CHECK_TEXTS), 30)
+        # DataDome draws its check in an iframe from captcha-delivery.com, so
+        # the page's own text doesn't say "Verification Required".
+        check = lambda: (p.locator(HUMAN_CHECK_FRAME).count() > 0  # noqa: E731
+                         or bool(visible_text(p, HUMAN_CHECK_TEXTS)))
+        ok = self._wait(lambda: form() or visible_text(p, BLOCKED_TEXTS) or check(), 30)
         if visible_text(p, BLOCKED_TEXTS):
             return "blocked"
-        if not form() and visible_text(p, HUMAN_CHECK_TEXTS):
+        if not form() and check():
             if human_wait_s <= 0:
                 return "human_check"
             self.log(f"⏸ SmartRecruiters asks for a human check: complete it in the browser window "
