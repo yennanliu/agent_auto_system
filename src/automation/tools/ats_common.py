@@ -477,7 +477,13 @@ def rule_answer(label: str, profile: dict):
         return profile.get("first_name") or None
     if re.search(r"full (legal )?name|legal name", lbl):
         return f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip() or None
-    if re.search(r"consent|acknowledge|agree|privacy|certify|attest|confirm that|terms|i understand", lbl):
+    # A factual question about the candidate's past ("Have you signed an
+    # agreement with a previous employer containing a non-compete…?") is NOT
+    # a consent box — answering it "Yes / I agree" states a falsehood.
+    factual = re.search(r"\b(have|has|had|did|were|was|are|is) you\b.{0,60}\b(sign(ed)?|enter(ed)?( into)?|"
+                        r"executed|bound by|party to|subject to|agreed to)\b", lbl)
+    if not factual and re.search(r"consent|acknowledge|agree|privacy|certify|attest|confirm that|terms|"
+                                 r"i understand", lbl):
         return "__agree__"
     return None
 

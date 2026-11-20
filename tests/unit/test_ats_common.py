@@ -7,6 +7,8 @@ title matching, the keyed ledger and the job-location context.
 """
 import json
 
+import pytest
+
 from src.automation.tools import ats_common as ac
 from src.automation.tools.ats_common import Question
 
@@ -362,3 +364,25 @@ def test_launch_browser_falls_back_to_bundled_chromium():
     assert ac.launch_browser(pw, headless=True) == "browser"
     assert calls[0]["channel"] == "chrome" and "channel" not in calls[1]
     assert calls[1]["args"] == ac.STEALTH_ARGS and calls[1]["headless"] is True
+
+
+@pytest.mark.parametrize("label", [
+    "Have you signed an agreement with a current/previous employer containing a provision related to non-competition?",
+    "Did you enter into a non-disclosure agreement with your current employer?",
+    "Are you bound by any agreement that restricts your employment?",
+    "Have you ever agreed to an arbitration clause with a previous employer?",
+])
+def test_factual_agreement_questions_are_not_consent(label):
+    """Found in the Workday e2e: 'Have you signed an agreement…' was answered
+    'Yes' by the consent rule. It's a fact about the candidate, never assumed."""
+    assert ac.rule_answer(label, PROFILE) is None
+    q = Question("q", label, "select", required=True, options=["Yes", "No"])
+    assert ac.answer_question(q, PROFILE) is None
+
+
+@pytest.mark.parametrize("label", [
+    "I acknowledge the privacy notice", "Applicant Arbitration Agreement Acknowledgement",
+    "I certify that the information provided is true", "Do you consent to the processing of your data?",
+])
+def test_real_consent_boxes_still_agree(label):
+    assert ac.rule_answer(label, PROFILE) == "__agree__"
