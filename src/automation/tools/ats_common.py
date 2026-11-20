@@ -409,6 +409,21 @@ def profile_url_field(label: str) -> str | None:
     return site if len(t.split()) <= 3 or _URL_WORDS.search(t) else None
 
 
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+              "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20}
+_YEARS_Q = re.compile(r"\b(do|does|have|has) you (have|possess|got)\b.{0,25}?\b(?:at least |over |more than |a minimum of )?"
+                      r"(\d{1,2}|" + "|".join(_NUM_WORDS) + r")\b\s*(?:\(\s*\d{1,2}\s*\)\s*)?\+?\s*(?:or more\s*)?years?\b")
+
+
+def _years_required(lbl: str) -> int | None:
+    """N in a yes/no "Do you have N (or more) years of …?" question, else None."""
+    m = _YEARS_Q.search(lbl)
+    if not m:
+        return None
+    n = m.group(3)
+    return int(n) if n.isdigit() else _NUM_WORDS[n]
+
+
 def rule_answer(label: str, profile: dict):
     """Heuristic answer for a custom question label, or None when unsure. The
     caller maps the answer onto a select's options when the field is a select.
@@ -462,6 +477,11 @@ def rule_answer(label: str, profile: dict):
         return (profile.get("education") or {}).get("school") or None
     if re.search(r"(highest|what) (level of )?(degree|education)", lbl):
         return (profile.get("education") or {}).get("degree") or None
+    # "Do you have seven (7) / 5+ / at least 3 years of …?" is a yes/no about
+    # the candidate's experience: compare with the profile's years, truthfully.
+    need = _years_required(lbl)
+    if need is not None:
+        return yes_no(int(profile.get("years", 0) or 0) >= need)
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
         return str(profile.get("years", 3))
     # "Last drawn / current salary" is a fact about the past, not the expectation.

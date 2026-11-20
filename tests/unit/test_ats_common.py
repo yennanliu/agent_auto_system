@@ -386,3 +386,22 @@ def test_factual_agreement_questions_are_not_consent(label):
 ])
 def test_real_consent_boxes_still_agree(label):
     assert ac.rule_answer(label, PROFILE) == "__agree__"
+
+
+@pytest.mark.parametrize("label,years,answer", [
+    ("Do you have seven (7) years of full-stack or embedded device software development?", 5, "No"),
+    ("Do you have seven (7) years of full-stack or embedded device software development?", 8, "Yes"),
+    ("Do you have 5+ years of Python experience?", 5, "Yes"),
+    ("Do you have at least 3 years of experience with AWS?", 2, "No"),
+    ("Do you possess ten years or more of experience leading teams?", 12, "Yes"),
+])
+def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
+    """Found in the Workday e2e (3M asks 'seven (7) years'): answered truthfully
+    from the profile's years instead of being left unanswered."""
+    assert ac.rule_answer(label, {**PROFILE, "years": years}) == answer
+    q = Question("q", label, "select", required=True, options=["Yes", "No"])
+    assert ac.answer_question(q, {**PROFILE, "years": years})["value"] == answer
+
+
+def test_how_many_years_still_returns_the_number():
+    assert ac.rule_answer("How many years of experience do you have?", {**PROFILE, "years": 4}) == "4"
