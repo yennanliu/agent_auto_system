@@ -128,10 +128,12 @@ class SmartRecruitersAdapter(Adapter):
                 "blocked": {"status": "blocked",
                             "reason": "SmartRecruiters' bot protection blocked the page "
                                       "(run headed: ATS_HEADLESS=0)"},
-                "human_check": {"status": "blocked",
-                                "reason": "SmartRecruiters asked for a human verification (slider). "
-                                          "Run headed with ATS_HUMAN_CHECK_WAIT=300 and complete it "
-                                          "in the browser window; it is never solved automatically"},
+                # Listed for the user to apply in their own browser: DataDome
+                # flags the automated one, so even a person's slide there can
+                # be rejected ("RETRY"). Never solved automatically.
+                "human_check": {"status": "manual",
+                                "reason": "SmartRecruiters asked for a human verification (CAPTCHA); "
+                                          "open apply_url in your own browser to apply"},
                 "timeout": {"status": "failed", "reason": "the apply form didn't load"},
             }[opened]))
             return entry

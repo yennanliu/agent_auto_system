@@ -99,7 +99,13 @@ answerer only runs with `candidate_background`. Platform specifics:
 No account is needed. The Posting API lists jobs; each posting's `applyUrl` opens the
 one-click apply page. That page sits behind DataDome: **headless browsers get "Access is
 temporarily restricted", headed Chrome gets through** (the default, `ATS_HEADLESS=0`). A
-blocked job is reported as `blocked` and not retried. There is no public form-definition API
+blocked job is reported as `blocked` and not retried. When DataDome shows its interactive
+check ("Verification Required", a slider in a `captcha-delivery.com` iframe), the job goes to
+`manual[]` with its link: **the automation never solves or bypasses it**, and DataDome tends
+to reject even a person's slide inside the automated browser. Apply in your own browser.
+(`ATS_HUMAN_CHECK_WAIT` lets a headed run wait for a person, but expect it to fail once the IP
+has been flagged.) Keep SmartRecruiters runs small: repeated automated visits get the IP
+flagged. There is no public form-definition API
 and the screening questions are rendered into the page, so the adapter plans in the browser
 (`plans_in_browser`), as on Workday:
 

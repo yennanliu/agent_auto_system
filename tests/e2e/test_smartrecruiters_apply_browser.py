@@ -191,7 +191,7 @@ def test_the_human_check_is_reported_and_never_touched(site, page, resume, monke
     base, _ = site
     monkeypatch.setenv("ATS_HUMAN_CHECK_WAIT", "0")
     entry = _apply(page, f"{base}/Acme/1?captcha=1", _profile(resume, FACTS), dry_run=True)
-    assert entry["status"] == "blocked" and "human verification" in entry["reason"]
+    assert entry["status"] == "manual" and "human verification" in entry["reason"]
     assert page.frame_locator("#dd").locator("#human-slider").count() == 1   # still there: never clicked
 
 
