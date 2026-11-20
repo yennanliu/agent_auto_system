@@ -22,6 +22,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from src.automation import spec
 
@@ -54,6 +55,10 @@ _GENERIC_RUBRIC = "The expected fields are present and the content is substantiv
 
 
 _JUDGE_PROMPT = """You are a strict quality evaluator for an automation system.
+Today's date is {today} (UTC). Dates up to today are NOT in the future — judge
+how recent or plausible something is against today, not against your training
+data (a news URL dated last week is normal, not a hallucination).
+
 A "{job_type}" automation job produced the following JSON result:
 
 {result}
@@ -188,6 +193,7 @@ def evaluate(job_type: str, result, provider: str | None = None, model: str | No
 
     run_provider, run_model = normalize(provider, model)
     prompt = _JUDGE_PROMPT.format(
+        today=datetime.now(UTC).date().isoformat(),
         job_type=job_type, result=_result_for_judge(result),
         rubric=_RUBRICS.get(job_type, _GENERIC_RUBRIC),
     )

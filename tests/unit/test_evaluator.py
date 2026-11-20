@@ -165,3 +165,24 @@ def test_result_for_judge_labels_harness_truncation():
     long = _result_for_judge({"x": "y" * (_MAX_RESULT_CHARS * 2)})
     assert "truncated by the evaluation harness" in long
     assert len(long) < _MAX_RESULT_CHARS + 300
+
+
+def test_judge_prompt_states_todays_date(mocker):
+    """Without today's date the judge treated a real, days-old news URL as a
+    'hallucinated future date' and scored a correct HN digest 15-60."""
+    from datetime import UTC, datetime
+    prompts = []
+
+    class Capture(_FakeLLM):
+        def call(self, prompt):
+            prompts.append(prompt)
+            return '{"score": 90, "confidence": 0.9, "notes": "ok"}'
+
+    mocker.patch("src.automation.harness.provider.has_api_key", return_value=True)
+    mocker.patch("src.automation.harness.provider.resolve",
+                 return_value=(Capture(None), "anthropic", "claude-sonnet-4-6"))
+    evaluate("hacker_news_digest", {"stories": [{"title": "T", "url": "https://x/2026-11-19/"}]},
+             provider="openai", model="gpt-4o-mini")
+    today = datetime.now(UTC).date().isoformat()
+    assert f"Today's date is {today}" in prompts[0]
+    assert "NOT in the future" in prompts[0]
