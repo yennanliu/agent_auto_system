@@ -630,6 +630,11 @@ register(AutomationSpec(
         Field("max_per_board", "number", "Max Applications Per Company (0 = no cap)", default=0, min=0, max=50),
         Field("max_scans_per_board", "number", "Max Jobs Examined Per Company (0 = no cap)", default=0, min=0, max=500,
               help="Stops a big board whose forms keep getting skipped from eating the run's time."),
+        Field("create_workday_accounts", "checkbox", "Create Workday accounts (one per employer)",
+              default=False,
+              help="Workday needs an account at each employer. When on, a missing one is created "
+                   "with your e-mail and a generated password, saved to data/workday_accounts.json "
+                   "on this server (git-ignored). Happens even in a dry run."),
         Field("dry_run", "checkbox", "Dry run — fill forms but don't Submit", default=True),
     ),
     help_note=(

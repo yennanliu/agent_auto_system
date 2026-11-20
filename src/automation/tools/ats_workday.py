@@ -18,10 +18,14 @@ companies get HTTP 429, with no Retry-After header. Requests are paced and a
 the board scanner can pause too.
 
 Applying (``apply_live``) needs a candidate account at each employer: Workday
-has no guest apply. Accounts are never created here. The user creates one per
-tenant and stores its password (``password_for``: env
-``WORKDAY_PASSWORD_<TENANT>_<WDN>``, the encrypted settings store, or the macOS
-Keychain); jobs at a tenant with no stored password are listed under ``manual``.
+has no guest apply. The password per tenant comes from ``password_for``: env
+``WORKDAY_PASSWORD_<TENANT>_<WDN>``, the encrypted settings store, the local
+accounts file (``data/workday_accounts.json``) or the macOS Keychain. With no
+password, the job is listed under ``manual``, unless the run opted in to
+``create_accounts``. Then a strong, unique password is generated and saved to
+the local accounts file **before** the account is created, so the credentials
+are never lost. That file is under ``data/`` (git-ignored) with mode 0600, and
+must never be committed.
 
 The questions only exist after sign-in, so planning happens in the browser,
 one wizard step at a time (``plans_in_browser``): read each visible
@@ -42,10 +46,13 @@ stops at Review. Behaviours learned on a live tenant (3M):
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from src.automation.tools.ats_apply_tool import Adapter, entry_for, tick
 from src.automation.tools.ats_common import (
@@ -102,6 +109,10 @@ class WorkdayAdapter(Adapter):
     label = "Workday"
     plans_in_browser = True  # questions only exist after sign-in
     job_scoped = True  # a job ref searches its requisition id, not the board
+
+    # Opt-in per run (run_ats_apply(create_workday_accounts=True)): create the
+    # candidate account at an employer with no stored password.
+    create_accounts = False
 
     def __init__(self, sleep=time.sleep):
         self._sleep = sleep
@@ -171,7 +182,7 @@ class WorkdayAdapter(Adapter):
         """None when this job can be applied to; else why it's listed as manual."""
         host = host_of(job["token"])
         email = (profile or {}).get("email", "")
-        if self.password(host, email):
+        if self.password(host, email) or (self.create_accounts and email):
             return None
         return (f"no Workday account stored for {host}. Create one at apply_url with "
                 f"{email or 'your e-mail'}, then store its password "
@@ -185,12 +196,18 @@ class WorkdayAdapter(Adapter):
         entry = entry_for(job, [])
         host, email = host_of(job["token"]), profile.get("email", "")
         password = self.password(host, email)
-        if not password:
-            entry.update(status="manual", submitted=False, reason=self.manual_reason_for(job, profile))
-            return entry
+        apply_url = job["url"].rstrip("/") + "/apply/applyManually"
         profile = with_job_location(profile, job_country(job.get("location") or ""), job.get("company"))
         wiz = Wizard(page, log)
-        if not wiz.sign_in(job["url"].rstrip("/") + "/apply/applyManually", email, password):
+        if not password and self.create_accounts and email:
+            created = self._create_account(wiz, apply_url, host, email, log)
+            if created is not True:
+                entry.update(submitted=False, **created)
+                return entry
+        elif not password:
+            entry.update(status="manual", submitted=False, reason=self.manual_reason_for(job, profile))
+            return entry
+        elif not wiz.sign_in(apply_url, email, password):
             entry.update(status="failed", submitted=False,
                          reason=f"could not sign in to Workday at {host}: "
                                 + (" | ".join(wiz.errors()) or "check the stored password"))
@@ -226,6 +243,33 @@ class WorkdayAdapter(Adapter):
                 return entry
         entry.update(status="failed", submitted=False, reason="never reached the Review step")
         return entry
+
+    def _create_account(self, wiz, apply_url: str, host: str, email: str, log: Callable):
+        """Create the candidate account; True when signed in, else the entry
+        fields to report. The password is saved locally BEFORE the form is
+        sent: whatever happens next, the account is never orphaned."""
+        password = generate_password()
+        save_account(host, email, password)
+        self._passwords[(host, email.lower())] = password
+        log(f"creating a Workday account at {host} for {email} (saved to {accounts_path()})")
+        outcome = wiz.create_account(apply_url, email, password)
+        if outcome == "signed_in":
+            mark_account(host, email, "active")
+            return True
+        if outcome == "verify":
+            mark_account(host, email, "needs_verification")
+            return {"status": "needs_verification",
+                    "reason": f"Workday account created at {host}; it asks to verify {email}. "
+                              "Click the link in that e-mail; the next run signs in."}
+        if outcome == "exists":
+            forget_account(host, email)
+            self._passwords.pop((host, email.lower()), None)
+            return {"status": "failed",
+                    "reason": f"an account for {email} already exists at {host}: store its password "
+                              f"({env_name(host)} or scripts/workday_password.py set {host})"}
+        mark_account(host, email, "create_failed")
+        return {"status": "failed", "reason": f"could not create a Workday account at {host}: "
+                                              + (" | ".join(wiz.errors()) or "no confirmation")}
 
     # Not used: plans_in_browser routes Workday through apply_live.
     def load_form(self, client, job):  # pragma: no cover
@@ -265,9 +309,80 @@ def env_name(host: str) -> str:
     return "WORKDAY_PASSWORD_" + re.sub(r"[^A-Z0-9]+", "_", host.upper())
 
 
+# Accounts the automation created (or the user added): e-mail + password per
+# tenant. Under data/, which is git-ignored; written 0600. NEVER commit it.
+DEFAULT_ACCOUNTS_PATH = "data/workday_accounts.json"
+
+
+def accounts_path() -> str:
+    return os.getenv("WORKDAY_ACCOUNTS_FILE", DEFAULT_ACCOUNTS_PATH)
+
+
+def load_accounts(path: str | None = None) -> dict:
+    """``{host: {email: {"password", "created_at", "status"}}}``."""
+    try:
+        with open(path or accounts_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_accounts(data: dict, path: str) -> None:
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".workday_accounts_", suffix=".json", dir=folder)
+    try:
+        os.chmod(tmp, 0o600)  # owner only, before a single secret is written
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def save_account(host: str, email: str, password: str, status: str = "creating",
+                 path: str | None = None) -> None:
+    path = path or accounts_path()
+    data = load_accounts(path)
+    data.setdefault(host, {})[email.lower()] = {
+        "password": password, "status": status,
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    _write_accounts(data, path)
+
+
+def mark_account(host: str, email: str, status: str, path: str | None = None) -> None:
+    path = path or accounts_path()
+    data = load_accounts(path)
+    entry = data.get(host, {}).get(email.lower())
+    if entry is not None:
+        entry["status"] = status
+        _write_accounts(data, path)
+
+
+def forget_account(host: str, email: str, path: str | None = None) -> None:
+    path = path or accounts_path()
+    data = load_accounts(path)
+    if data.get(host, {}).pop(email.lower(), None) is not None:
+        _write_accounts(data, path)
+
+
+def generate_password(length: int = 20) -> str:
+    """Meets Workday's rules (upper, lower, digit, special, 8+), unique per tenant."""
+    pools = ("ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%*-_=+?")
+    chars = [secrets.choice(p) for p in pools]
+    chars += [secrets.choice("".join(pools)) for _ in range(length - len(chars))]
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
+
+
 def password_for(host: str, email: str = "") -> str | None:
-    """A tenant's password: env var, then the encrypted settings store, then
-    (macOS) the login Keychain under ``KEYCHAIN_SERVICE`` / the e-mail."""
+    """A tenant's password: env var, the encrypted settings store, the local
+    accounts file, then (macOS) the Keychain under ``KEYCHAIN_SERVICE``."""
     if os.getenv(env_name(host)):
         return os.environ[env_name(host)]
     try:
@@ -275,8 +390,12 @@ def password_for(host: str, email: str = "") -> str | None:
         stored = get_workday_password(host)
         if stored:
             return stored
-    except Exception:  # noqa: BLE001 — no DB here: try the Keychain
+    except Exception:  # noqa: BLE001 — no DB here: try the file / Keychain
         pass
+    if email:
+        local = load_accounts().get(host, {}).get(email.lower()) or {}
+        if local.get("password") and local.get("status") != "create_failed":
+            return local["password"]
     if sys.platform == "darwin" and email:
         try:
             out = subprocess.run(["security", "find-generic-password", "-s",
@@ -396,8 +515,11 @@ class Wizard:
             return True
         if p.locator("input[data-automation-id='verifyPassword']").count():
             # The create-account form: switch to Sign In (accounts are never created here).
-            p.locator("[data-automation-id='signInLink']").first.click()
-            self._wait(lambda: not p.locator("input[data-automation-id='verifyPassword']").count(), 10)
+            # A click before the form has settled is lost: retry until it switches.
+            for _ in range(4):
+                p.locator("[data-automation-id='signInLink']").first.click()
+                if self._wait(lambda: not p.locator("input[data-automation-id='verifyPassword']").count(), 4):
+                    break
         # The Sign In form re-renders as it mounts: values typed too early are
         # dropped from its state and an EMPTY form is submitted. Let it settle,
         # type like a user (focus, keys, blur), and check the values held.
@@ -421,6 +543,49 @@ class Wizard:
             if self._wait(self.signed_in, 12):
                 return True
         return False
+
+    def create_account(self, url: str, email: str, password: str) -> str:
+        """Fill Workday's Create Account form. Returns "signed_in", "verify"
+        (Workday wants the e-mail confirmed first), "exists" or "failed"."""
+        p = self.page
+        self.email = email
+        p.goto(url, wait_until="domcontentloaded", timeout=45000)
+        create = "[data-automation-id='createAccountSubmitButton']"
+        if not self._wait(lambda: p.locator(create).count() or self.signed_in(), 25):
+            return "failed"
+        if self.signed_in():
+            return "signed_in"
+        p.wait_for_timeout(1500)  # the form re-mounts as it settles, like Sign In
+        for sel, value in (("input[data-automation-id='email']", email),
+                           ("input[data-automation-id='password']", password),
+                           ("input[data-automation-id='verifyPassword']", password)):
+            box = p.locator(sel).first
+            box.click()
+            box.fill(value)
+            box.press("Tab")
+        # The account form's own consent box (terms / privacy) when it has one.
+        boxes = p.locator("input[type=checkbox][data-automation-id*='createAccountCheckbox']")
+        for i in range(boxes.count()):
+            if not boxes.nth(i).is_checked():
+                tick(boxes.nth(i))
+        p.wait_for_timeout(500)
+        overlay = p.locator("[data-automation-id='click_filter'][aria-label='Create Account']")
+        (overlay.first.click() if overlay.count() else p.locator(create).first.click(force=True))
+        verify = re.compile(r"verify your (account|e-?mail)|verification (e-?mail|link)|check your (e-?mail|inbox)", re.I)
+        exists = re.compile(r"already (exists|in use|registered|been used)", re.I)
+        for _ in range(40):
+            p.wait_for_timeout(500)
+            if self.signed_in():
+                return "signed_in"
+            try:
+                body = p.locator("body").inner_text()
+            except Exception:  # noqa: BLE001
+                continue
+            if exists.search(body):
+                return "exists"
+            if verify.search(body):
+                return "verify"
+        return "failed"
 
     def _click_sign_in(self) -> None:
         p = self.page

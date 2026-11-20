@@ -83,8 +83,11 @@ def resume(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _password(monkeypatch):
+def _password(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKDAY_PASSWORD_ACME_WD1", PASSWORD)
+    # Never read or write the real data/workday_accounts.json (or the Keychain).
+    monkeypatch.setenv("WORKDAY_ACCOUNTS_FILE", str(tmp_path / "workday_accounts.json"))
+    monkeypatch.setattr(wd.sys, "platform", "linux")
 
 
 def _job(base):
@@ -94,8 +97,8 @@ def _job(base):
             "url": url, "apply_url": url}
 
 
-def _profile(resume, extra=""):
-    return build_profile(first_name="Ada", last_name="Lovelace", email=EMAIL, phone="+1 415 555 0100",
+def _profile(resume, extra="", email=EMAIL):
+    return build_profile(first_name="Ada", last_name="Lovelace", email=email, phone="+1 415 555 0100",
                          current_location="San Francisco, CA", authorized_countries="United States",
                          years_experience=5, resume_path=resume, extra_answers=extra)
 
@@ -103,9 +106,11 @@ def _profile(resume, extra=""):
 FACTS = "Epic Systems: No\nsigned an agreement: No"
 
 
-def _run(context, base, profile, dry_run=True):
+def _run(context, base, profile, dry_run=True, create=False):
     page = context.new_page()  # a new tab: sessionStorage (the sign-in) starts empty, like a new run
-    entry = wd.WorkdayAdapter().apply_live(page, _job(base), profile, None, dry_run, print)
+    adapter = wd.WorkdayAdapter()
+    adapter.create_accounts = create
+    entry = adapter.apply_live(page, _job(base), profile, None, dry_run, print)
     state = page.evaluate("window.__state ? window.__state() : null")
     page.close()
     return entry, state
@@ -173,4 +178,61 @@ def test_a_wrong_password_fails_cleanly(site, browser, resume, monkeypatch):
     assert entry["status"] == "failed" and "could not sign in" in entry["reason"]
     assert "Wrong email address or password" in entry["reason"]
     assert state is None or state.get("values") == {}                          # nothing filled
+    ctx.close()
+
+
+# ── opt-in account creation ──────────────────────────────────────────────────
+
+def test_without_opt_in_no_account_is_created(site, browser, resume, monkeypatch):
+    base, _ = site
+    monkeypatch.delenv("WORKDAY_PASSWORD_ACME_WD1")
+    ctx = browser.new_context()
+    entry, _ = _run(ctx, base, _profile(resume, FACTS, email="new@example.com"))
+    assert entry["status"] == "manual" and "no Workday account stored for acme.wd1" in entry["reason"]
+    assert wd.load_accounts() == {}
+    ctx.close()
+
+
+def test_creates_the_account_saves_it_locally_then_applies(site, browser, resume, monkeypatch):
+    import os
+    import stat
+    base, _ = site
+    monkeypatch.delenv("WORKDAY_PASSWORD_ACME_WD1")
+    ctx = browser.new_context()
+    entry, state = _run(ctx, base, _profile(resume, FACTS, email="new@example.com"), create=True)
+    assert entry["status"] == "prepared", entry
+    saved = wd.load_accounts()["acme.wd1"]["new@example.com"]
+    assert saved["status"] == "active" and len(saved["password"]) == 20
+    assert stat.S_IMODE(os.stat(wd.accounts_path()).st_mode) == 0o600          # owner only
+    # The next run signs in with the saved password instead of creating another account.
+    page = ctx.new_page()
+    adapter = wd.WorkdayAdapter()
+    adapter.create_accounts = True
+    page.goto(_job(base)["url"])
+    accounts = page.evaluate("JSON.parse(localStorage.getItem('accounts'))")
+    assert accounts == {"new@example.com": saved["password"]}
+    second = adapter.apply_live(page, _job(base), _profile(resume, FACTS, email="new@example.com"),
+                                None, True, print)
+    assert second["status"] == "prepared"
+    assert wd.load_accounts()["acme.wd1"]["new@example.com"]["password"] == saved["password"]
+    ctx.close()
+
+
+def test_an_account_needing_e_mail_verification_is_kept_and_reported(site, browser, resume, monkeypatch):
+    base, _ = site
+    monkeypatch.delenv("WORKDAY_PASSWORD_ACME_WD1")
+    ctx = browser.new_context()
+    entry, _ = _run(ctx, base, _profile(resume, FACTS, email="ada+verify@example.com"), create=True)
+    assert entry["status"] == "needs_verification" and "Click the link" in entry["reason"]
+    assert wd.load_accounts()["acme.wd1"]["ada+verify@example.com"]["status"] == "needs_verification"
+    ctx.close()
+
+
+def test_an_existing_account_is_not_overwritten(site, browser, resume, monkeypatch):
+    base, _ = site
+    monkeypatch.delenv("WORKDAY_PASSWORD_ACME_WD1")
+    ctx = browser.new_context()
+    entry, _ = _run(ctx, base, _profile(resume, FACTS, email="taken@example.com"), create=True)
+    assert entry["status"] == "failed" and "already exists" in entry["reason"]
+    assert "taken@example.com" not in wd.load_accounts().get("acme.wd1", {})   # the unused password is dropped
     ctx.close()

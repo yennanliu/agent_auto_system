@@ -38,7 +38,7 @@ class _Client:
 
 
 @pytest.fixture(autouse=True)
-def _no_stored_passwords(monkeypatch):
+def _no_stored_passwords(monkeypatch, tmp_path):
     """Never read the real Keychain / settings DB: no tenant has a password
     unless a test sets WORKDAY_PASSWORD_*."""
     import src.automation.tools.ats_workday as wd
@@ -48,6 +48,7 @@ def _no_stored_passwords(monkeypatch):
         import os
         return os.getenv(wd.env_name(host)) or None
     monkeypatch.setattr(wd, "password_for", env_only)
+    monkeypatch.setenv("WORKDAY_ACCOUNTS_FILE", str(tmp_path / "workday_accounts.json"))
     yield real
 
 
@@ -360,3 +361,60 @@ def test_an_unconfirmed_live_submit_is_recorded_pending(live_runner, monkeypatch
     assert out["unconfirmed_count"] == 1
     from src.automation.tools.ats_common import load_ledger
     assert load_ledger(str(tmp_path / "l.json"))["workday:3m.wd1/Search/Sr-Engineer_R1"]["status"] == "pending"
+
+
+# ── local accounts file (opt-in account creation) ───────────────────────────
+
+def test_accounts_file_is_git_ignored():
+    import subprocess
+    repo = Path(__file__).resolve().parents[2]
+    out = subprocess.run(["git", "check-ignore", "-q", wd.DEFAULT_ACCOUNTS_PATH], cwd=repo)
+    assert out.returncode == 0, f"{wd.DEFAULT_ACCOUNTS_PATH} must be git-ignored: it holds passwords"
+
+
+def test_save_load_mark_forget(tmp_path):
+    import os
+    import stat
+    path = str(tmp_path / "sub" / "accounts.json")
+    wd.save_account("acme.wd1", "Ada@Example.com", "pw1", path=path)
+    assert wd.load_accounts(path)["acme.wd1"]["ada@example.com"]["password"] == "pw1"
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    wd.mark_account("acme.wd1", "ada@example.com", "active", path=path)
+    assert wd.load_accounts(path)["acme.wd1"]["ada@example.com"]["status"] == "active"
+    wd.forget_account("acme.wd1", "ada@example.com", path=path)
+    assert wd.load_accounts(path) == {"acme.wd1": {}}
+    assert wd.load_accounts(str(tmp_path / "missing.json")) == {}
+
+
+def test_generated_passwords_meet_workday_rules():
+    import re as _re
+    seen = set()
+    for _ in range(50):
+        pw = wd.generate_password()
+        assert len(pw) == 20 and all(_re.search(p, pw) for p in (r"[A-Z]", r"[a-z]", r"[0-9]", r"[^A-Za-z0-9]"))
+        seen.add(pw)
+    assert len(seen) == 50
+
+
+def test_password_for_reads_the_local_file(monkeypatch, _no_stored_passwords, mocker):
+    real = _no_stored_passwords
+    mocker.patch("src.settings_store.get_workday_password", return_value=None)
+    monkeypatch.setattr(wd.sys, "platform", "linux")
+    wd.save_account("acme.wd5", "a@b.c", "local-pw", status="active")
+    assert real("acme.wd5", "A@B.C") == "local-pw"
+    wd.mark_account("acme.wd5", "a@b.c", "create_failed")
+    assert real("acme.wd5", "a@b.c") is None                                  # a failed creation is not an account
+
+
+def test_opt_in_makes_a_job_without_an_account_applicable():
+    ad = wd.WorkdayAdapter()
+    assert ad.manual_reason_for(_job(), {"email": "a@b.c"})
+    ad.create_accounts = True
+    assert ad.manual_reason_for(_job(), {"email": "a@b.c"}) is None
+    assert ad.manual_reason_for(_job(), {"email": ""})                         # no e-mail: still manual
+
+
+def test_runner_passes_the_opt_in_to_the_adapter(live_runner):
+    ad = _LiveFake({"status": "prepared"})
+    out = live_runner(ad, create_workday_accounts=True)
+    assert ad.create_accounts is True and ad.calls and out["manual_count"] == 0

@@ -374,6 +374,7 @@ def run_ats_apply(
     max_per_board: int = 0,
     max_scans_per_board: int = 0,
     dry_run: bool = True,
+    create_workday_accounts: bool = False,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     answer_fn: Callable[[str, str, list[str], dict], str] | None = None,
     log: Callable[[str], None] | None = None,
@@ -392,6 +393,9 @@ def run_ats_apply(
                    or os.getenv("GREENHOUSE_RESUME_PATH", "")).strip()
     max_applications = max(1, min(int(max_applications), 200))
     adapters = adapters or _adapters()
+    for adapter in adapters.values():
+        if hasattr(adapter, "create_accounts"):  # Workday: opt-in account creation
+            adapter.create_accounts = bool(create_workday_accounts)
 
     board_list = split_list(boards)
     refs: list[BoardRef] = []

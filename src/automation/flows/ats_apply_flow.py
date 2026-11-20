@@ -18,6 +18,7 @@ class ATSApplyState(GreenhouseApplyState):
     discovery sources (``hn, remoteok, remotive, weworkremotely``). At least
     one of the two is required."""
     sources: str = ""
+    create_workday_accounts: bool = False
 
 
 class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
@@ -59,6 +60,7 @@ class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
             has_criminal_record=st.has_criminal_record,
             max_applications=st.max_applications, max_per_board=st.max_per_board,
             max_scans_per_board=st.max_scans_per_board, dry_run=st.dry_run,
+            create_workday_accounts=st.create_workday_accounts,
             relevance_fn=relevance_fn, answer_fn=answer_fn,
             log=lambda m: append_log(st.run_id, m),
         )

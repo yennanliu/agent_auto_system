@@ -124,17 +124,28 @@ POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
   403, 404, 410 and 422 mean the board is disabled, unknown or closed, and are never
   waited on.
 - **Applying needs an account per employer.** Workday has no guest apply: every
-  employer (tenant, e.g. `3m.wd1`) has its own candidate account. **Accounts are never
-  created by the automation.** Create one yourself on the employer's careers site with the
-  run's `email`, then store its password:
+  employer (tenant, e.g. `3m.wd1`) has its own candidate account.
+  - **Opt-in creation:** with **Create Workday accounts** (`create_workday_accounts`) on, a
+    missing account is created with the run's `email` and a generated 20-character password.
+    The e-mail and password are saved to **`data/workday_accounts.json`** *before* the form is
+    sent, so the account can't be lost. The file is mode 0600 and under `data/`, which is
+    git-ignored (a unit test checks this). **Never commit or push it.** If Workday asks to
+    verify the e-mail, the job reports `needs_verification`; click the link, and the next
+    run signs in. An e-mail that already has an account there fails with a pointer to store its
+    password. This happens in a dry run too: creating the account is the one step a dry
+    run doesn't hold back.
+  - **Or create it yourself** on the employer's careers site with the run's `email`, then
+    store its password:
 
   ```bash
   uv run python scripts/workday_password.py set 3m.wd1   # prompts; encrypted with APP_SECRET
   ```
 
-  (or the env var `WORKDAY_PASSWORD_3M_WD1`, or on macOS a Keychain item with service
-  `agent-auto-system workday 3m.wd1` and the e-mail as account). Jobs at an employer with no
-  stored password go to `manual[]` with their link and the reason. No résumé is needed for a
+  Passwords are looked up in this order: the env var `WORKDAY_PASSWORD_3M_WD1`, the
+  encrypted settings store, `data/workday_accounts.json`, then (macOS) a Keychain item with
+  service `agent-auto-system workday 3m.wd1` and the e-mail as account. Without opt-in
+  creation, jobs at an employer with no stored password go to `manual[]` with their link and
+  the reason. No résumé is needed for a
   run whose only matches are such jobs.
 - **The questions are read after sign-in.** Workday shows them only inside the wizard, so
   the adapter plans in the browser (`plans_in_browser`), one step at a time: sign in, open

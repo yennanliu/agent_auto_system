@@ -66,6 +66,9 @@
   }
 
   // ── apply flow ──
+  const accounts = () => JSON.parse(ls.getItem('accounts') || '{}');
+  const strong = (pw) => pw.length >= 8 && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw);
+
   const STEPS = ['My Information', 'My Experience', 'Application Questions', 'Voluntary Disclosures', 'Review'];
   if (ss.getItem('user') && draft() && !ss.getItem('resume')) {
     main.innerHTML = '<p data-automation-id="errorMessage">Something went wrong</p>';
@@ -75,14 +78,37 @@
   wizard();
 
   function createAccount() {
-    main.innerHTML = '<div data-automation-id="progressBarActiveStep">current step 1 of 6 Create Account/Sign In</div>' +
+    const html = '<div data-automation-id="progressBarActiveStep">current step 1 of 6 Create Account/Sign In</div>' +
       '<h3>Create Account</h3><input data-automation-id="email"><input type="password" data-automation-id="password">' +
-      '<input type="password" data-automation-id="verifyPassword"><button data-automation-id="createAccountSubmitButton">Create Account</button>' +
-      '<button data-automation-id="signInLink">Sign In</button>';
-    document.querySelector('[data-automation-id=signInLink]').onclick = () => {
-      main.innerHTML = '<p>loading…</p>';
-      setTimeout(signInForm, 400);
+      '<input type="password" data-automation-id="verifyPassword">' +
+      '<input type="checkbox" id="cac" data-automation-id="createAccountCheckbox"><label for="cac">I agree to the privacy terms</label>' +
+      '<span class="btnwrap"><button data-automation-id="createAccountSubmitButton">Create Account</button>' +
+      '<div data-automation-id="click_filter" aria-label="Create Account" role="button"></div></span>' +
+      '<button data-automation-id="signInLink">Sign In</button><p data-automation-id="errorMessage" id="err"></p>';
+    main.innerHTML = html;
+    const wireCreate = () => {
+      document.querySelector('[data-automation-id=signInLink]').onclick = () => {
+        main.innerHTML = '<p>loading…</p>';
+        setTimeout(signInForm, 400);
+      };
+      const vals = {};
+      main.querySelectorAll('input:not([type=checkbox])').forEach(i => i.addEventListener('input', () => { vals[i.dataset.automationId] = i.value; }));
+      document.querySelector('[data-automation-id=click_filter]').onclick = () => {
+        const err = document.getElementById('err');
+        if (!document.getElementById('cac').checked) { err.textContent = 'You must agree to the terms'; return; }
+        if (!vals.email || vals.password !== vals.verifyPassword || !strong(vals.password || '')) { err.textContent = 'Invalid'; return; }
+        const acc = accounts();
+        if (acc[vals.email] || vals.email.startsWith('taken')) { err.textContent = 'An account with this email already exists.'; return; }
+        acc[vals.email] = vals.password; ls.setItem('accounts', JSON.stringify(acc));
+        if (vals.email.includes('+verify')) {
+          main.innerHTML = '<h3>Please verify your account</h3><p>We sent a verification email to ' + vals.email + '.</p>';
+          return;
+        }
+        ss.setItem('user', vals.email); header(); wizard();
+      };
     };
+    // Re-mounts once while settling, like the Sign In form.
+    setTimeout(() => { main.innerHTML = html; wireCreate(); }, 800);
   }
 
   function signInForm() {
@@ -97,8 +123,8 @@
       const vals = {};
       main.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { vals[i.dataset.automationId] = i.value; }));
       document.querySelector('[data-automation-id=click_filter]').onclick = () => {
-        if (vals.email === EMAIL && vals.password === PASSWORD) {
-          ss.setItem('user', EMAIL); header(); wizard();
+        if ((vals.email === EMAIL && vals.password === PASSWORD) || (vals.email && accounts()[vals.email] === vals.password)) {
+          ss.setItem('user', vals.email); header(); wizard();
         } else {
           document.getElementById('err').textContent = 'Wrong email address or password';
         }

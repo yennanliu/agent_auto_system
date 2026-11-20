@@ -50,10 +50,11 @@ exist after sign-in.
 4. **Throttling and safety.** The 429 handling from discovery stays. At most a few
    applications per tenant per run. Headed Chrome by default (the account form has a captcha).
 
-**As built** (differs from the plan above): accounts are **never created** by the
-automation. The user creates one per employer, and its password is read from
-`WORKDAY_PASSWORD_<TENANT>_<WDN>`, the encrypted settings store
-(`scripts/workday_password.py`), or the macOS Keychain. At 3M, account creation needed no
+**As built:** accounts are created only when the run opts in (`create_workday_accounts`).
+The generated password is then saved to the git-ignored `data/workday_accounts.json` (0600)
+before the form is sent. Otherwise the user creates the account, and its password is read
+from `WORKDAY_PASSWORD_<TENANT>_<WDN>`, the encrypted settings store
+(`scripts/workday_password.py`), that file, or the macOS Keychain. At 3M, account creation needed no
 e-mail verification. *Apply Manually* is used, so Workday doesn't parse the résumé; work
 history and education are left to the résumé. Submitting hasn't been verified live; the
 confirmation check (`userHome` or "Application Submitted") is tested only on the local stand-in.
