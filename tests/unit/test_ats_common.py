@@ -415,3 +415,10 @@ def test_required_sex_question_declines():
     assert ac.answer_question(q, PROFILE)["value"] == "I do not wish to answer"
     q = Question("q", "Essex office location", "select", required=True, options=["Yes", "No"])
     assert ac.answer_question(q, PROFILE) is None                        # 'sex' only as a word
+
+
+@pytest.mark.parametrize("decline", ["Not declared", "Undeclared", "I choose not to disclose",
+                                     "I'd rather not say", "Not specified", "Preferred not to Answer"])
+def test_decline_option_wordings(decline):
+    assert ac.decline_option(["Female", "Male", decline]) == decline
+    assert ac.decline_option(["Female", "Male"]) is None

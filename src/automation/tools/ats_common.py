@@ -114,7 +114,10 @@ def interleave(groups: list[list[dict]]) -> list[dict]:
 
 # ── answer planning (pure; unit-tested) ──────────────────────────────────────
 
-_DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|not to (say|answer|disclose)", re.I)
+# Every wording of "I'd rather not self-identify" seen on real forms
+# (3M's Workday uses "Not declared").
+_DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|preferred not|not to (say|answer|disclose)|"
+                         r"not declared|undeclared|not specified|choose not|rather not", re.I)
 _AGREE_RE = re.compile(r"^(yes|i agree|i acknowledge|i consent|i understand|i confirm|i accept|agree|acknowledge|confirm|accept)", re.I)
 # Most-truthful first: adapters find jobs on the employer's own ATS board.
 _SOURCE_PREFS = (r"company (web)?site|careers? (page|site|website)|company careers|website",
