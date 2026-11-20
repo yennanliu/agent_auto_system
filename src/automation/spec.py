@@ -705,7 +705,7 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
-    job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Workday boards",
+    job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby, Workable, Recruitee, SmartRecruiters and Workday boards",
     name="ATS Apply", icon="🧭",
     flow_module="src.automation.flows.ats_apply_flow", flow_class="ATSApplyFlow",
     start_log="Discovering jobs via each ATS", temperature=0.2, browser=True,
@@ -736,7 +736,7 @@ register(AutomationSpec(
         for g in (
             (Field("boards", "text", "Job Boards",
                    placeholder="lever:palantir, https://jobs.ashbyhq.com/openai, workable:huggingface",
-                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable, SmartRecruiters or "
+                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable, Recruitee, SmartRecruiters or "
                         "Workday, or platform:token (greenhouse:figma). A job URL applies to that one job. "
                         "SmartRecruiters' apply page needs headed Chrome (its bot wall blocks headless). Optional when "
                         "Discovery Sources are set."),

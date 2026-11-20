@@ -609,6 +609,10 @@ class Question:
     options: list[str] = field(default_factory=list)
 
 
+_YES_NO_Q = re.compile(r"\s*(are|am|do|does|did|have|has|had|is|was|were|will|would|can|could|"
+                       r"should|shall|may)\b", re.I)
+
+
 def answer_question(q: Question, profile: dict,
                     answer_fn: Callable[[str, str, list[str]], str] | None = None,
                     ) -> dict | None:
@@ -659,6 +663,10 @@ def answer_question(q: Question, profile: dict,
         if ans == "__source__":
             ans = "Company careers page"
         elif ans == "__agree__":
+            ans = None
+        elif ans in ("Yes", "No") and not _YES_NO_Q.match(label):
+            # A rule's Yes/No only answers a yes/no question: "If you selected
+            # a valid work permit, please specify which type" is not one.
             ans = None
         if not ans and required and answer_fn is not None:
             ans = call_answer_fn(answer_fn, label, "text", [])
