@@ -726,7 +726,14 @@ class Wizard:
             entry.update(status="prepared", submitted=False, reason="dry_run (stopped at Review)")
             self.log(f"✓ {jid}: application prepared up to Review (dry-run, NOT sent)")
             return entry
-        p.locator(_SUBMIT).first.click()
+        # On Review the footer's Submit is usually the same pageFooterNextButton
+        # as "Save and Continue", relabelled (3M); some tenants use
+        # pageFooterSubmitButton. Click the one that SAYS Submit, never another.
+        submit = p.locator(f"{_SUBMIT}, {_NEXT}").filter(has_text=re.compile(r"^\s*Submit\s*$"))
+        if not submit.count():
+            entry.update(status="failed", submitted=False, reason="no Submit button on the Review step")
+            return entry
+        submit.first.click()
         if self._wait(lambda: url_path_has(p.url or "", ("userHome",))
                       or visible_text(p, SUCCESS_TEXTS), 30):
             entry.update(status="submitted", submitted=True, confirmation="Workday confirmation shown")

@@ -56,8 +56,9 @@ before the form is sent. Otherwise the user creates the account, and its passwor
 from `WORKDAY_PASSWORD_<TENANT>_<WDN>`, the encrypted settings store
 (`scripts/workday_password.py`), that file, or the macOS Keychain. At 3M, account creation needed no
 e-mail verification. *Apply Manually* is used, so Workday doesn't parse the résumé; work
-history and education are left to the résumé. Submitting hasn't been verified live; the
-confirmation check (`userHome` or "Application Submitted") is tested only on the local stand-in.
+history and education are left to the résumé. Submitting was verified live on 3M (2026-11-20, the user's real application): confirmed by
+Workday, listed *In Process* on Candidate Home. Review's Submit is `pageFooterNextButton`
+labelled "Submit", not a separate `pageFooterSubmitButton`.
 
 **Needed the user before it could be built and verified (answered):**
 - **consent to create real Workday accounts in their name**, and which e-mail address to

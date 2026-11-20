@@ -140,8 +140,9 @@
     const i = d.step, name = STEPS[i];
     main.innerHTML = '<div data-automation-id="progressBarActiveStep">current step ' + (i + 1) + ' of ' +
       STEPS.length + ' ' + name + '</div><div id="fields"></div>' +
-      '<p id="errs"></p><button data-automation-id="' + (name === 'Review' ? 'pageFooterSubmitButton' : 'pageFooterNextButton') +
-      '" disabled>' + (name === 'Review' ? 'Submit' : 'Save and Continue') + '</button>';
+      // Like 3M: Review's Submit is the same pageFooterNextButton, relabelled.
+      '<p id="errs"></p><button data-automation-id="pageFooterNextButton" disabled>' +
+      (name === 'Review' ? 'Submit' : 'Save and Continue') + '</button>';
     // Each step renders blank first.
     setTimeout(() => renderStep(name), 600);
   }
@@ -176,7 +177,7 @@
   function renderStep(name) {
     const d = draft();
     const box = document.getElementById('fields');
-    const btn = document.querySelector('[data-automation-id^=pageFooter]');
+    const btn = document.querySelector('[data-automation-id=pageFooterNextButton]');
     if (name === 'Review') {
       box.innerHTML = '<pre id="review">' + JSON.stringify(d.values, null, 1) + '</pre>';
       btn.disabled = false;

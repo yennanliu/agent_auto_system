@@ -160,9 +160,13 @@ POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
   has none yet.
 - **Dry run stops at Review.** Otherwise Submit counts only on Workday's confirmation; an
   unconfirmed submit is recorded `pending`, as on the other platforms.
-- **Verified live** (dry run, 3M): sign-in, resuming a draft, all steps, and stopping at
-  Review. Submitting on a real employer hasn't been done yet. `tests/e2e/test_workday_apply_browser.py`
-  covers the whole flow, including submit, against a local stand-in built from the same hooks.
+- **Verified live on 3M** (2026-11-20): sign-in, resuming a draft, all steps, stopping at
+  Review (dry run), and a **real submission**. Workday confirmed it; Candidate Home lists it
+  *In Process*, and the job page then shows "You applied for this job" with no Apply button.
+  On Review, Submit is the same footer button as *Save and Continue* (`pageFooterNextButton`)
+  with the label "Submit", so the adapter clicks the footer button whose text is Submit.
+  `tests/e2e/test_workday_apply_browser.py` covers the whole flow against a local stand-in
+  built from the same hooks.
 
 ## Unconfirmed submissions
 
