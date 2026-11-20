@@ -1,9 +1,10 @@
 # Freelancer Bids (`freelancer_bids`)
 
 Finds matching **Freelancer.com** projects and drafts a bid proposal for each, from your
-own background. It **never places a bid**: placing one needs your Freelancer account, so
-the result is a list of projects, each with a drafted proposal and a suggested bid, for you
-to review and submit. This is the draft-only first step of Phase 4 in the job-platform plan.
+own background. **By default it places no bids**: the result is a list of projects, each
+with a drafted proposal and a suggested bid, for you to review. Tick **Place the bids**
+(`submit_bids`), with your token configured, to have it place them. See
+[Placing bids](#placing-bids).
 
 ## Funnel (deterministic, the LLM only judges and writes)
 
@@ -32,11 +33,29 @@ projects, and 11 passed the filters. The LLM declined 7, each with a reason (mob
 robotics, sales, Power BI, video, Visio, and an anti-cheat memory reader). It drafted 2
 proposals using only the stated background.
 
-## Not done yet
+## Placing bids
 
-**Placing bids** needs a Freelancer OAuth token from the user's account (`POST
-/api/projects/0.1/bids/`). The drafts and suggested amounts are shaped to feed that step
-once a token is available.
+Placing bids is opt-in and needs your own Freelancer OAuth token on the server:
+
+```
+FREELANCER_OAUTH_TOKEN=...   # Freelancer → developer settings / app token for your account
+```
+
+With `submit_bids` on, the run:
+
+1. **Checks the token first** (`GET /api/users/0.1/self/`), which also gives the bidder id.
+   If the check fails, the run is drafts-only and you get a warning.
+2. **Bids only on projects it drafted** (`POST /api/projects/0.1/bids/`), up to **Proposals
+   To Draft**. Each bid uses the suggested amount, **Delivery Time** and **Milestone %**.
+3. **Never sends a bid** whose amount falls outside the project's budget, or whose proposal
+   is shorter than 100 characters. Proposals are capped at 1,500.
+4. **Reports the outcome on every draft** as `drafted[].bid`: `placed` (with `bid_id`),
+   `not_placed` (with the reason) or `failed` (the API's message). An authentication error
+   stops any further bids in that run; a quota error ("no bids left") fails only that one.
+5. **Records placed bids** in the ledger with `"status": "bid_placed"`, so later runs skip
+   them as "already bid on".
+
+Placed bids may use your account's bid credits. Start with **Proposals To Draft** at 1.
 
 ## Tests and evals
 

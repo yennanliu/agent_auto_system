@@ -655,7 +655,8 @@ register(AutomationSpec(
             "its project, uses only facts from the candidate background (no invented experience, "
             "clients or links), contains no price or placeholders, and ends with a question. "
             "Projects the background doesn't fit are declined (skipped with a reason), not "
-            "drafted. Nothing is submitted: this is draft-only by design."),
+            "drafted. Bids are placed only when submit_bids is on and only for drafted projects; "
+            "each drafted[].bid reports placed / not_placed / failed with a reason."),
     # Read-only probe of the official public search endpoint the tool uses.
     canary=Canary(
         kind="http",
@@ -684,11 +685,17 @@ register(AutomationSpec(
               help="Reusable text (portfolio links, sign-off) kept verbatim; the rest is tailored."),
         Field("task_filter", "textarea", "Relevance Filter (LLM, optional)",
               placeholder="Only backend / data work; no WordPress"),
+        Field("submit_bids", "checkbox", "Place the bids (uses FREELANCER_OAUTH_TOKEN)", default=False,
+              help="Off = draft only. On = each drafted proposal is placed as a real bid at the suggested "
+                   "amount (capped by Proposals To Draft). Bids may use your account's bid credits."),
+        Field("bid_period_days", "number", "Delivery Time On Bids (days)", default=7, min=1, max=365),
+        Field("milestone_percentage", "number", "Milestone Request (% of bid)", default=100, min=0, max=100),
     ),
     help_note=(
-        "Draft-only: searches Freelancer.com's official public API (no login), drafts a proposal and "
-        "a suggested bid per matching project, and never places a bid — review each and bid on "
-        "Freelancer.com yourself. Projects already drafted in an earlier run are skipped."
+        "Searches Freelancer.com's official public API (no login) and drafts a proposal and a suggested "
+        "bid per matching project. By default nothing is sent; tick <b>Place the bids</b> (with "
+        "FREELANCER_OAUTH_TOKEN set on the server) to place them. Projects already drafted or bid on "
+        "in an earlier run are skipped."
     ),
 ))
 

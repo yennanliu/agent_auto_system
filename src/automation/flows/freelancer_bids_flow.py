@@ -62,6 +62,10 @@ class FreelancerBidsState(BaseModel):
     candidate_background: str = ""     # the only facts the drafts may use (required)
     proposal_template: str = ""        # optional reusable text (links / sign-off kept)
     task_filter: str = ""              # optional LLM relevance gate
+    # Opt-in: place each drafted bid with the user's token (FREELANCER_OAUTH_TOKEN).
+    submit_bids: bool = False
+    bid_period_days: int = 7           # delivery time stated on the bid
+    milestone_percentage: int = 100    # share of the bid requested as milestone payment
     run_id: int = 0
     usage: dict = {}
     llm_provider: str = ""
@@ -108,6 +112,23 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
             return (result.raw if hasattr(result, "raw") else str(result)) or ""
 
         max_drafts = max(1, min(int(st.max_drafts or 5), 25))
+
+        # Bidding is opt-in and needs the token; resolve the bidder once.
+        bidder, bid_client = None, None
+        no_bid_reason = ""  # with submit_bids on, why a draft wasn't bid on
+        token = os.getenv("FREELANCER_OAUTH_TOKEN", "").strip()
+        if st.submit_bids and not token:
+            no_bid_reason = "FREELANCER_OAUTH_TOKEN is not set"
+            warnings.append("submit_bids is on but FREELANCER_OAUTH_TOKEN is not set — drafts only")
+        elif st.submit_bids:
+            import httpx
+            bid_client = httpx.Client(timeout=25, headers={"User-Agent": ft.USER_AGENT})
+            try:
+                bidder = ft.whoami(bid_client, token)
+                log(f"Bidding as {bidder['username'] or bidder['id']}")
+            except Exception as exc:  # noqa: BLE001
+                no_bid_reason = f"the Freelancer token could not be verified ({exc})"
+                warnings.append(f"could not verify the Freelancer token ({exc}) — drafts only")
         for p in found["candidates"] if llm is not None else []:
             if len(drafted) >= max_drafts:
                 break
@@ -142,22 +163,60 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                 skipped.append({**ft._brief(p), "reason": f"LLM declined: {why or 'empty draft'}"})
                 log(f"↷ {p['title'][:60]}: declined — {why}")
                 continue
-            drafted.append(ft.drafted_entry(p, proposal))
+            entry = ft.drafted_entry(p, proposal)
+            status = "drafted"
+            if bidder is not None:
+                entry["bid"] = self._place(bid_client, token, bidder, p, entry, log)
+                if entry["bid"]["status"] == "placed":
+                    status = "bid_placed"
+                elif entry["bid"].get("auth_error"):
+                    warnings.append(f"bidding stopped: {entry['bid']['reason']}")
+                    no_bid_reason = f"bidding stopped after an authentication error ({entry['bid']['reason']})"
+                    bidder = None  # a token problem won't fix itself mid-run
+            elif st.submit_bids:
+                # Every draft reports an outcome when bidding was asked for.
+                entry["bid"] = {"status": "not_placed", "reason": no_bid_reason or "bidding unavailable"}
+            drafted.append(entry)
             try:
-                ft.record_drafted(os.getenv("FREELANCER_LEDGER", ft.DEFAULT_LEDGER_PATH), p)
+                ft.record_drafted(os.getenv("FREELANCER_LEDGER", ft.DEFAULT_LEDGER_PATH), p, status)
             except OSError as exc:  # a ledger problem never costs the run its drafts
                 warnings.append(f"could not record project {p['id']} as drafted ({exc}); "
                                 "it may be drafted again next run")
             log(f"✓ drafted: {p['title'][:60]}")
 
+        if bid_client is not None:
+            bid_client.close()
         st.usage = usage
+        placed = sum(1 for d in drafted if (d.get("bid") or {}).get("status") == "placed")
+        sent = f"{placed} bid(s) placed" if st.submit_bids else "not submitted"
         summary = (f"{found['projects_found']} project(s) found, {len(found['candidates'])} passed "
-                   f"the filters, {len(drafted)} proposal(s) drafted (not submitted), "
+                   f"the filters, {len(drafted)} proposal(s) drafted ({sent}), "
                    f"{len(skipped)} skipped.")
         log("Freelancer drafting complete, formatting result...")
         return json.dumps({
             "summary": summary, "projects_found": found["projects_found"],
-            "drafted_count": len(drafted), "skipped_count": len(skipped),
+            "drafted_count": len(drafted), "skipped_count": len(skipped), "bids_placed": placed,
             "drafted": drafted, "skipped": skipped[:100], "warnings": warnings[:50],
-            "note": "Draft-only: review each proposal and place the bid on Freelancer.com yourself.",
+            "note": ("Bids were placed only where drafted[].bid.status is 'placed'." if st.submit_bids else
+                     "Draft-only: review each proposal and place the bid on Freelancer.com yourself."),
         }, ensure_ascii=False)
+
+    def _place(self, client, token, bidder, project, entry, log) -> dict:
+        """Place one bid; never raises. ``{status: placed|not_placed|failed, …}``."""
+        amount = entry.get("suggested_bid")
+        why = ft.bid_problem(project, entry["proposal"], amount)
+        if why:
+            return {"status": "not_placed", "reason": why}
+        try:
+            res = ft.place_bid(client, token, bidder_id=bidder["id"], project=project, amount=amount,
+                               period_days=self.state.bid_period_days,
+                               milestone_percentage=self.state.milestone_percentage,
+                               description=entry["proposal"])
+        except ft.FreelancerAPIError as exc:
+            log(f"✗ bid on {project['title'][:50]} failed: {exc}")
+            return {"status": "failed", "reason": str(exc)[:200], "auth_error": exc.is_auth}
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "failed", "reason": f"{type(exc).__name__}: {str(exc)[:160]}"}
+        log(f"✓ bid placed on {project['title'][:50]}: {project['currency_sign']}{amount:g}")
+        return {"status": "placed", "bid_id": res.get("bid_id"), "amount": amount,
+                "currency": project["currency"]}
