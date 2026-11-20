@@ -367,14 +367,16 @@ def test_an_unconfirmed_live_submit_is_recorded_pending(live_runner, monkeypatch
 
 def test_accounts_file_is_git_ignored():
     """The accounts file holds passwords: data/ must stay in .gitignore. Asked of
-    git when this is a checkout; CI's container has only the files, so there the
-    .gitignore rule itself is checked."""
+    git when this is a checkout; otherwise the .gitignore rule itself is checked.
+    The Docker image has neither (it ships app files only), so it skips there."""
     import shutil
     import subprocess
     repo = Path(__file__).resolve().parents[2]
     if shutil.which("git") and (repo / ".git").exists():
         out = subprocess.run(["git", "check-ignore", "-q", wd.DEFAULT_ACCOUNTS_PATH], cwd=repo)
         assert out.returncode == 0, f"{wd.DEFAULT_ACCOUNTS_PATH} must be git-ignored: it holds passwords"
+    elif not (repo / ".gitignore").exists():
+        pytest.skip("not a source checkout (e.g. the Docker image): nothing here can be committed")
     else:
         rules = {line.strip() for line in (repo / ".gitignore").read_text().splitlines()}
         assert rules & {"data/", "data", "/data/", "/data", wd.DEFAULT_ACCOUNTS_PATH}, \
