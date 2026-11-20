@@ -303,7 +303,9 @@ class OneClick:
         city = parts[0].lower()
         same_city = [i for i, t in enumerate(labels) if t and t.split(",")[0].strip().lower() == city]
         country = parts[-1].lower() if len(parts) > 1 else ""
-        best = [i for i in same_city if country and t_has(labels[i], country)] or same_city
+        # With a country in the profile, the suggestion must be in it: never
+        # "London, Ontario, Canada" for London, UK (PR review).
+        best = [i for i in same_city if t_has(labels[i], country)] if country else same_city
         if not best:
             p.keyboard.press("Escape")
             return False
@@ -447,5 +449,9 @@ def t_has(label: str, country: str) -> bool:
     (a country name, or a US state code standing for the US)."""
     from src.automation.tools.ats_common import countries_in
     have = countries_in(label)
-    want = countries_in(country) or {country}
-    return bool(have & want) or country in label.lower()
+    want = countries_in(country)
+    if want:
+        return bool(have & want)
+    # A code ("CA", "ON"): only as a whole comma-separated part, never a
+    # substring ("ca" in "Jamaica").
+    return country.strip().lower() in [p.lower() for p in location_parts(label)]

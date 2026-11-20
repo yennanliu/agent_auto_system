@@ -90,22 +90,22 @@ def test_city_suggestion_country_match():
     assert sr.t_has("Taipei, Taipei City, Taiwan", "taiwan")
 
 
-class _Opts:
-    """Stand-in for a Playwright locator over spl-select-option elements."""
-
-    def __init__(self, labels, boom=False):
-        self.labels, self.boom = labels, boom
-
+class _Boom:
     def evaluate_all(self, _js):
-        if self.boom:
-            raise RuntimeError("detached")
-        return self.labels
+        raise RuntimeError("detached")
 
 
-def test_option_labels_reads_the_property_and_survives_errors():
-    assert sr.option_labels(_Opts(["London, England, United Kingdom", ""])) == [
-        "London, England, United Kingdom", ""]
-    assert sr.option_labels(_Opts([], boom=True)) == []
+def test_option_labels_survives_a_detached_menu():
+    # The label-reading itself (property, not attribute) runs in a real
+    # browser: tests/e2e/test_smartrecruiters_apply_browser.py
+    # ::test_option_labels_reads_the_label_property.
+    assert sr.option_labels(_Boom()) == []
+
+
+def test_city_country_match_is_whole_part_only():
+    assert sr.t_has("San Francisco, CA, US", "CA")
+    assert not sr.t_has("Kingston, Jamaica", "CA")                      # not a substring
+    assert not sr.t_has("London, Ontario, Canada", "United Kingdom")
 
 
 def test_apply_url_falls_back_to_the_job_page(monkeypatch):

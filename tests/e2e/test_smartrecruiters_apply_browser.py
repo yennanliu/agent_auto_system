@@ -163,3 +163,25 @@ def test_the_bot_wall_is_reported_not_retried(site, page, resume):
     base, _ = site
     entry = _apply(page, f"{base}/Acme/1?blocked=1", _profile(resume, FACTS), dry_run=True)
     assert entry["status"] == "blocked" and "bot protection" in entry["reason"]
+
+
+def test_option_labels_reads_the_label_property(page):
+    """spl-select-option text lives only in the ``label`` PROPERTY (PR review:
+    exercised in a browser, not a fake)."""
+    from src.automation.tools.ats_smartrecruiters import option_labels
+    page.set_content("<div id=m></div><script>"
+                     "for (const t of ['London, England, United Kingdom', 'London, Ontario, Canada']) {"
+                     "  const o = document.createElement('spl-select-option'); o.label = t;"
+                     "  document.getElementById('m').appendChild(o); }"
+                     "const plain = document.createElement('spl-select-option'); plain.textContent = 'Text only';"
+                     "document.getElementById('m').appendChild(plain);</script>")
+    assert option_labels(page.locator("#m spl-select-option")) == [
+        "London, England, United Kingdom", "London, Ontario, Canada", "Text only"]
+
+
+def test_a_city_only_in_another_country_is_not_picked(site, page, resume):
+    """London, UK profile; the menu offers only foreign Londons → no pick."""
+    base, _ = site
+    entry = _apply(page, f"{base}/Acme/1?oga=true", _profile(resume, FACTS, location="London, Japan"),
+                   dry_run=True)
+    assert entry["status"] == "skipped" and entry["unanswered"] == ["City (place of residence)"]

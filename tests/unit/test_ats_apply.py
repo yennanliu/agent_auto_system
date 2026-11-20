@@ -333,7 +333,7 @@ def test_workable_llm_answers_required_essays():
     assert sum(1 for a in answers if a["value"] == "Because of the Hub.") == 2
 
 
-# ── SmartRecruiters (discovery only) ─────────────────────────────────────────
+# ── SmartRecruiters (discovery + browser apply) ─────────────────────────────────────────
 
 def test_smartrecruiters_discover_and_applies_in_the_browser():
     client = _Client({"companies/Ubisoft2/postings": _fixture("smartrecruiters_postings.json")})
