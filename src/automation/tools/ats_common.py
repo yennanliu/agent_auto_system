@@ -649,7 +649,7 @@ def answer_question(q: Question, profile: dict,
             pick = match_option(options, call_answer_fn(answer_fn, label, "select", options))
         if pick is None and required:
             pick = next((o for o in options if _DECLINE_RE.search(o)), None) \
-                if re.search(r"gender|\bsex\b|race|ethnic|veteran|disabilit|pronoun|sexual orientation", label, re.I) else None
+                if DEMOGRAPHIC_RE.search(label) else None
         if pick is None:
             return None
         return ans_dict([pick] if kind == "multiselect" else pick)
@@ -664,6 +664,15 @@ def answer_question(q: Question, profile: dict,
             ans = call_answer_fn(answer_fn, label, "text", [])
         return ans_dict(ans) if ans else None
     return None  # file uploads etc. are the adapter's job
+
+
+# Voluntary self-identification (EEO / diversity surveys): the only answer we
+# ever give is the decline option. "18 years of age or older?" is NOT one —
+# only a question asking for the age itself.
+DEMOGRAPHIC_RE = re.compile(
+    r"gender|\bsex\b|race|ethnic|veteran|disabilit|neurodivers|pronoun|sexual orientation|"
+    r"hispanic|latin[ao]?\b|first generation|what.?s your age|\byour age\b|age (range|group|bracket)",
+    re.I)
 
 
 def decline_option(options: list[str]) -> str | None:

@@ -335,12 +335,13 @@ def test_workable_llm_answers_required_essays():
 
 # ── SmartRecruiters (discovery only) ─────────────────────────────────────────
 
-def test_smartrecruiters_discover_and_is_manual():
+def test_smartrecruiters_discover_and_applies_in_the_browser():
     client = _Client({"companies/Ubisoft2/postings": _fixture("smartrecruiters_postings.json")})
     adapter = SmartRecruitersAdapter()
     jobs = adapter.discover(client, BoardRef("smartrecruiters", "Ubisoft2"))
     assert jobs and jobs[0]["company"] == "Ubisoft" and jobs[0]["url"].startswith("https://jobs.smartrecruiters.com/Ubisoft2/")
-    assert adapter.can_apply is False
+    assert adapter.can_apply is True and adapter.plans_in_browser is True
+    assert adapter.manual_reason_for(jobs[0], {"email": "a@b.c"}) is None
 
 
 def test_smartrecruiters_unknown_company_raises():
