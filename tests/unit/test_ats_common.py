@@ -7,6 +7,8 @@ title matching, the keyed ledger and the job-location context.
 """
 import json
 
+import pytest
+
 from src.automation.tools import ats_common as ac
 from src.automation.tools.ats_common import Question
 
@@ -362,3 +364,92 @@ def test_launch_browser_falls_back_to_bundled_chromium():
     assert ac.launch_browser(pw, headless=True) == "browser"
     assert calls[0]["channel"] == "chrome" and "channel" not in calls[1]
     assert calls[1]["args"] == ac.STEALTH_ARGS and calls[1]["headless"] is True
+
+
+@pytest.mark.parametrize("label", [
+    "Have you signed an agreement with a current/previous employer containing a provision related to non-competition?",
+    "Did you enter into a non-disclosure agreement with your current employer?",
+    "Are you bound by any agreement that restricts your employment?",
+    "Have you ever agreed to an arbitration clause with a previous employer?",
+])
+def test_factual_agreement_questions_are_not_consent(label):
+    """Found in the Workday e2e: 'Have you signed an agreement…' was answered
+    'Yes' by the consent rule. It's a fact about the candidate, never assumed."""
+    assert ac.rule_answer(label, PROFILE) is None
+    q = Question("q", label, "select", required=True, options=["Yes", "No"])
+    assert ac.answer_question(q, PROFILE) is None
+
+
+@pytest.mark.parametrize("label", [
+    "I acknowledge the privacy notice", "Applicant Arbitration Agreement Acknowledgement",
+    "I certify that the information provided is true", "Do you consent to the processing of your data?",
+])
+def test_real_consent_boxes_still_agree(label):
+    assert ac.rule_answer(label, PROFILE) == "__agree__"
+
+
+@pytest.mark.parametrize("label,years,answer", [
+    ("Do you have seven (7) years of full-stack or embedded device software development?", 5, "No"),
+    ("Do you have seven (7) years of full-stack or embedded device software development?", 8, "Yes"),
+    ("Do you have 5+ years of Python experience?", 5, "Yes"),
+    ("Do you have at least 3 years of experience with AWS?", 2, "No"),
+    ("Do you possess ten years or more of experience leading teams?", 12, "Yes"),
+])
+def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
+    """Found in the Workday e2e (3M asks 'seven (7) years'): answered truthfully
+    from the profile's years instead of being left unanswered."""
+    assert ac.rule_answer(label, {**PROFILE, "years": years}) == answer
+    q = Question("q", label, "select", required=True, options=["Yes", "No"])
+    assert ac.answer_question(q, {**PROFILE, "years": years})["value"] == answer
+
+
+def test_how_many_years_still_returns_the_number():
+    assert ac.rule_answer("How many years of experience do you have?", {**PROFILE, "years": 4}) == "4"
+
+
+def test_required_sex_question_declines():
+    """Found in the Workday e2e: 3M asks 'Please select your sex.' — a voluntary
+    self-identification question, answered only with the decline option."""
+    q = Question("q", "Please select your sex.", "select", required=True,
+                 options=["Female", "Male", "I do not wish to answer"])
+    assert ac.answer_question(q, PROFILE)["value"] == "I do not wish to answer"
+    q = Question("q", "Essex office location", "select", required=True, options=["Yes", "No"])
+    assert ac.answer_question(q, PROFILE) is None                        # 'sex' only as a word
+
+
+@pytest.mark.parametrize("decline", ["Not declared", "Undeclared", "I choose not to disclose",
+                                     "I'd rather not say", "Not specified", "Preferred not to Answer"])
+def test_decline_option_wordings(decline):
+    assert ac.decline_option(["Female", "Male", decline]) == decline
+    assert ac.decline_option(["Female", "Male"]) is None
+
+
+def test_prior_employment_is_about_the_hiring_company_only():
+    at = {"job_company": "figma"}
+    assert ac.rule_answer("Have you ever worked for Figma before?", at) == "No"
+    assert ac.rule_answer("Have you ever worked for us before?", at) == "No"
+    assert ac.rule_answer("Are you a former employee?", at) == "No"
+    # Another employer is a fact about the person: never guessed.
+    assert ac.rule_answer("Have you ever been employed by PricewaterhouseCoopers?", at) is None
+    assert ac.rule_answer("Have you ever worked for Epic Systems in the past?", at) is None
+    # Never a prefix match: "a state government" is not "acme" (PR review).
+    acme = {"job_company": "acme"}
+    assert ac.rule_answer("Have you ever been employed by a State government?", acme) is None
+    assert ac.rule_answer("Have you ever worked for Armanino before?", {"job_company": "arm"}) is None
+    assert ac.rule_answer("Have you previously worked for Acme's subsidiaries?", acme) == "No"
+    assert ac.rule_answer("Have you ever worked for Metropolitan Hospital before?",
+                          {"job_company": "metropolitan-hospital"}) == "No"
+    # Without the job's company (legacy callers) the old answer stands.
+    assert ac.rule_answer("Have you ever worked at Acme before?", {}) == "No"
+
+
+def test_with_job_location_attaches_the_company():
+    p = ac.with_job_location({}, None, "3m")
+    assert p == {"job_company": "3m"}
+    assert ac.with_job_location({}, None) == {}
+
+
+def test_have_you_agreed_to_the_terms_is_consent():
+    # PR review: "agreed to" is the wording of consent boxes, not of a factual question.
+    assert ac.rule_answer("Have you read and agreed to the terms and conditions?", {}) == "__agree__"
+    assert ac.rule_answer("Have you signed an agreement containing a non-compete?", {}) != "__agree__"

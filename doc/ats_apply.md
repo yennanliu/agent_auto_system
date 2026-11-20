@@ -1,8 +1,9 @@
 # ATS Apply (`ats_apply`)
 
 Auto-apply on employers' job boards across applicant-tracking systems, with no login.
-It applies on **Greenhouse, Lever, Ashby and Workable**. **SmartRecruiters** and **Workday**
-jobs are discovered and listed for manual apply. A sibling of `greenhouse_apply`: same profile
+It applies on **Greenhouse, Lever, Ashby and Workable**, and on **Workday** at employers
+where you have an account and stored its password. **SmartRecruiters** jobs, and Workday
+jobs at employers without a stored account, are discovered and listed for manual apply. A sibling of `greenhouse_apply`: same profile
 fields, same LLM gates, same answer rules (shared through `tools/ats_common.py`).
 
 ## Boards
@@ -50,8 +51,8 @@ an ATS link is routed only when it is **presented as how to apply** ("Apply here
 footers (an EEO or AAP policy, privacy notice or benefits page) are not routed, and the
 listing stays a manual lead. Real listings had both: one employer's "AAP Policy Statement"
 footer pointed at a *different* Lever job. HN hiring posts are about hiring, so their ATS
-links route unless they are boilerplate. Links to an ATS we can't apply on (Workday) stay
-in the lead as a manual link.
+links route unless they are boilerplate. Links to an ATS we can't apply on stay in the
+lead as a manual link.
 
 The job boards' API terms ask for a link back and credit. Every lead keeps the board's own
 job URL and names the board in `reason`.
@@ -101,7 +102,7 @@ form is rendered in web components, and there is no public form-definition API, 
 questions can't be planned before the browser opens. Matching jobs are returned under
 `manual[]` with their `apply_url` instead. That adapter is a follow-up.
 
-## Workday: discovery only
+## Workday
 
 Workday has the most employer boards of any ATS: about 1,300 distinct boards in the
 SimplifyJobs listings alone. Its job list is public:
@@ -122,9 +123,50 @@ POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
   `Retry-After` header. Pages are paced 1 s apart, and a 429 backs off (5, 10, 20, 40 s).
   403, 404, 410 and 422 mean the board is disabled, unknown or closed, and are never
   waited on.
-- **Applying is manual.** Every employer needs its own Workday candidate account (sign-up,
-  e-mail verification, a 5–7 step wizard). Matching jobs go to `manual[]` with their link.
-  No résumé is needed for a run whose only matches are Workday jobs.
+- **Applying needs an account per employer.** Workday has no guest apply: every
+  employer (tenant, e.g. `3m.wd1`) has its own candidate account.
+  - **Opt-in creation:** with **Create Workday accounts** (`create_workday_accounts`) on, a
+    missing account is created with the run's `email` and a generated 20-character password.
+    The e-mail and password are saved to **`data/workday_accounts.json`** *before* the form is
+    sent, so the account can't be lost. The file is mode 0600 and under `data/`, which is
+    git-ignored (a unit test checks this). **Never commit or push it.** If Workday asks to
+    verify the e-mail, the job reports `needs_verification`; click the link, and the next
+    run signs in. An e-mail that already has an account there fails with a pointer to store its
+    password. This happens in a dry run too: creating the account is the one step a dry
+    run doesn't hold back.
+  - **Or create it yourself** on the employer's careers site with the run's `email`, then
+    store its password:
+
+  ```bash
+  uv run python scripts/workday_password.py set 3m.wd1   # prompts; encrypted with APP_SECRET
+  ```
+
+  Passwords are looked up in this order: the env var `WORKDAY_PASSWORD_3M_WD1`, the
+  encrypted settings store, `data/workday_accounts.json`, then (macOS) a Keychain item with
+  service `agent-auto-system workday 3m.wd1` and the e-mail as account. Without opt-in
+  creation, jobs at an employer with no stored password go to `manual[]` with their link and
+  the reason. No résumé is needed for a
+  run whose only matches are such jobs.
+- **The questions are read after sign-in.** Workday shows them only inside the wizard, so
+  the adapter plans in the browser (`plans_in_browser`), one step at a time: sign in, open
+  the job (or **Continue Application** for a saved draft), then on each step read every
+  visible `formField-*` (label, kind, options), answer it with the shared rules, and *Save
+  and Continue*. Workday's own fields get defaults: Phone Device Type "Mobile"; Country
+  and "How did you hear" come from the shared rules. Only a **required** terms /
+  acknowledgement box is ticked, and demographic questions get the decline option.
+- **Nothing is guessed.** A required question with no confident answer stops the job at
+  that step (`skipped`, listed in `unanswered`). Workday keeps the draft, so add the answer
+  to `extra_answers` and the next run resumes it. The résumé is uploaded only if the draft
+  has none yet.
+- **Dry run stops at Review.** Otherwise Submit counts only on Workday's confirmation; an
+  unconfirmed submit is recorded `pending`, as on the other platforms.
+- **Verified live on 3M** (2026-11-20): sign-in, resuming a draft, all steps, stopping at
+  Review (dry run), and a **real submission**. Workday confirmed it; Candidate Home lists it
+  *In Process*, and the job page then shows "You applied for this job" with no Apply button.
+  On Review, Submit is the same footer button as *Save and Continue* (`pageFooterNextButton`)
+  with the label "Submit", so the adapter clicks the footer button whose text is Submit.
+  `tests/e2e/test_workday_apply_browser.py` covers the whole flow against a local stand-in
+  built from the same hooks.
 
 ## Unconfirmed submissions
 

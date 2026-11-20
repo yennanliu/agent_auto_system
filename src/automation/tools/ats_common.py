@@ -114,7 +114,10 @@ def interleave(groups: list[list[dict]]) -> list[dict]:
 
 # ── answer planning (pure; unit-tested) ──────────────────────────────────────
 
-_DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|not to (say|answer|disclose)", re.I)
+# Every wording of "I'd rather not self-identify" seen on real forms
+# (3M's Workday uses "Not declared").
+_DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|preferred not|not to (say|answer|disclose)|"
+                         r"not declared|undeclared|not specified|choose not|rather not", re.I)
 _AGREE_RE = re.compile(r"^(yes|i agree|i acknowledge|i consent|i understand|i confirm|i accept|agree|acknowledge|confirm|accept)", re.I)
 # Most-truthful first: adapters find jobs on the employer's own ATS board.
 _SOURCE_PREFS = (r"company (web)?site|careers? (page|site|website)|company careers|website",
@@ -409,6 +412,50 @@ def profile_url_field(label: str) -> str | None:
     return site if len(t.split()) <= 3 or _URL_WORDS.search(t) else None
 
 
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+              "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20}
+_YEARS_Q = re.compile(r"\b(do|does|have|has) you (have|possess|got)\b.{0,25}?\b(?:at least |over |more than |a minimum of )?"
+                      r"(\d{1,2}|" + "|".join(_NUM_WORDS) + r")\b\s*(?:\(\s*\d{1,2}\s*\)\s*)?\+?\s*(?:or more\s*)?years?\b")
+
+
+def _years_required(lbl: str) -> int | None:
+    """N in a yes/no "Do you have N (or more) years of …?" question, else None."""
+    m = _YEARS_Q.search(lbl)
+    if not m:
+        return None
+    n = m.group(3)
+    return int(n) if n.isdigit() else _NUM_WORDS[n]
+
+
+_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|intern)\s+(?:for|at|by|with)\s+(.{1,60})")
+_US_TARGET = re.compile(r"(us|our|this|the company|the organi[sz]ation|here)\b")
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _prior_employment(lbl: str, profile: dict):
+    """ "Have you worked for <X> before?" is "No" when X is the hiring company,
+    which is the question's usual meaning. When the job's company is known
+    (``job_company``) and X is someone else ("…employed by Epic Systems",
+    "…by a State government") it is a fact about the person: never guessed."""
+    company = _norm(profile.get("job_company") or "")
+    m = _PRIOR_AT.search(lbl)
+    if not company or m is None:
+        return "No"
+    target = m.group(1).strip()
+    if _US_TARGET.match(target):
+        return "No"
+    # The whole name, as its first one to three words ("3M or a subsidiary",
+    # "Metropolitan Hospital"): never a prefix, or "a state government" would
+    # pass for "acme".
+    words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
+    if any("".join(words[:n]) == company for n in (1, 2, 3)):
+        return "No"
+    return None
+
+
 def rule_answer(label: str, profile: dict):
     """Heuristic answer for a custom question label, or None when unsure. The
     caller maps the answer onto a select's options when the field is a select.
@@ -449,7 +496,7 @@ def rule_answer(label: str, profile: dict):
         return yes_no(needs)
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
-        return "No"
+        return _prior_employment(lbl, profile)
     if re.search(r"were you referred|referred by|referral", lbl):
         return "No"
     if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
@@ -462,6 +509,11 @@ def rule_answer(label: str, profile: dict):
         return (profile.get("education") or {}).get("school") or None
     if re.search(r"(highest|what) (level of )?(degree|education)", lbl):
         return (profile.get("education") or {}).get("degree") or None
+    # "Do you have seven (7) / 5+ / at least 3 years of …?" is a yes/no about
+    # the candidate's experience: compare with the profile's years, truthfully.
+    need = _years_required(lbl)
+    if need is not None:
+        return yes_no(int(profile.get("years", 0) or 0) >= need)
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
         return str(profile.get("years", 3))
     # "Last drawn / current salary" is a fact about the past, not the expectation.
@@ -477,7 +529,15 @@ def rule_answer(label: str, profile: dict):
         return profile.get("first_name") or None
     if re.search(r"full (legal )?name|legal name", lbl):
         return f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip() or None
-    if re.search(r"consent|acknowledge|agree|privacy|certify|attest|confirm that|terms|i understand", lbl):
+    # A factual question about the candidate's past ("Have you signed an
+    # agreement with a previous employer containing a non-compete…?") is NOT
+    # a consent box — answering it "Yes / I agree" states a falsehood.
+    factual = re.search(r"\b(have|has|had|did|were|was|are|is) you\b.{0,60}\b(sign(ed)?|enter(ed)?( into)?|"
+                        r"executed|bound by|party to|subject to|agreed to)\b", lbl) \
+        and not re.search(r"\b(terms|conditions|privacy|policy|notice|statement)\b", lbl)
+    # ↑ "Have you read and agreed to the terms?" is a consent box, not a fact.
+    if not factual and re.search(r"consent|acknowledge|agree|privacy|certify|attest|confirm that|terms|"
+                                 r"i understand", lbl):
         return "__agree__"
     return None
 
@@ -589,7 +649,7 @@ def answer_question(q: Question, profile: dict,
             pick = match_option(options, call_answer_fn(answer_fn, label, "select", options))
         if pick is None and required:
             pick = next((o for o in options if _DECLINE_RE.search(o)), None) \
-                if re.search(r"gender|race|ethnic|veteran|disabilit|pronoun", label, re.I) else None
+                if re.search(r"gender|\bsex\b|race|ethnic|veteran|disabilit|pronoun|sexual orientation", label, re.I) else None
         if pick is None:
             return None
         return ans_dict([pick] if kind == "multiselect" else pick)
@@ -629,10 +689,14 @@ def plan_questions(questions: list[Question], profile: dict,
     return answers, unanswered
 
 
-def with_job_location(profile: dict, location: str | None) -> dict:
+def with_job_location(profile: dict, location: str | None, company: str | None = None) -> dict:
     """The profile with the job's countries attached, so a generic "are you
     authorized to work in the country you applied for?" is judged against the
-    job. ``None`` (no location known) leaves the profile as it is."""
+    job. ``None`` (no location known) leaves the profile as it is. ``company``
+    (the hiring company) tells "have you worked for us before?" apart from a
+    question about another employer."""
+    if company:
+        profile = {**profile, "job_company": company}
     if location is None:
         return profile
     return {**profile, "job_countries": job_countries(location)}

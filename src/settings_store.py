@@ -97,6 +97,26 @@ def _decrypt(token: str) -> str | None:
         return None
 
 
+# ── Workday candidate-account passwords (one per employer tenant) ─────────────
+
+def _workday_key(host: str) -> str:
+    return f"workday_password:{host.strip().lower()}"
+
+
+def get_workday_password(host: str) -> str | None:
+    """The stored password for a Workday tenant (``"3m.wd1"``), or None."""
+    token = get_setting(_workday_key(host))
+    return _decrypt(token) if token else None
+
+
+def set_workday_password(host: str, plaintext: str) -> None:
+    set_setting(_workday_key(host), _encrypt(plaintext))
+
+
+def clear_workday_password(host: str) -> None:
+    delete_setting(_workday_key(host))
+
+
 # ── LLM API keys ──────────────────────────────────────────────────────────────
 
 def get_llm_key(provider: str, env_name: str) -> str | None:

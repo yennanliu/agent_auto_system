@@ -264,8 +264,9 @@ def render_issue(country: dict, rows, cache: dict) -> tuple[str, str]:
     cands = sum(s.get("candidates", 0) for s in cache.get("platforms", {}).values())
     by_platform = {p: sum(1 for r in top if r[0] == p) for p in PLATFORMS}
     head = f"{total} companies" if total <= TOP_N else f"Top {TOP_N} of {total} companies"
-    workday_note = (" (Workday boards are listed for manual apply: each employer needs its own "
-                    "Workday account)") if by_platform.get("workday") else ""
+    workday_note = (" (Workday boards are listed for manual apply unless you've stored a password "
+                    "for that employer's Workday account: scripts/workday_password.py)") \
+        if by_platform.get("workday") else ""
     lines = [
         f"**{' / '.join(p.title() for p, n in by_platform.items() if n) or 'Lever / Ashby / Workable'}**: "
         f"every company below hosts its jobs on one of these, so the `ats_apply` automation can run "

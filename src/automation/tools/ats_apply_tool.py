@@ -1,6 +1,7 @@
 """
-Auto-apply across applicant-tracking systems: Greenhouse, Lever, Ashby and
-Workable (apply), SmartRecruiters (discovery only — listed for manual apply).
+Auto-apply across applicant-tracking systems: Greenhouse, Lever, Ashby,
+Workable and Workday (apply; Workday only with a stored per-employer account),
+SmartRecruiters (discovery only — listed for manual apply).
 
 Phase 1 of ``doc/job-platforms-automation-plan.md``. Every platform plugs in as
 an ``Adapter`` with four steps; everything else — title / location matching,
@@ -61,6 +62,10 @@ class Adapter:
     job_scoped = False
     # Shown on this platform's manual[] rows when can_apply is False.
     manual_reason = "apply isn't automated yet — open apply_url to apply by hand"
+    # True when the questions can only be read after signing in (Workday): the
+    # runner skips load_form / plan and calls apply_live, which plans each step
+    # in the browser with the same answer rules.
+    plans_in_browser = False
 
     def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         """All open jobs on the board as ``[{platform, token, job_id, title,
@@ -77,6 +82,19 @@ class Adapter:
         raise NotImplementedError
 
     def apply(self, page, job: dict, answers: list[dict], dry_run: bool, log: Callable) -> dict:
+        raise NotImplementedError
+
+    def manual_reason_for(self, job: dict, profile: dict | None = None) -> str | None:
+        """Why this job must be applied to by hand, or None to apply. Platform
+        wide by default; an adapter can decide per job (Workday: is there a
+        stored account for this employer?)."""
+        return None if self.can_apply else self.manual_reason
+
+    def apply_live(self, page, job: dict, profile: dict, answer_fn, dry_run: bool,
+                   log: Callable) -> dict:
+        """plans_in_browser adapters: plan and fill in one pass. Returns the
+        same entry shape as apply(); a required question it can't answer gives
+        ``status="skipped"`` with ``unanswered``."""
         raise NotImplementedError
 
     def ledger_key(self, job: dict) -> str:
@@ -356,6 +374,7 @@ def run_ats_apply(
     max_per_board: int = 0,
     max_scans_per_board: int = 0,
     dry_run: bool = True,
+    create_workday_accounts: bool = False,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     answer_fn: Callable[[str, str, list[str], dict], str] | None = None,
     log: Callable[[str], None] | None = None,
@@ -374,6 +393,9 @@ def run_ats_apply(
                    or os.getenv("GREENHOUSE_RESUME_PATH", "")).strip()
     max_applications = max(1, min(int(max_applications), 200))
     adapters = adapters or _adapters()
+    for adapter in adapters.values():
+        if hasattr(adapter, "create_accounts"):  # Workday: opt-in account creation
+            adapter.create_accounts = bool(create_workday_accounts)
 
     board_list = split_list(boards)
     refs: list[BoardRef] = []
@@ -419,7 +441,8 @@ def run_ats_apply(
                                              split_list(location), log, warnings, sourced)
         # A résumé is only needed when something can actually be auto-applied
         # to — not for a run whose matches are all manual leads.
-        if any(adapters[c["platform"]].can_apply for c in candidates) \
+        if any(adapters[c["platform"]].manual_reason_for(c, {"email": email}) is None
+               for c in candidates) \
                 and (not resume_path or not os.path.isfile(resume_path)):
             return {**base, "manual_count": len(source_manual), "error": (
                 f"Resume file not found ('{resume_path or 'unset'}'). Set resume_path to a "
@@ -475,10 +498,11 @@ def run_ats_apply(
                     adapter = adapters[job["platform"]]
                     board = f"{job['platform']}:{job['token']}"
                     jid = f"{board}/{job['job_id']}"
-                    if not adapter.can_apply:
+                    why_manual = adapter.manual_reason_for(job, profile)
+                    if why_manual:
                         # Listed even after the cap: they cost nothing to report.
                         manual.append({**job, "status": "manual",
-                                       "reason": f"{adapter.label}: {adapter.manual_reason}"})
+                                       "reason": f"{adapter.label}: {why_manual}"})
                         continue
                     # Unconfirmed submissions may have reached the employer, so
                     # they use up the cap like confirmed ones.
@@ -521,34 +545,40 @@ def run_ats_apply(
                             filtered += 1
                             continue
 
-                        try:
-                            form = adapter.load_form(client, job)
-                        except Exception as exc:  # noqa: BLE001
-                            job.update(status="failed", reason=f"could not load form questions ({exc})")
-                            skipped.append(job)
-                            continue
-
                         def _ask(label, kind, options, _job=job):
                             return answer_fn(label, kind, options, _job) if answer_fn else ""
 
-                        answers, unanswered = adapter.plan(form, job, profile,
-                                                           _ask if answer_fn else None)
-                        if unanswered:
-                            job.update(status="skipped",
-                                       reason="unanswered required question(s): "
-                                       + "; ".join(u[:70] for u in unanswered[:3]),
-                                       unanswered=unanswered)
-                            log(f"↷ {jid}: {len(unanswered)} required question(s) we can't "
-                                "answer — next (add them to extra_answers)")
-                            skipped.append(job)
-                            continue
+                        def _page():
+                            nonlocal browser, page
+                            if browser is None:
+                                browser = launch_browser(pw, headless)
+                                page = browser.new_context(
+                                    locale="en-US", viewport={"width": 1366, "height": 900},
+                                ).new_page()
+                            return page
 
-                        if browser is None:
-                            browser = launch_browser(pw, headless)
-                            page = browser.new_context(
-                                locale="en-US", viewport={"width": 1366, "height": 900},
-                            ).new_page()
-                        entry = adapter.apply(page, job, answers, dry_run, log)
+                        if adapter.plans_in_browser:
+                            entry = adapter.apply_live(_page(), job, profile,
+                                                       _ask if answer_fn else None, dry_run, log)
+                        else:
+                            try:
+                                form = adapter.load_form(client, job)
+                            except Exception as exc:  # noqa: BLE001
+                                job.update(status="failed", reason=f"could not load form questions ({exc})")
+                                skipped.append(job)
+                                continue
+                            answers, unanswered = adapter.plan(form, job, profile,
+                                                               _ask if answer_fn else None)
+                            if unanswered:
+                                job.update(status="skipped",
+                                           reason="unanswered required question(s): "
+                                           + "; ".join(u[:70] for u in unanswered[:3]),
+                                           unanswered=unanswered)
+                                log(f"↷ {jid}: {len(unanswered)} required question(s) we can't "
+                                    "answer — next (add them to extra_answers)")
+                                skipped.append(job)
+                                continue
+                            entry = adapter.apply(_page(), job, answers, dry_run, log)
                         if entry.get("status") in ("prepared", "submitted"):
                             applied.append(entry)
                             per_board[board] = per_board.get(board, 0) + 1
@@ -562,6 +592,8 @@ def run_ats_apply(
                             ledger[adapter.ledger_key(job)] = {"status": "pending"}
                             pending.append(entry)
                             skipped.append(entry)
+                        elif entry.get("status") == "manual":
+                            manual.append(entry)
                         else:
                             skipped.append(entry)
                         page.wait_for_timeout(2000)  # human-like pause between jobs
@@ -629,8 +661,8 @@ class ATSApplyInput(BaseModel):
 class ATSApplyTool(BaseTool):
     name: str = "ats_apply"
     description: str = (
-        "Auto-apply to jobs on company job boards hosted by Greenhouse, Lever, Ashby or "
-        "Workable (SmartRecruiters jobs are listed for manual apply). Args: boards (board "
+        "Auto-apply to jobs on company job boards hosted by Greenhouse, Lever, Ashby, "
+        "Workable or Workday (with a stored account; SmartRecruiters jobs are listed for manual apply). Args: boards (board "
         "URLs or platform:token, comma-separated), first_name, last_name, email, keywords "
         "(title filter), location, phone, resume_path, max_applications, dry_run. Reads "
         "each form's questions without a browser, answers them from the profile, fills "
