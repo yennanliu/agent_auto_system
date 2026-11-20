@@ -185,3 +185,23 @@ def test_a_city_only_in_another_country_is_not_picked(site, page, resume):
     entry = _apply(page, f"{base}/Acme/1?oga=true", _profile(resume, FACTS, location="London, Japan"),
                    dry_run=True)
     assert entry["status"] == "skipped" and entry["unanswered"] == ["City (place of residence)"]
+
+
+def test_the_human_check_is_reported_and_never_touched(site, page, resume, monkeypatch):
+    base, _ = site
+    monkeypatch.setenv("ATS_HUMAN_CHECK_WAIT", "0")
+    entry = _apply(page, f"{base}/Acme/1?captcha=1", _profile(resume, FACTS), dry_run=True)
+    assert entry["status"] == "blocked" and "human verification" in entry["reason"]
+    assert page.locator("#human-slider").count() == 1                   # still there: never clicked
+
+
+def test_a_person_completing_the_check_lets_the_run_continue(site, page, resume, monkeypatch):
+    """Headed + ATS_HUMAN_CHECK_WAIT: the run waits; here the 'person' is a
+    timer in the page (the automation itself never clicks the slider)."""
+    base, _ = site
+    monkeypatch.setenv("ATS_HUMAN_CHECK_WAIT", "20")
+    monkeypatch.setenv("ATS_HEADLESS", "0")
+    page.add_init_script("setTimeout(() => { const b = document.getElementById('human-slider'); "
+                         "if (b) b.click(); }, 2500)")
+    entry = _apply(page, f"{base}/Acme/1?captcha=1", _profile(resume, FACTS), dry_run=True)
+    assert entry["status"] == "prepared", entry

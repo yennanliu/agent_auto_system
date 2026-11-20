@@ -116,3 +116,15 @@ def test_apply_url_falls_back_to_the_job_page(monkeypatch):
     monkeypatch.setattr(httpx, "get", down)
     job = {"token": "Wise", "job_id": "1", "url": "https://jobs.smartrecruiters.com/Wise/1"}
     assert sr.SmartRecruitersAdapter().apply_url(job) == "https://jobs.smartrecruiters.com/Wise/1?oga=true"
+
+
+def test_human_check_wait_only_in_a_headed_run(monkeypatch):
+    monkeypatch.setenv("ATS_HUMAN_CHECK_WAIT", "300")
+    monkeypatch.setenv("ATS_HEADLESS", "1")
+    assert sr.human_check_wait() == 0                                   # nobody can see the window
+    monkeypatch.setenv("ATS_HEADLESS", "0")
+    assert sr.human_check_wait() == 300
+    monkeypatch.setenv("ATS_HUMAN_CHECK_WAIT", "99999")
+    assert sr.human_check_wait() == 900                                 # capped
+    monkeypatch.setenv("ATS_HUMAN_CHECK_WAIT", "soon")
+    assert sr.human_check_wait() == 0

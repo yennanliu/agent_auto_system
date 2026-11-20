@@ -52,6 +52,10 @@ _API = "https://api.smartrecruiters.com/v1/companies"
 _PAGE = 100
 _MAX_JOBS = 1000
 BLOCKED_TEXTS = ("Access is temporarily restricted", "temporarily restricted")
+# DataDome's interactive check ("Verification Required" + a slider). Never
+# solved by the automation: a person may complete it in a headed browser
+# when the run allows a wait (ATS_HUMAN_CHECK_WAIT seconds).
+HUMAN_CHECK_TEXTS = ("Verification Required", "Slide right to secure your access")
 SUCCESS_TEXTS = ("Thank you for applying", "Thanks for applying", "application has been sent",
                  "application has been submitted", "application was sent", "successfully applied",
                  "We have received your application", "Application submitted")
@@ -117,12 +121,16 @@ class SmartRecruitersAdapter(Adapter):
         entry = entry_for(job, [])
         profile = with_job_location(profile, job.get("location"), job.get("company"))
         form = OneClick(page, log)
-        opened = form.open(self.apply_url(job))
+        opened = form.open(self.apply_url(job), human_wait_s=human_check_wait())
         if opened != "ok":
             entry.update(submitted=False, **({
                 "blocked": {"status": "blocked",
                             "reason": "SmartRecruiters' bot protection blocked the page "
                                       "(run headed: ATS_HEADLESS=0)"},
+                "human_check": {"status": "blocked",
+                                "reason": "SmartRecruiters asked for a human verification (slider). "
+                                          "Run headed with ATS_HUMAN_CHECK_WAIT=300 and complete it "
+                                          "in the browser window; it is never solved automatically"},
                 "timeout": {"status": "failed", "reason": "the apply form didn't load"},
             }[opened]))
             return entry
@@ -219,14 +227,26 @@ class OneClick:
             self.page.wait_for_timeout(500)
         return False
 
-    def open(self, url: str) -> str:
-        """"ok", "blocked" (DataDome) or "timeout"."""
+    def open(self, url: str, human_wait_s: float = 0) -> str:
+        """"ok", "blocked" (DataDome wall), "human_check" (DataDome's slider,
+        not completed) or "timeout". With ``human_wait_s`` (headed runs only)
+        a person may complete the check in the window; the automation waits
+        and never interacts with it."""
         p = self.page
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
-        ok = self._wait(lambda: p.locator("input#first-name-input").count()
-                        or visible_text(p, BLOCKED_TEXTS), 30)
+        form = lambda: p.locator("input#first-name-input").count()  # noqa: E731
+        ok = self._wait(lambda: form() or visible_text(p, BLOCKED_TEXTS)
+                        or visible_text(p, HUMAN_CHECK_TEXTS), 30)
         if visible_text(p, BLOCKED_TEXTS):
             return "blocked"
+        if not form() and visible_text(p, HUMAN_CHECK_TEXTS):
+            if human_wait_s <= 0:
+                return "human_check"
+            self.log(f"⏸ SmartRecruiters asks for a human check: complete it in the browser window "
+                     f"(waiting up to {int(human_wait_s)} s)")
+            if not self._wait(form, human_wait_s):
+                return "human_check"
+            ok = True
         if not ok:
             return "timeout"
         p.wait_for_timeout(1500)
@@ -432,6 +452,18 @@ def choose_radio(radio) -> None:
         radio.evaluate("e => e.click()")
     if radio.get_attribute("aria-checked") != "true":
         raise RuntimeError("radio did not become checked")
+
+
+def human_check_wait() -> float:
+    """Seconds to wait for a person to complete DataDome's check: only in a
+    headed run (nobody can see a headless window), from ATS_HUMAN_CHECK_WAIT."""
+    import os
+    if os.getenv("ATS_HEADLESS", os.getenv("GREENHOUSE_HEADLESS", "0")) == "1":
+        return 0
+    try:
+        return max(0.0, min(float(os.getenv("ATS_HUMAN_CHECK_WAIT", "0") or 0), 900.0))
+    except ValueError:
+        return 0
 
 
 def option_labels(opts) -> list[str]:

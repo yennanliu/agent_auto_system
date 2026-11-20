@@ -26,6 +26,13 @@ spl-radio, spl-checkbox, spl-select-option { display: block; cursor: pointer; }<
   const state = window.__state = { page1: {}, answers: {}, submitted: false };
 
   if (qs.get('blocked')) { main.innerHTML = '<h1>Access is temporarily restricted</h1>'; return; }
+  // DataDome's interactive check: the form appears only after a person slides.
+  if (qs.get('captcha') && !sessionStorage.getItem('passed')) {
+    main.innerHTML = '<h2>Verification Required</h2><p>Slide right to secure your access</p>' +
+      '<button id="human-slider">→</button>';
+    document.getElementById('human-slider').onclick = () => { sessionStorage.setItem('passed', '1'); location.reload(); };
+    return;
+  }
 
   // ── components ──
   class SplInput extends HTMLElement {
