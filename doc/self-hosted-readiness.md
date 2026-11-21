@@ -201,7 +201,8 @@ there's no backup story.
       (many concurrent users / heavy history) and make the switch a one-line
       `DATABASE_URL` change (already supported) — plus Alembic (P0-4) so the switch is
       clean.
-- [ ] Data-retention controls (prune old runs) the customer can run themselves.
+- [x] Data-retention controls (prune old runs) the customer can run themselves —
+      see [data-retention.md](data-retention.md).
 
 ### 8. Modularity — shipping (and letting customers add) automations
 
