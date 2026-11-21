@@ -478,7 +478,10 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
                             return (l ? l.innerText : (i.closest('label') || {}).innerText || i.value || '').trim(); };
     const chip = f.querySelector('[data-automation-id=promptOption], [data-automation-id=selectedItem]');
     let kind = 'other', value = '', options = [];
-    if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
+    const upload = f.querySelector('input[type=file]');
+    if (upload) { kind = 'file'; value = Array.from(f.querySelectorAll('[data-automation-id=file-upload-item]'))
+                    .map(e => e.innerText.trim().split('\n')[0]).filter(Boolean).join(', '); }
+    else if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
     else if (btn) { kind = 'listbox'; value = btn.innerText.trim(); if (value === 'Select One') value = ''; }
     else if (radios.length) { kind = 'radio'; options = radios.map(optLabel);
                               const c = radios.find(r => r.checked); value = c ? optLabel(c) : ''; }

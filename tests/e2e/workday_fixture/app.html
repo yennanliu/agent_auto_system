@@ -188,9 +188,11 @@
       return;
     }
     if (name === 'My Experience') {
-      box.innerHTML = '<div data-automation-id="attachments-FileUpload"><input type="file" data-automation-id="file-upload-input-ref">' +
+      // Like Micron: a required upload inside an (unnamed) formField box.
+      box.innerHTML = '<div data-automation-id="formField-"><label>Upload a file (5MB max)<abbr>*</abbr></label>' +
+        '<div data-automation-id="attachments-FileUpload"><input type="file" data-automation-id="file-upload-input-ref">' +
         d.files.map(f => '<div data-automation-id="file-upload-item"><span data-automation-id="file-upload-item-name">' + f +
-          '</span><span data-automation-id="file-upload-successful">Successfully Uploaded!</span></div>').join('') + '</div>';
+          '</span><span data-automation-id="file-upload-successful">Successfully Uploaded!</span></div>').join('') + '</div></div>';
       box.querySelector('input[type=file]').onchange = (e) => {
         const dd = draft(); dd.files.push(e.target.files[0].name); saveDraft(dd);
         setTimeout(() => renderStep(name), 300);
@@ -247,6 +249,7 @@
     btn.onclick = () => {
       const dd = draft();
       const missing = (FIELDS[name] || []).filter(f => f.required && !dd.values[f.id]).map(f => f.label);
+      if (name === 'My Experience' && !dd.files.length) missing.push('Upload a file (5MB max)');
       if (missing.length) {
         document.getElementById('errs').innerHTML = missing.map(m => '<span data-automation-id="errorMessage">' + m + ' is required</span>').join('');
         return;
