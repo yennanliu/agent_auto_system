@@ -95,8 +95,13 @@ def detect_ats(url: str) -> BoardRef | None:
         company = host.split(".")[0]
         if company in _RECRUITEE_RESERVED or not _TOKEN_RE.match(company):
             return None
-        job = parts[1].lower() if len(parts) > 1 and parts[0] == "o" and _SLUG_RE.match(parts[1].lower()) else ""
-        return BoardRef("recruitee", company, job)
+        if len(parts) > 1 and parts[0] == "o":
+            # A job link with a bad slug is refused, never widened to the
+            # whole board (PR review).
+            if not _SLUG_RE.match(parts[1].lower()):
+                return None
+            return BoardRef("recruitee", company, parts[1].lower())
+        return BoardRef("recruitee", company)
 
     if host == "apply.workable.com":
         if not parts or not _TOKEN_RE.match(parts[0]) or parts[0] in ("api", "j"):
@@ -179,7 +184,9 @@ def parse_board_ref(ref: str, default_platform: str = "") -> BoardRef | None:
         if platform == "workable":
             return BoardRef(platform, token.lower(), job.upper() if job else "")
         if platform == "recruitee":
-            return BoardRef(platform, token.lower(), job.lower() if _SLUG_RE.match(job.lower()) else "")
+            if job and not _SLUG_RE.match(job.lower()):
+                return None  # a bad job slug is refused, not widened to the board
+            return BoardRef(platform, token.lower(), job.lower())
         return BoardRef(platform, token, job)
     if "://" in ref or "/" in ref or "." in ref:
         return detect_ats(ref)

@@ -161,3 +161,57 @@ def test_find_prefix_matches_by_text_and_refuses_ambiguity():
     twins = {rc.norm("Please describe your experience"): "a",
              rc.norm("Please describe your experience with Haskell"): "b"}
     assert rc.find_prefix(twins, "Please describe your experience with Go") is None   # ambiguous
+
+
+# ── PR #122 review ───────────────────────────────────────────────────────────
+
+class _Page:
+    """Just enough of a Playwright page for question_prefixes()."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def evaluate(self, _js):
+        return self.rows
+
+
+def test_duplicate_question_texts_are_ambiguous_not_collapsed():
+    prefixes = rc.question_prefixes(_Page([
+        ["candidate.openQuestionAnswers.1", "Why do you want to join?\xa0*"],
+        ["candidate.openQuestionAnswers.2", "Why do you want to join?"],
+        ["candidate.openQuestionAnswers.3", "Where do you live? (City)\xa0*"]]))
+    assert len(prefixes) == 3                                              # both kept
+    assert rc.find_prefix(prefixes, "Why do you want to join?") is None    # ambiguous → the job fails
+    assert rc.find_prefix(prefixes, "Where do you live? (City)") == "candidate.openQuestionAnswers.3"
+
+
+def test_required_cover_letter_is_a_file_answer_reported_by_name():
+    from src.automation.tools.ats_apply_tool import entry_for
+    form = {**OFFER["offer"], "open_questions": [], "options_cover_letter": "required"}
+    profile = {**_profile(), "cover_letter_path": "/srv/tmp/cover_letter_abc.txt"}
+    answers, unanswered = rc.RecruiteeAdapter().plan(form, _job(), profile, None)
+    cover = next(a for a in answers if a["field"] == "options_cover_letter")
+    assert cover["kind"] == "file" and unanswered == []
+    shown = {a["label"]: a["value"] for a in entry_for(_job(), answers)["answers"]}
+    assert shown["Cover letter"] == "cover_letter_abc.txt"                 # not the server path
+
+
+@pytest.mark.parametrize("text, want", [
+    ("5500", "5500"), ("5,500 EUR / month", "5500"), ("5.500 EUR", "5500"), ("5 500", "5500"),
+    ("€ 75,000 per year", "75000"), ("1,250,000", "1250000"),
+    ("5,500.50", "5500.50"), ("5.500,50", "5500.50"), ("5500.50", "5500.50"), ("5500,50", "5500.50"),
+    ("about 6000", "6000"),
+])
+def test_parse_amount_keeps_the_value(text, want):
+    assert rc.parse_amount(text) == want
+
+
+@pytest.mark.parametrize("text", ["negotiable", "5,50,000", "5.500.50,25,1", ""])
+def test_parse_amount_refuses_unclear_formats(text):
+    assert rc.parse_amount(text) is None
+
+
+@pytest.mark.parametrize("ref", ["recruitee:channable/-haskell", "recruitee:channable/Haskell_Engineer",
+                                 "https://channable.recruitee.com/o/haskell_engineer"])
+def test_a_bad_job_slug_is_refused_not_widened_to_the_board(ref):
+    assert parse_board_ref(ref) is None

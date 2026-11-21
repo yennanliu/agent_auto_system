@@ -609,6 +609,17 @@ class Question:
     options: list[str] = field(default_factory=list)
 
 
+def _from_extra_answers(label: str, profile: dict, ans) -> bool:
+    """Did ``ans`` come from the user's Extra Answers (not a rule)? The same
+    keyword match ``rule_answer`` uses first: the first Extra Answer whose
+    keyword is in the label, and its value is ``ans``."""
+    lbl = label.lower()
+    for kw, value in profile.get("extra_answers") or []:
+        if kw.lower() in lbl:
+            return value == ans
+    return False
+
+
 _YES_NO_Q = re.compile(r"\s*(are|am|do|does|did|have|has|had|is|was|were|will|would|can|could|"
                        r"should|shall|may)\b", re.I)
 
@@ -664,9 +675,11 @@ def answer_question(q: Question, profile: dict,
             ans = "Company careers page"
         elif ans == "__agree__":
             ans = None
-        elif ans in ("Yes", "No") and not _YES_NO_Q.match(label):
-            # A rule's Yes/No only answers a yes/no question: "If you selected
-            # a valid work permit, please specify which type" is not one.
+        elif ans in ("Yes", "No") and not _YES_NO_Q.match(label) \
+                and not _from_extra_answers(label, profile, ans):
+            # An INFERRED Yes/No only answers a yes/no question: "If you
+            # selected a valid work permit, please specify which type" is not
+            # one. The user's own Extra Answers are always kept (PR review).
             ans = None
         if not ans and required and answer_fn is not None:
             ans = call_answer_fn(answer_fn, label, "text", [])

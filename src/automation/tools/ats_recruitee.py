@@ -130,7 +130,7 @@ class RecruiteeAdapter(Adapter):
         want("options_cv", "CV or resume", "file", standard_value("resume", profile))
         # The cover letter is a FILE here; the run's letter is a .txt it wrote.
         cover = profile.get("cover_letter_path") or ""
-        want("options_cover_letter", "Cover letter", "cover_file", cover if form.get("options_cover_letter") == "required" else "")
+        want("options_cover_letter", "Cover letter", "file", cover if form.get("options_cover_letter") == "required" else "")
         if form.get("options_photo") == "required":
             unanswered.append("Photo")  # never guessed
 
@@ -230,25 +230,50 @@ QUESTIONS_JS = r"""() => Array.from(document.querySelectorAll('input[type=hidden
   .map(h => [h.name.replace(/\.openQuestionId$/, ''), (h.parentElement.innerText || '').split('\n')[0]])"""
 
 
+def parse_amount(text: str) -> str | None:
+    """The number in a salary answer, for a ``type=number`` box. Only clear
+    formats; anything ambiguous is refused (None), never reinterpreted:
+    "5500" / "5,500" / "5.500" / "5 500" → "5500"; "5,500.50" / "5.500,50" →
+    "5500.50"; "5500.50" / "5500,50" → "5500.50". ("5500,50" is never 550050.)"""
+    m = re.search(r"\d(?:[\d.,\u00a0 ]*\d)?", text or "")
+    if not m:
+        return None
+    t = re.sub(r"[\u00a0 ]", "", m.group(0))
+    if re.fullmatch(r"\d+", t):
+        return t
+    grouped = re.fullmatch(r"(\d{1,3}(?:([.,])\d{3})+)(?:([.,])(\d{1,2}))?", t)
+    if grouped and grouped.group(2) != grouped.group(3):
+        whole = re.sub(r"[.,]", "", grouped.group(1))
+        return f"{whole}.{grouped.group(4)}" if grouped.group(4) else whole
+    decimal = re.fullmatch(r"(\d+)[.,](\d{1,2})", t)
+    if decimal:
+        return f"{decimal.group(1)}.{decimal.group(2)}"
+    return None
+
+
 def norm(text: str) -> str:
     """Question text as compared between the API and the page."""
     return re.sub(r"\s+", " ", (text or "").replace("\xa0", " ").replace("*", "")).strip().lower()
 
 
-def question_prefixes(page) -> dict[str, str]:
-    """``{normalised question text: "candidate.openQuestionAnswers.<form id>"}``."""
-    return {norm(label): prefix for prefix, label in page.evaluate(QUESTIONS_JS) if norm(label)}
+def question_prefixes(page) -> list[tuple[str, str]]:
+    """``[(normalised question text, "candidate.openQuestionAnswers.<form id>")]``.
+    A list, not a dict: two questions with the same text must stay two, so the
+    match can see it is ambiguous (PR review)."""
+    return [(norm(label), prefix) for prefix, label in page.evaluate(QUESTIONS_JS) if norm(label)]
 
 
-def find_prefix(prefixes: dict[str, str], label: str) -> str | None:
+def find_prefix(prefixes, label: str) -> str | None:
     """The form prefix of the question whose text is ``label``. Equal text, or
     — the page shows only a long body's FIRST paragraph — the API text
     starting with a long (40+ characters) page text. Unique, or None: a short
     "Please describe your experience" never stands in for "…with Go"."""
+    pairs = list(prefixes.items()) if isinstance(prefixes, dict) else list(prefixes)
     want = norm(label)
-    if want in prefixes:
-        return prefixes[want]
-    hits = [p for text, p in prefixes.items() if len(text) >= 40 and want.startswith(text)]
+    exact = [p for text, p in pairs if text == want]
+    if exact:
+        return exact[0] if len(exact) == 1 else None
+    hits = [p for text, p in pairs if len(text) >= 40 and want.startswith(text)]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -267,10 +292,10 @@ def fill(page, answers: list[dict], log) -> list[str]:
                 digits = re.sub(r"[^\d+]", "", value)
                 page.locator("input[name='candidate.phone']").fill(digits if digits.startswith("+") else value)
             elif kind == "file":
-                page.locator("input[type=file][name='candidate.cv']").set_input_files(value, timeout=15000)
+                # field says which upload: the CV, or the cover letter (a file here).
+                name = "candidate.coverLetterFile" if field == "options_cover_letter" else "candidate.cv"
+                page.locator(f"input[type=file][name={_q(name)}]").set_input_files(value, timeout=15000)
                 page.wait_for_timeout(1500)
-            elif kind == "cover_file":
-                page.locator("input[type=file][name='candidate.coverLetterFile']").set_input_files(value, timeout=15000)
             elif kind in ("content", "flag", "choice", "multi"):
                 prefix = find_prefix(prefixes, label)
                 if prefix is None:
@@ -279,10 +304,10 @@ def fill(page, answers: list[dict], log) -> list[str]:
                     box = page.locator(f"[name={_q(prefix + '.content')}]").first
                     if box.get_attribute("type") == "number":
                         # A salary box: just the amount ("5,500 EUR / month" → 5500).
-                        m = re.search(r"\d[\d,. ]*", str(value))
-                        if not m:
-                            raise ValueError("no number in the answer")
-                        value = re.sub(r"[ ,]", "", m.group(0)).rstrip(".")
+                        amount = parse_amount(str(value))
+                        if amount is None:
+                            raise ValueError(f"unclear amount {value!r}")
+                        value = amount
                     box.fill(str(value))
                 elif kind == "flag":
                     _choose(page, f"{prefix}.flag", str(value))

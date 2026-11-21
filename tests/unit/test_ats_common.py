@@ -453,3 +453,14 @@ def test_have_you_agreed_to_the_terms_is_consent():
     # PR review: "agreed to" is the wording of consent boxes, not of a factual question.
     assert ac.rule_answer("Have you read and agreed to the terms and conditions?", {}) == "__agree__"
     assert ac.rule_answer("Have you signed an agreement containing a non-compete?", {}) != "__agree__"
+
+
+def test_explicit_extra_answers_survive_the_yes_no_guard():
+    """PR #122 review: the guard drops only INFERRED Yes/No on non yes/no text
+    questions; the user's own Extra Answer is kept."""
+    label = "Please confirm your willingness to relocate"
+    mine = {"extra_answers": [("willingness to relocate", "Yes")]}
+    assert ac.answer_question(ac.Question("k", label, "text", True, []), mine)["value"] == "Yes"
+    inferred = {"authorized_countries": {"netherlands"}}
+    assert ac.answer_question(ac.Question(
+        "k", "If you selected valid work permit, please specify which type", "text", False, []), inferred) is None
