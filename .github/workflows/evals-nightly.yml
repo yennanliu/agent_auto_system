@@ -30,6 +30,7 @@ on:
 
 permissions:
   contents: read
+  issues: write   # the notify step comments on the "Nightly eval status" issue
 
 concurrency:
   group: evals-nightly
@@ -80,6 +81,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Run live evals
+        id: live
         if: steps.keys.outputs.present == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -103,3 +105,50 @@ jobs:
           path: eval-report/
           if-no-files-found: warn
           retention-days: 30
+
+      # Every run (skipped, passed, regressed or broken) leaves one comment on the
+      # tracking issue, so a silent skip can't hide behind a green check again.
+      # GitHub emails everyone watching the issue. Uses only GITHUB_TOKEN.
+      - name: Notify (tracking issue comment)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KEYS_PRESENT: ${{ steps.keys.outputs.present }}
+          LIVE_OUTCOME: ${{ steps.live.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+        run: |
+          if [ "$KEYS_PRESENT" != "true" ]; then
+            status="⚪ SKIPPED — no provider API key secret, the live tier did not run"
+          else
+            case "$LIVE_OUTCOME" in
+              success)   status="✅ PASSED — no quality regression vs evals/baseline.json" ;;
+              failure)   status="❌ FAILED — quality regression or eval error (see report / log)" ;;
+              cancelled) status="🟠 CANCELLED" ;;
+              *)         status="🟠 ERROR — setup failed before the evals ran" ;;
+            esac
+          fi
+          title="Nightly eval status"
+          num=$(gh issue list --state open --label eval-status --json number -q '.[0].number')
+          if [ -z "$num" ]; then
+            gh label create eval-status --color 5319e7 --description "Nightly eval notifications" 2>/dev/null || true
+            url=$(gh issue create --title "$title" --label eval-status \
+              --body "Each run of \`.github/workflows/evals-nightly.yml\` comments here. Subscribe to this issue to get the result by email.")
+            num=${url##*/}
+          fi
+          {
+            echo "### $status"
+            echo
+            echo "Run: $RUN_URL  ·  trigger: \`$EVENT\`  ·  ref: \`$REF\`"
+            if [ -f eval-report/report.md ]; then
+              echo
+              echo "<details><summary>Report</summary>"
+              echo
+              head -c 50000 eval-report/report.md
+              echo
+              echo "</details>"
+            fi
+          } > notify.md
+          gh issue comment "$num" --body-file notify.md
