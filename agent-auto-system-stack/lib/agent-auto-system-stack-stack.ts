@@ -22,6 +22,14 @@ const API_KEY_ENV_VARS = [
   'GMAIL_APP_PASSWORD',
 ] as const;
 
+// The app refuses to start (src/security.py) on the shipped admin/admin account
+// or without a real APP_SECRET, so a deploy without these would crash-loop and
+// roll back — fail at synth instead. Same shell-env pass-through as the keys.
+const REQUIRED_SECURITY_ENV_VARS = ['APP_SECRET', 'ADMIN_PASSWORD'] as const;
+// Optional: ADMIN_USERNAME (default "admin"); SESSION_COOKIE_SECURE=1 once the
+// ALB has an HTTPS listener (leave unset while it is plain HTTP).
+const OPTIONAL_SECURITY_ENV_VARS = ['ADMIN_USERNAME', 'SESSION_COOKIE_SECURE'] as const;
+
 /**
  * Agent Auto System — single always-on Fargate task behind an ALB.
  *
@@ -78,6 +86,24 @@ export class AgentAutoSystemStackStack extends Stack {
         `No value provided for ${missing.join(', ')} at synth time. ` +
           `Export them before \`cdk deploy\` (e.g. \`OPENAI_API_KEY=sk-... cdk deploy\`) ` +
           `if the app needs them.`,
+      );
+    }
+
+    const missingRequired: string[] = [];
+    for (const name of REQUIRED_SECURITY_ENV_VARS) {
+      const value = process.env[name];
+      if (value) environment[name] = value;
+      else missingRequired.push(name);
+    }
+    for (const name of OPTIONAL_SECURITY_ENV_VARS) {
+      const value = process.env[name];
+      if (value) environment[name] = value;
+    }
+    if (missingRequired.length > 0) {
+      Annotations.of(this).addError(
+        `${missingRequired.join(', ')} must be exported before \`cdk deploy\` — the app ` +
+          `refuses to start on its shipped defaults. Use a long random APP_SECRET and keep ` +
+          `it stable across deploys (it also encrypts API keys stored via the Admin page).`,
       );
     }
 

@@ -149,6 +149,12 @@ product a customer exposes on *their* network (possibly the internet) cannot. To
 `.env.example` ships `ADMIN_PASSWORD=admin` and `APP_SECRET=dev-insecure-change-me`,
 and those are the runtime fallback defaults (`main.py:22,36`) with only a log warning.
 
+> **Update:** a non-desktop server now refuses to start on those defaults
+> (`security.enforce_secure_defaults`; dev opt-out `ALLOW_INSECURE_DEFAULTS=1`), and
+> `SESSION_COOKIE_SECURE=1` marks the session cookie `Secure` behind TLS. The TODOs
+> below (auto-generated secret, forced first-login change, bundled TLS proxy) are the
+> remaining zero-config polish.
+
 **TODO**
 - [ ] **Generate a random `APP_SECRET` on first boot** if unset (persist it to the DB /
       a data-dir file) instead of falling back to the shared dev default — otherwise
