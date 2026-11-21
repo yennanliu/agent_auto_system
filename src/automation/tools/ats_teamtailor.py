@@ -40,6 +40,7 @@ from src.automation.tools.ats_common import (
     answer_question,
     first_visible,
     match_option,
+    parse_amount,
     standard_value,
     with_job_location,
 )
@@ -138,8 +139,11 @@ class TeamtailorAdapter(Adapter):
             elif kind == "text":
                 ans = answer_question(Question(q["id"], label, "text", req, []), profile, answer_fn)
                 if ans and q.get("number"):
-                    m = re.search(r"\d+(?:[.,]\d+)?", str(ans["value"]))
-                    ans = {**ans, "value": m.group(0).replace(",", ".")} if m else None
+                    # A [number] field takes just the amount, its value kept:
+                    # "70,000" → 70000, never 70.000 (PR #126 review). An unclear
+                    # format leaves the question unanswered.
+                    amount = parse_amount(str(ans["value"]))
+                    ans = {**ans, "value": amount} if amount is not None else None
             if ans is not None and ans.get("value") not in (None, "", []):
                 answers.append({"field": q["id"], "kind": f"q_{kind}", "value": ans["value"], "label": label,
                                 "multiple": q["multiple"], "number": q.get("number", False)})

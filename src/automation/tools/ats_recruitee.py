@@ -39,6 +39,7 @@ from src.automation.tools.ats_common import (
     answer_question,
     first_visible,
     match_option,
+    parse_amount,
     standard_value,
     with_job_location,
 )
@@ -228,27 +229,6 @@ def _choose(page, name: str, value: str) -> None:
 
 QUESTIONS_JS = r"""() => Array.from(document.querySelectorAll('input[type=hidden][name$=".openQuestionId"]'))
   .map(h => [h.name.replace(/\.openQuestionId$/, ''), (h.parentElement.innerText || '').split('\n')[0]])"""
-
-
-def parse_amount(text: str) -> str | None:
-    """The number in a salary answer, for a ``type=number`` box. Only clear
-    formats; anything ambiguous is refused (None), never reinterpreted:
-    "5500" / "5,500" / "5.500" / "5 500" → "5500"; "5,500.50" / "5.500,50" →
-    "5500.50"; "5500.50" / "5500,50" → "5500.50". ("5500,50" is never 550050.)"""
-    m = re.search(r"\d(?:[\d.,\u00a0 ]*\d)?", text or "")
-    if not m:
-        return None
-    t = re.sub(r"[\u00a0 ]", "", m.group(0))
-    if re.fullmatch(r"\d+", t):
-        return t
-    grouped = re.fullmatch(r"(\d{1,3}(?:([.,])\d{3})+)(?:([.,])(\d{1,2}))?", t)
-    if grouped and grouped.group(2) != grouped.group(3):
-        whole = re.sub(r"[.,]", "", grouped.group(1))
-        return f"{whole}.{grouped.group(4)}" if grouped.group(4) else whole
-    decimal = re.fullmatch(r"(\d+)[.,](\d{1,2})", t)
-    if decimal:
-        return f"{decimal.group(1)}.{decimal.group(2)}"
-    return None
 
 
 def norm(text: str) -> str:

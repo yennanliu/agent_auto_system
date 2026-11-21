@@ -138,3 +138,19 @@ def test_criminal_rule_answers_only_a_question_about_having_a_record():
     # A consent wording falls to the shared consent rule like any consent box;
     # what matters is that the has-a-record flag never answers it "No".
     assert rule_answer("Do you consent to a criminal record check?", {}) != "No"
+
+
+# ── PR #126 review: a [number] answer keeps its value ───────────────────────
+
+@pytest.mark.parametrize("answer, want", [("70,000", "70000"), ("5,500 SEK / month", "5500"),
+                                          ("8 years", "8"), ("5,5", "5.5"), ("negotiable", None)])
+def test_number_questions_keep_the_value(answer, want):
+    form = {"fields": {}, "resume": False, "resume_required": False, "cover_letter": "",
+            "questions": [{"id": "1", "kind": "text", "label": "What is your salary expectation?", "required": True,
+                           "multiple": False, "number": True, "options": []}]}
+    job = next(j for j in _jobs() if j["job_id"] == "8651426")
+    answers, unanswered = tt.TeamtailorAdapter().plan(form, job, _profile(f"salary expectation: {answer}"), None)
+    if want is None:
+        assert answers == [] and unanswered == ["What is your salary expectation?"]
+    else:
+        assert answers[0]["value"] == want and unanswered == []
