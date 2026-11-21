@@ -272,6 +272,17 @@ POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
   that step (`skipped`, listed in `unanswered`). Workday keeps the draft, so add the answer
   to `extra_answers` and the next run resumes it. The résumé is uploaded only if the draft
   has none yet.
+- **Saved default answers.** Standing answers to personal questions (address, "bonded",
+  "academic ranking", salary…) can be kept in **`data/default_answers.txt`**, in the same
+  `keyword: answer` lines as `extra_answers` (`#` starts a comment). Every ATS run applies
+  them after its own `extra_answers`, so a run's own answer wins. The file is personal data
+  under the git-ignored `data/` (override the path with `ATS_DEFAULT_ANSWERS_FILE`); tests
+  never read it.
+- **Locale specifics (Micron, Taiwan, 2026-11-21).** "Given / Family Name - Western Script"
+  is the profile's name (the *Local Script* one is left alone). Next to the *Country Phone
+  Code* widget, Phone Number takes the national number: "+886 963335868" is typed as
+  "963335868", or Workday rejects it as an invalid format. A required *Upload a file*
+  box counts as answered once the résumé is attached.
 - **Dry run stops at Review.** Otherwise Submit counts only on Workday's confirmation; an
   unconfirmed submit is recorded `pending`, as on the other platforms.
 - **Verified live on 3M** (2026-11-20): sign-in, resuming a draft, all steps, stopping at

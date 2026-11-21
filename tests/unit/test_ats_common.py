@@ -437,6 +437,11 @@ def test_prior_employment_is_about_the_hiring_company_only():
     assert ac.rule_answer("Have you ever been employed by a State government?", acme) is None
     assert ac.rule_answer("Have you ever worked for Armanino before?", {"job_company": "arm"}) is None
     assert ac.rule_answer("Have you previously worked for Acme's subsidiaries?", acme) == "No"
+    # A leading determiner isn't the name (Micron, Workday, live 2026-11-21).
+    micron = {"job_company": "micron"}
+    assert ac.rule_answer("Have you previously been employed by any Micron company?", micron) == "No"
+    assert ac.rule_answer("Have you ever worked for the Micron group?", micron) == "No"
+    assert ac.rule_answer("Have you previously been employed by any Epic Systems company?", micron) is None
     assert ac.rule_answer("Have you ever worked for Metropolitan Hospital before?",
                           {"job_company": "metropolitan-hospital"}) == "No"
     # Without the job's company (legacy callers) the old answer stands.
@@ -464,3 +469,37 @@ def test_explicit_extra_answers_survive_the_yes_no_guard():
     inferred = {"authorized_countries": {"netherlands"}}
     assert ac.answer_question(ac.Question(
         "k", "If you selected valid work permit, please specify which type", "text", False, []), inferred) is None
+
+
+def test_availability_after_an_offer_is_the_notice_period():
+    """Micron (Workday), live 2026-11-21: the options are "Within 1 month after
+    offer acceptance", …; a notice period that maps onto none stays unanswered."""
+    q = "When would you be available if an offer was accepted?"
+    opts = ["Immediately after offer acceptance", "Within 1 month after offer acceptance",
+            "Within 2 months after offer acceptance", "More than 2 months after offer acceptance"]
+    assert ac.rule_answer(q, {"notice_period": "1 month"}) == "1 month"
+    assert ac.rule_answer(q, {}) is None
+    ans = ac.answer_question(ac.Question(q, q, "select", True, opts), {"notice_period": "1 month"}, None)
+    assert ans["value"] == "Within 1 month after offer acceptance"
+
+
+@pytest.mark.parametrize("label", [
+    "Were you referred by an employee?", "Referral source",
+    "Are you referred to this job by a Micron employee?",   # Micron (Workday), live 2026-11-21
+])
+def test_referral_questions_answer_no(label):
+    assert ac.rule_answer(label, {}) == "No"
+
+
+def test_saved_default_answers_apply_after_the_runs_own(tmp_path, monkeypatch):
+    f = tmp_path / "default_answers.txt"
+    f.write_text("# personal facts\nbonded: No\nacademic ranking: 11%-20%\n\nno colon line\n")
+    monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(f))
+    p = ac.build_profile(first_name="A", last_name="B", email="a@b.c", extra_answers="bonded: Yes, TWD 1")
+    assert p["extra_answers"] == [("bonded", "Yes, TWD 1"), ("bonded", "No"), ("academic ranking", "11%-20%")]
+    assert ac.rule_answer("Are you bonded by your current company/school?", p) == "Yes, TWD 1"
+    q = "Please select your academic ranking:"
+    ans = ac.answer_question(ac.Question(q, q, "select", True, ["Top 10%", "11%-20%", "21%-50%"]), p, None)
+    assert ans["value"] == "11%-20%"
+    monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(tmp_path / "missing.txt"))
+    assert ac.default_answers() == []

@@ -159,6 +159,14 @@ def test_an_unknown_city_is_never_replaced_by_another(site, page, resume):
     assert entry["status"] == "skipped" and entry["unanswered"] == ["City (place of residence)"]
 
 
+def test_a_chat_widget_and_an_ignored_next_click_dont_stop_the_job(site, page, resume):
+    """Live: Western Digital's chat widget covered Next (click timed out), and
+    Experian / ServiceNow ignored a Next clicked while page 1 was settling."""
+    base, _ = site
+    entry = _apply(page, f"{base}/Acme/1?oga=true&live=1", _profile(resume, FACTS), dry_run=True)
+    assert entry["status"] == "prepared", entry
+
+
 def test_the_bot_wall_is_reported_not_retried(site, page, resume):
     base, _ = site
     entry = _apply(page, f"{base}/Acme/1?blocked=1", _profile(resume, FACTS), dry_run=True)

@@ -61,6 +61,8 @@ SUCCESS_TEXTS = ("Thank you for applying", "Thanks for applying", "application h
                  "application has been submitted", "application was sent", "successfully applied",
                  "We have received your application", "Application submitted")
 SUCCESS_PATHS = ("confirmation", "success", "thank-you", "thankyou")
+CHAT_WIDGET_CSS = ("#joveo-web-widget-container, iframe[title='Chatbot'], "
+                   "[id*='chat-widget'] { display: none !important; }")
 CONSENT_RE = re.compile(r"privacy|consent|agree|acknowledge|terms", re.I)
 
 
@@ -255,6 +257,9 @@ class OneClick:
             ok = True
         if not ok:
             return "timeout"
+        # A company's chat widget (Western Digital: joveo's "Chatbot" iframe)
+        # floats over the footer and swallows the click on Next: hide it.
+        p.add_style_tag(content=CHAT_WIDGET_CSS)
         p.wait_for_timeout(1500)
         return "ok"
 
@@ -343,11 +348,18 @@ class OneClick:
     def next(self) -> str:
         """Click Next: "screening", "final" (Submit already shown) or "rejected"."""
         p = self.page
-        p.get_by_role("button", name="Next").last.click()
-        if self._wait(lambda: "/screening" in (p.url or "")
-                      or p.get_by_role("button", name="Submit").count(), 20):
-            p.wait_for_timeout(2000)
-            return "screening" if "/screening" in (p.url or "") else "final"
+        moved = lambda: ("/screening" in (p.url or "")  # noqa: E731
+                         or p.get_by_role("button", name="Submit").count())
+        # Live (Experian, ServiceNow): a Next clicked while page 1 is still
+        # settling is sometimes ignored, with no error shown. Page 1's Next
+        # never submits, so it's clicked again, unless the form shows an error.
+        for _ in range(3):
+            p.get_by_role("button", name="Next").last.click()
+            if self._wait(moved, 10):
+                p.wait_for_timeout(2000)
+                return "screening" if "/screening" in (p.url or "") else "final"
+            if self.errors():
+                break
         return "rejected"
 
     def questions(self) -> list[dict]:

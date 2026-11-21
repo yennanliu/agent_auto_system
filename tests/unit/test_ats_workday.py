@@ -429,3 +429,25 @@ def test_runner_passes_the_opt_in_to_the_adapter(live_runner):
     ad = _LiveFake({"status": "prepared"})
     out = live_runner(ad, create_workday_accounts=True)
     assert ad.create_accounts is True and ad.calls and out["manual_count"] == 0
+
+
+# Micron (Taiwan), live 2026-11-21: the Country Phone Code widget holds the
+# "+886", and Workday rejects "+886 963335868" in Phone Number as an invalid format.
+@pytest.mark.parametrize("phone,code,expected", [
+    ("+886 963335868", "Taiwan (+886)", "963335868"),
+    ("+1 415 555 0100", "United States of America (+1)", "4155550100"),
+    ("+1 415 555 0100", "Taiwan (+886)", "+1 415 555 0100"),   # another country's code: as typed
+    ("0963-335-868", "Taiwan (+886)", "0963-335-868"),         # already national
+    ("+886 963335868", "", "+886 963335868"),                  # no widget value: unchanged
+])
+def test_national_number(phone, code, expected):
+    assert wd.national_number(phone, code) == expected
+
+
+def test_phone_number_drops_the_code_the_widget_already_holds():
+    tw = build_profile(first_name="Ada", last_name="Lovelace", email="ada@example.com",
+                       phone="+886 963335868")
+    plan = wd.plan_field({**_f("Phone Number", kind="text"), "phone_code": "Taiwan (+886)"}, tw)
+    assert plan == {"action": "fill", "value": "963335868"}
+    # Without a country-code widget on the step the number is typed in full.
+    assert wd.plan_field(_f("Phone Number", kind="text"), tw)["value"] == "+886 963335868"

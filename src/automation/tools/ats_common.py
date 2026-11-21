@@ -359,7 +359,8 @@ def _profile_answer(label: str, profile: dict):
         return progs or None
 
     if re.search(r"notice period|how soon can you (start|join)|when can you (start|join)|"
-                 r"earliest (possible )?(start|joining)|availability to (start|join)", lbl):
+                 r"earliest (possible )?(start|joining)|availability to (start|join)|"
+                 r"when (would|will|could|can) you be available", lbl):
         return profile.get("notice_period") or None
     if re.search(r"reasons? for (leaving|wanting to leave|looking|changing)|"
                  r"why (are you|did you|do you want to) (leave|leaving|looking|change)", lbl):
@@ -411,6 +412,9 @@ def profile_url_field(label: str) -> str | None:
     field, None for anything else — including questions that mention the site."""
     t = re.sub(r"[*:✱?]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Workday in CJK locales: "Given Name - Western Script" is the romanised
+    # name (the profile's); the "Local Script" one isn't, so it stays unmapped.
+    t = re.sub(r"\s*[-–(]\s*western script\)?$", "", t)
     site = next((name for name, pat in _URL_SITES if re.search(pat, t)), None)
     if site is None or _CONTENT_Q.search(t):
         return None
@@ -455,6 +459,8 @@ def _prior_employment(lbl: str, profile: dict):
     # The whole name, as its first one to three words ("3M or a subsidiary",
     # "Metropolitan Hospital"): never a prefix, or "a state government" would
     # pass for "acme".
+    # "…employed by any Micron company": a leading determiner isn't the name.
+    target = re.sub(r"^(?:any|a|an|the|one of)\s+(?:of\s+)?", "", target, flags=re.I)
     words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
     if any("".join(words[:n]) == company for n in (1, 2, 3)):
         return "No"
@@ -502,7 +508,8 @@ def rule_answer(label: str, profile: dict):
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
-    if re.search(r"were you referred|referred by|referral", lbl):
+    # "Are you referred to this job by a Micron employee?" too (Workday, Micron).
+    if re.search(r"were you referred|are you referred|referred (to [\w ]{1,30} )?by|referral", lbl):
         return "No"
     if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
                  r"where did you (hear|find|learn|see)", lbl):
@@ -790,6 +797,24 @@ def parse_extra_answers(text: str) -> list[tuple[str, str]]:
     return out
 
 
+# The candidate's standing answers to personal questions ("bonded: No",
+# "academic ranking: 11%-20%"), in the same ``keyword: answer`` lines as a run's
+# extra_answers, applied to every run after that run's own. Personal data:
+# under data/, which is git-ignored. Lines starting with "#" are comments.
+DEFAULT_ANSWERS_PATH = "data/default_answers.txt"
+
+
+def default_answers(path: str | None = None) -> list[tuple[str, str]]:
+    """The saved default answers; [] when there is no file."""
+    path = path or os.getenv("ATS_DEFAULT_ANSWERS_FILE", DEFAULT_ANSWERS_PATH)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+    return parse_extra_answers("\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#")))
+
+
 def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "",
                   current_location: str = "", linkedin_url: str = "", github_url: str = "",
                   website_url: str = "", years_experience=3, salary_expectation: str = "",
@@ -819,7 +844,9 @@ def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "
         "authorized_countries": set().union(*(countries_in(c) for c in split_list(authorized_countries))),
         "resume_path": resume_path, "cover_letter_path": cover_letter_path,
         "cover_letter_text": (cover_letter_text or "").strip(),
-        "extra_answers": parse_extra_answers(extra_answers),
+        # The run's own answers first (the first matching keyword wins), then
+        # the candidate's saved defaults.
+        "extra_answers": parse_extra_answers(extra_answers) + default_answers(),
         "current_salary": (current_salary or "").strip(),
         "notice_period": (notice_period or "").strip(),
         "languages": languages or "",
@@ -874,6 +901,9 @@ def standard_for_label(label: str) -> str | None:
         return site
     t = re.sub(r"[*:✱]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Workday in CJK locales: "Given Name - Western Script" is the romanised
+    # name (the profile's); the "Local Script" one isn't, so it stays unmapped.
+    t = re.sub(r"\s*[-–(]\s*western script\)?$", "", t)
     if len(t.split()) > 5:  # contact-field labels are a few words
         return None
     for name, pat in _STANDARD_LABELS:
