@@ -1,7 +1,7 @@
 """
 Auto-apply across applicant-tracking systems: Greenhouse, Lever, Ashby,
-Workable, SmartRecruiters (guest apply) and Workday (only with a stored
-per-employer account). SmartRecruiters and Workday plan in the browser.
+Workable, Recruitee, SmartRecruiters (guest apply) and Workday (only with a
+stored per-employer account). SmartRecruiters and Workday plan in the browser.
 
 Phase 1 of ``doc/job-platforms-automation-plan.md``. Every platform plugs in as
 an ``Adapter`` with four steps; everything else — title / location matching,
@@ -129,11 +129,13 @@ def _adapters() -> dict[str, Adapter]:
     from src.automation.tools.ats_ashby import AshbyAdapter
     from src.automation.tools.ats_greenhouse import GreenhouseAdapter
     from src.automation.tools.ats_lever import LeverAdapter
+    from src.automation.tools.ats_recruitee import RecruiteeAdapter
     from src.automation.tools.ats_smartrecruiters import SmartRecruitersAdapter
     from src.automation.tools.ats_workable import WorkableAdapter
     from src.automation.tools.ats_workday import WorkdayAdapter
     return {a.platform: a for a in (GreenhouseAdapter(), LeverAdapter(), AshbyAdapter(),
-                                    WorkableAdapter(), SmartRecruitersAdapter(), WorkdayAdapter())}
+                                    WorkableAdapter(), SmartRecruitersAdapter(), WorkdayAdapter(),
+                                    RecruiteeAdapter())}
 
 
 # ── the browser half every adapter shares ────────────────────────────────────
@@ -662,7 +664,7 @@ class ATSApplyTool(BaseTool):
     name: str = "ats_apply"
     description: str = (
         "Auto-apply to jobs on company job boards hosted by Greenhouse, Lever, Ashby, "
-        "Workable, SmartRecruiters or Workday (with a stored account). Args: boards (board "
+        "Workable, Recruitee, SmartRecruiters or Workday (with a stored account). Args: boards (board "
         "URLs or platform:token, comma-separated), first_name, last_name, email, keywords "
         "(title filter), location, phone, resume_path, max_applications, dry_run. Reads "
         "each form's questions without a browser, answers them from the profile, fills "

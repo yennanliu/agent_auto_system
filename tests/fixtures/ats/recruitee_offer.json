@@ -1,0 +1,113 @@
+{
+ "offer": {
+  "id": 2789218,
+  "slug": "haskell-software-engineer-creatives-team",
+  "title": "Haskell Software Engineer - Creatives Team",
+  "status": "published",
+  "location": "Utrecht, Utrecht, Netherlands",
+  "city": "Utrecht",
+  "country": "Netherlands",
+  "remote": false,
+  "company_name": "Channable",
+  "careers_url": "https://jobs.channable.com/o/haskell-software-engineer-creatives-team",
+  "careers_apply_url": "https://jobs.channable.com/o/haskell-software-engineer-creatives-team/c/new",
+  "options_cv": "required",
+  "options_cover_letter": "optional",
+  "options_phone": "required",
+  "options_photo": "off",
+  "open_questions": [
+   {
+    "id": 4448303,
+    "position": 1,
+    "options": {},
+    "required": true,
+    "body": "How did you find out about Channable?",
+    "kind": "string",
+    "open_question_options": []
+   },
+   {
+    "id": 4448304,
+    "position": 2,
+    "options": {},
+    "required": true,
+    "body": "Do you have EU citizenship or a valid work permit for the Netherlands? Or do you need sponsorship from us?",
+    "kind": "single_choice",
+    "open_question_options": [
+     {
+      "id": 6852829,
+      "position": 0,
+      "body": "EU citizenship "
+     },
+     {
+      "id": 6852830,
+      "position": 1,
+      "body": "Valid work permit"
+     },
+     {
+      "id": 6852831,
+      "position": 2,
+      "body": "I need sponsorship"
+     }
+    ]
+   },
+   {
+    "id": 4448312,
+    "position": 3,
+    "options": {},
+    "required": false,
+    "body": "If you selected valid work permit, please specify which type ",
+    "kind": "string",
+    "open_question_options": []
+   },
+   {
+    "id": 4448305,
+    "position": 4,
+    "options": {},
+    "required": true,
+    "body": "Where do you live? (City)",
+    "kind": "string",
+    "open_question_options": []
+   },
+   {
+    "id": 4448306,
+    "position": 5,
+    "options": {},
+    "required": true,
+    "body": "I confirm my availability for at least 32 hours per week, with a minimum of 2 days spent in the Utrecht office",
+    "kind": "boolean",
+    "open_question_options": []
+   },
+   {
+    "id": 4448313,
+    "position": 6,
+    "options": {
+     "currency": "EUR"
+    },
+    "required": true,
+    "body": "Please provide your monthly gross salary expectations",
+    "kind": "salary",
+    "open_question_options": []
+   },
+   {
+    "id": 4448308,
+    "position": 7,
+    "options": {},
+    "required": false,
+    "body": "Which one of our company values resonates the most with you and why?",
+    "kind": "string",
+    "open_question_options": []
+   },
+   {
+    "id": 4448310,
+    "position": 8,
+    "options": {
+     "length": 120
+    },
+    "required": false,
+    "body": "Want to impress us even more? Take your chance to introduce yourself to us (max. 2 mins)!\n\n",
+    "kind": "video",
+    "open_question_options": []
+   }
+  ]
+ }
+}

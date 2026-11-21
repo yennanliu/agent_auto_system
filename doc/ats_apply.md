@@ -18,6 +18,7 @@ commas. `tools/ats_router.py` resolves each entry:
 | Ashby | `jobs.ashbyhq.com/<page>[/<uuid>]` | `ashby:openai` |
 | Workable | `apply.workable.com/<account>[/j/<SHORTCODE>]`, `<account>.workable.com/j/…` | `workable:huggingface` |
 | SmartRecruiters | `jobs.smartrecruiters.com/<Company>[/<id>-slug]` | `smartrecruiters:BoschGroup` |
+| Recruitee | `<company>.recruitee.com[/o/<slug>]` (custom careers domains: use the shorthand) | `recruitee:channable` |
 | Workday | `<tenant>.<wdN>.myworkdayjobs.com/[<lang>/]<site>[/job/…]`, `<wdN>.myworkdaysite.com/recruiting/<tenant>/<site>/…` | `workday:ngc.wd1/Northrop_Grumman_External_Site` |
 
 A job URL applies to that one job and bypasses the keyword and location filters. A bare
@@ -93,6 +94,40 @@ answerer only runs with `candidate_background`. Platform specifics:
   `greenhouse_apply` ledger, so switching between the two job types never re-applies.
 - Radio buttons and checkboxes are ticked and then **verified**. A click that lands on an
   overlay falls back to a DOM click (`ats_apply_tool.tick`).
+
+## Recruitee: planned from the API, filled by question text
+
+No account. The careers-site API (`<company>.recruitee.com/api/offers/` and
+`/api/offers/<slug>`) lists every offer and describes its whole form, so it is planned
+**before** the browser opens, as on Lever / Ashby / Workable:
+
+- built-ins: `options_cv`, `options_cover_letter`, `options_phone`, `options_photo`, each
+  `required` / `optional` / `off`. A required one the profile can't fill skips the job; a
+  required photo always does.
+- `open_questions`: `boolean` (a Yes/No pair), `single_choice` / `multi_choice` (one radio or
+  checkbox per option), `string` / `text` / `salary` (text; a `salary` box is `type=number`,
+  so only the amount is typed). `infobox` is skipped; `file`, `video` and `date` are never
+  guessed (required → skipped).
+
+The hosted form names its inputs after the API (`candidate.name`, `candidate.email`,
+`candidate.phone`, `candidate.cv`, `candidate.coverLetterFile`, `candidate.agreements.<n>.consent`),
+**but its question ids are the form's own, not the API's** (they are server-rendered and no
+API exposes them). Each API question is therefore found by its **text**: the hidden
+`candidate.openQuestionAnswers.<form id>.openQuestionId` input's parent starts with the
+question. Only an exact match, or a long (40+ characters) first paragraph, counts, and it
+must be unique; otherwise the job fails rather than filling the wrong question. Typing the
+phone as `+886…` sets the country picker. Only **required** consent boxes are ticked.
+
+Custom-domain careers sites may show a Cookiebot banner late, with only "Manage
+preferences" / "Allow all". The adapter opens the preferences and saves with every optional
+category off (never "Allow all"), again just before Send, since the banner covers it.
+
+Some employers (bunq) send applicants to their own careers site instead of the hosted
+form: that job fails with "form did not load".
+
+**Verified live (dry run, Channable, 2026-11-20):** planned from the API, then every field
+filled and the Send button found, not clicked. The confirmation after Send hasn't been
+observed live.
 
 ## SmartRecruiters: guest apply, planned in the browser
 
@@ -265,5 +300,6 @@ ATS_HEADLESS=0                         # headed real Chrome by default (captchas
 |---|---|
 | `tests/unit/test_ats_apply.py` | router, each adapter's discovery, form parsing and planning against **real captured responses** (`tests/fixtures/ats/`), the shared runner with fake adapters, and the flow |
 | `tests/e2e/test_ats_apply_browser.py` | hermetic Chromium runs on locally served copies of each platform's **real form DOM** (`tests/e2e/ats_fixture/`), plus a full `run_ats_apply` funnel through Lever. Checks the exact values submitted |
+| `tests/unit/test_ats_recruitee.py` / `tests/e2e/test_recruitee_apply_browser.py` | Recruitee routing, discovery and planning against a captured Channable offer; a Chromium run on a stand-in whose question ids differ from the API's, with a late Cookiebot banner |
 | `tests/unit/test_ats_sources.py` | each source against **real captured responses** (HN thread, Remote OK, Remotive, We Work Remotely RSS, with e-mail addresses scrubbed to `@example.com`), plus how source refs flow through the runner: filtering, de-duplication, leads-only runs |
 | `scripts/ats_live_smoke.py` | **operational check, not pytest** (tests stay offline): a dry run against live Greenhouse, Lever, Ashby and Workable boards and every discovery source. Never submits. Exits 1 on API or form drift |
