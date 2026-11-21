@@ -25,10 +25,16 @@ class BambooHRAdapter(Adapter):
     def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
         base = f"https://{ref.company}.bamboohr.com/careers"
         resp = client.get(f"{base}/list", headers={"Accept": "application/json"})
-        ctype = (resp.headers.get("content-type") or "") if hasattr(resp, "headers") else "application/json"
-        if resp.status_code in (301, 302, 404) or "json" not in ctype:
+        # An unknown company redirects to bamboohr.com (or, followed, answers
+        # that page as HTML). Any OTHER failure (5xx, throttling, a Cloudflare
+        # error page) is raised as itself: an existing board must never be
+        # reported missing because of a transient error (PR #123 review).
+        if resp.status_code in (301, 302, 404):
             raise RuntimeError("no such BambooHR company")
         resp.raise_for_status()
+        ctype = (resp.headers.get("content-type") or "") if hasattr(resp, "headers") else "application/json"
+        if "json" not in ctype:
+            raise RuntimeError("no such BambooHR company")
         jobs = []
         for j in (resp.json() or {}).get("result") or []:
             jid = str(j.get("id") or "")

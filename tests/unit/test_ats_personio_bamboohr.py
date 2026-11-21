@@ -121,3 +121,34 @@ def test_runner_lists_them_as_manual_without_a_browser(tmp_path, mocker, adapter
     assert "error" not in out and out["manual_count"] >= 1 and out["applied_count"] == 0
     assert all(why in m["reason"] and m["apply_url"] for m in out["manual"])
     launch.assert_not_called()
+
+
+
+# ── PR #123 review ───────────────────────────────────────────────────────────
+
+class _Boom:
+    status_code = 503
+    headers = {"content-type": "text/html"}
+
+    def raise_for_status(self):
+        raise RuntimeError("HTTP 503")
+
+
+@pytest.mark.parametrize("resp", [_Boom(), _Resp(200, content=b"<html>not xml", ctype="text/html")])
+def test_personio_any_failure_on_de_still_tries_com(resp):
+    client = _Client({"https://acme.jobs.personio.de/xml": resp,
+                      "https://acme.jobs.personio.com/xml": _Resp(content=FEED, ctype="text/xml")})
+    jobs = PersonioAdapter().discover(client, BoardRef("personio", "acme"))
+    assert len(jobs) == 3 and jobs[0]["url"].startswith("https://acme.jobs.personio.com/")
+
+
+def test_personio_a_real_failure_is_not_reported_as_a_missing_board():
+    client = _Client({"https://acme.jobs.personio.de/xml": _Boom()})          # .com: 404
+    with pytest.raises(RuntimeError, match=r"Personio feed failed \(\.de: HTTP 503\)"):
+        PersonioAdapter().discover(client, BoardRef("personio", "acme"))
+
+
+def test_bamboohr_a_server_error_is_not_reported_as_a_missing_board():
+    client = _Client({"https://scribd.bamboohr.com/careers/list": _Boom()})
+    with pytest.raises(RuntimeError, match="HTTP 503"):
+        BambooHRAdapter().discover(client, BoardRef("bamboohr", "scribd"))
