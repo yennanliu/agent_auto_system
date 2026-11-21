@@ -481,3 +481,11 @@ def test_availability_after_an_offer_is_the_notice_period():
     assert ac.rule_answer(q, {}) is None
     ans = ac.answer_question(ac.Question(q, q, "select", True, opts), {"notice_period": "1 month"}, None)
     assert ans["value"] == "Within 1 month after offer acceptance"
+
+
+@pytest.mark.parametrize("label", [
+    "Were you referred by an employee?", "Referral source",
+    "Are you referred to this job by a Micron employee?",   # Micron (Workday), live 2026-11-21
+])
+def test_referral_questions_answer_no(label):
+    assert ac.rule_answer(label, {}) == "No"

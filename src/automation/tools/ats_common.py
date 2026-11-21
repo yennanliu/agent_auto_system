@@ -503,7 +503,8 @@ def rule_answer(label: str, profile: dict):
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
-    if re.search(r"were you referred|referred by|referral", lbl):
+    # "Are you referred to this job by a Micron employee?" too (Workday, Micron).
+    if re.search(r"were you referred|are you referred|referred (to [\w ]{1,30} )?by|referral", lbl):
         return "No"
     if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
                  r"where did you (hear|find|learn|see)", lbl):
