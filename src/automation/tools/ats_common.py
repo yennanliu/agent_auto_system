@@ -771,6 +771,24 @@ def parse_extra_answers(text: str) -> list[tuple[str, str]]:
     return out
 
 
+# The candidate's standing answers to personal questions ("bonded: No",
+# "academic ranking: 11%-20%"), in the same ``keyword: answer`` lines as a run's
+# extra_answers, applied to every run after that run's own. Personal data:
+# under data/, which is git-ignored. Lines starting with "#" are comments.
+DEFAULT_ANSWERS_PATH = "data/default_answers.txt"
+
+
+def default_answers(path: str | None = None) -> list[tuple[str, str]]:
+    """The saved default answers; [] when there is no file."""
+    path = path or os.getenv("ATS_DEFAULT_ANSWERS_FILE", DEFAULT_ANSWERS_PATH)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+    return parse_extra_answers("\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#")))
+
+
 def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "",
                   current_location: str = "", linkedin_url: str = "", github_url: str = "",
                   website_url: str = "", years_experience=3, salary_expectation: str = "",
@@ -800,7 +818,9 @@ def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "
         "authorized_countries": set().union(*(countries_in(c) for c in split_list(authorized_countries))),
         "resume_path": resume_path, "cover_letter_path": cover_letter_path,
         "cover_letter_text": (cover_letter_text or "").strip(),
-        "extra_answers": parse_extra_answers(extra_answers),
+        # The run's own answers first (the first matching keyword wins), then
+        # the candidate's saved defaults.
+        "extra_answers": parse_extra_answers(extra_answers) + default_answers(),
         "current_salary": (current_salary or "").strip(),
         "notice_period": (notice_period or "").strip(),
         "languages": languages or "",

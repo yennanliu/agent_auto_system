@@ -489,3 +489,17 @@ def test_availability_after_an_offer_is_the_notice_period():
 ])
 def test_referral_questions_answer_no(label):
     assert ac.rule_answer(label, {}) == "No"
+
+
+def test_saved_default_answers_apply_after_the_runs_own(tmp_path, monkeypatch):
+    f = tmp_path / "default_answers.txt"
+    f.write_text("# personal facts\nbonded: No\nacademic ranking: 11%-20%\n\nno colon line\n")
+    monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(f))
+    p = ac.build_profile(first_name="A", last_name="B", email="a@b.c", extra_answers="bonded: Yes, TWD 1")
+    assert p["extra_answers"] == [("bonded", "Yes, TWD 1"), ("bonded", "No"), ("academic ranking", "11%-20%")]
+    assert ac.rule_answer("Are you bonded by your current company/school?", p) == "Yes, TWD 1"
+    q = "Please select your academic ranking:"
+    ans = ac.answer_question(ac.Question(q, q, "select", True, ["Top 10%", "11%-20%", "21%-50%"]), p, None)
+    assert ans["value"] == "11%-20%"
+    monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(tmp_path / "missing.txt"))
+    assert ac.default_answers() == []
