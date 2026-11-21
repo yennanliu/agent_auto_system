@@ -1,0 +1,108 @@
+{
+ "version": "https://jsonfeed.org/version/1.1",
+ "title": "Anyfin",
+ "home_page_url": "https://anyfin.teamtailor.com/jobs",
+ "feed_url": "https://anyfin.teamtailor.com/jobs.json",
+ "items": [
+  {
+   "id": "ea0d56d5-04a6-496d-a08d-539de469c03e",
+   "title": "Finnish Influencer Marketing Specialist",
+   "url": "https://anyfin.teamtailor.com/jobs/8692122-finnish-influencer-marketing-specialist",
+   "date_published": "2026-11-09T16:31:06+01:00",
+   "_jobposting": {
+    "title": "Finnish Influencer Marketing Specialist",
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "streetAddress": "Drottninggatan 92",
+       "addressLocality": "Stockholm",
+       "postalCode": "111 36",
+       "addressCountry": "SE",
+       "addressRegion": "Sweden",
+       "@type": "PostalAddress"
+      }
+     }
+    ],
+    "hiringOrganization": {
+     "name": "Anyfin"
+    }
+   }
+  },
+  {
+   "id": "fcc579b7-f7d7-4ffd-91f4-9d5cd5fd724e",
+   "title": "Market Expansion Lead, Italy",
+   "url": "https://anyfin.teamtailor.com/jobs/8672778-market-expansion-lead-italy",
+   "date_published": "2026-11-05T14:15:41+01:00",
+   "_jobposting": {
+    "title": "Market Expansion Lead, Italy",
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "streetAddress": "Drottninggatan 92",
+       "addressLocality": "Stockholm",
+       "postalCode": "111 36",
+       "addressCountry": "SE",
+       "addressRegion": "Sweden",
+       "@type": "PostalAddress"
+      }
+     }
+    ],
+    "hiringOrganization": {
+     "name": "Anyfin"
+    }
+   }
+  },
+  {
+   "id": "91dbaa8c-63b9-4f7e-be82-56e409095579",
+   "title": "Commercial Analyst",
+   "url": "https://anyfin.teamtailor.com/jobs/8655754-commercial-analyst",
+   "date_published": "2026-11-03T09:42:29+01:00",
+   "_jobposting": {
+    "title": "Commercial Analyst",
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "streetAddress": "Drottninggatan 92",
+       "addressLocality": "Stockholm",
+       "postalCode": "111 36",
+       "addressCountry": "SE",
+       "addressRegion": "Sweden",
+       "@type": "PostalAddress"
+      }
+     }
+    ],
+    "hiringOrganization": {
+     "name": "Anyfin"
+    }
+   }
+  },
+  {
+   "id": "fc927944-e07c-4234-855b-d886a2aca1f7",
+   "title": "Site Reliability Engineer",
+   "url": "https://anyfin.teamtailor.com/jobs/8651426-site-reliability-engineer",
+   "date_published": "2026-11-02T14:12:21+01:00",
+   "_jobposting": {
+    "title": "Site Reliability Engineer",
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "streetAddress": "Drottninggatan 92",
+       "addressLocality": "Stockholm",
+       "postalCode": "111 36",
+       "addressCountry": "SE",
+       "addressRegion": "Sweden",
+       "@type": "PostalAddress"
+      }
+     }
+    ],
+    "hiringOrganization": {
+     "name": "Anyfin"
+    }
+   }
+  }
+ ]
+}

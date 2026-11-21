@@ -1,6 +1,6 @@
 """
 Auto-apply across applicant-tracking systems: Greenhouse, Lever, Ashby,
-Workable, Recruitee, SmartRecruiters (guest apply) and Workday (only with a
+Workable, Recruitee, Teamtailor, SmartRecruiters (guest apply) and Workday (only with a
 stored per-employer account). SmartRecruiters and Workday plan in the browser.
 Personio and BambooHR are discovery only: a bot check guards their forms.
 
@@ -134,11 +134,13 @@ def _adapters() -> dict[str, Adapter]:
     from src.automation.tools.ats_personio import PersonioAdapter
     from src.automation.tools.ats_recruitee import RecruiteeAdapter
     from src.automation.tools.ats_smartrecruiters import SmartRecruitersAdapter
+    from src.automation.tools.ats_teamtailor import TeamtailorAdapter
     from src.automation.tools.ats_workable import WorkableAdapter
     from src.automation.tools.ats_workday import WorkdayAdapter
     return {a.platform: a for a in (GreenhouseAdapter(), LeverAdapter(), AshbyAdapter(),
                                     WorkableAdapter(), SmartRecruitersAdapter(), WorkdayAdapter(),
-                                    RecruiteeAdapter(), PersonioAdapter(), BambooHRAdapter())}
+                                    RecruiteeAdapter(), PersonioAdapter(), BambooHRAdapter(),
+                                    TeamtailorAdapter())}
 
 
 # ── the browser half every adapter shares ────────────────────────────────────

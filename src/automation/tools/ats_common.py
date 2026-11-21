@@ -365,6 +365,11 @@ def _profile_answer(label: str, profile: dict):
                  r"why (are you|did you|do you want to) (leave|leaving|looking|change)", lbl):
         return profile.get("reason_for_leaving") or None
     if re.search(r"convicted|criminal (offen[cs]e|record|conviction|charge)", lbl):
+        # Only a question about HAVING a record. "We check criminal records —
+        # do you accept this step?" asks for consent: answering it from the
+        # has-a-record flag ("No") would refuse the check. Never guessed.
+        if re.search(r"\b(accept|consent|agree|willing|undergo|authori[sz]e|permit us|allow us)\b", lbl):
+            return None
         return yes_no(bool(profile.get("has_criminal_record")))
     if re.search(r"experience (with|in|using|of) (ai|a\.i\.|artificial intelligence|llms?|large language|"
                  r"generative|gen ?ai|machine learning)|\b(ai|llm|genai)\b.{0,40}\bexperience\b", lbl):

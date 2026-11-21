@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
 SUPPORTED = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "recruitee",
-             "personio", "bamboohr")
+             "personio", "bamboohr", "teamtailor")
 KNOWN = SUPPORTED
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -110,6 +110,17 @@ def detect_ats(url: str) -> BoardRef | None:
         if len(parts) > 1 and parts[0] == "job":
             return BoardRef("personio", company, parts[1]) if parts[1].isdigit() else None
         return BoardRef("personio", company)
+
+    if host.endswith(".teamtailor.com") and host.count(".") == 2:
+        # <company>.teamtailor.com[/jobs/<id>-<slug>]
+        company = host.split(".")[0]
+        if company in ("www", "app", "api", "help", "support", "career", "status", "partners") \
+                or not _TOKEN_RE.match(company):
+            return None
+        if len(parts) > 1 and parts[0] == "jobs":
+            m = re.match(r"(\d+)(?:-|$)", parts[1])
+            return BoardRef("teamtailor", company, m.group(1)) if m else None
+        return BoardRef("teamtailor", company)
 
     if host.endswith(".bamboohr.com") and host.count(".") == 2:
         # <company>.bamboohr.com/careers[/<id>]
@@ -200,7 +211,7 @@ def parse_board_ref(ref: str, default_platform: str = "") -> BoardRef | None:
             return BoardRef(platform, token, job.lower() if _UUID_RE.match(job) else "")
         if platform == "workable":
             return BoardRef(platform, token.lower(), job.upper() if job else "")
-        if platform in ("personio", "bamboohr"):
+        if platform in ("personio", "bamboohr", "teamtailor"):
             if job and not job.isdigit():
                 return None  # their job ids are numeric; a bad one is refused, not widened
             return BoardRef(platform, token.lower(), job)

@@ -19,6 +19,7 @@ commas. `tools/ats_router.py` resolves each entry:
 | Workable | `apply.workable.com/<account>[/j/<SHORTCODE>]`, `<account>.workable.com/j/…` | `workable:huggingface` |
 | SmartRecruiters | `jobs.smartrecruiters.com/<Company>[/<id>-slug]` | `smartrecruiters:BoschGroup` |
 | Recruitee | `<company>.recruitee.com[/o/<slug>]` (custom careers domains: use the shorthand) | `recruitee:channable` |
+| Teamtailor | `<company>.teamtailor.com[/jobs/<id>-<slug>]` (custom careers domains: use the shorthand) | `teamtailor:anyfin` |
 | Personio (discovery) | `<company>.jobs.personio.de[/job/<id>]` (or `.com`) | `personio:clark` |
 | BambooHR (discovery) | `<company>.bamboohr.com/careers[/<id>]` | `bamboohr:scribd` |
 | Workday | `<tenant>.<wdN>.myworkdayjobs.com/[<lang>/]<site>[/job/…]`, `<wdN>.myworkdaysite.com/recruiting/<tenant>/<site>/…` | `workday:ngc.wd1/Northrop_Grumman_External_Site` |
@@ -130,6 +131,32 @@ form: that job fails with "form did not load".
 **Verified live (dry run, Channable, 2026-11-20):** planned from the API, then every field
 filled and the Send button found, not clicked. The confirmation after Send hasn't been
 observed live.
+
+## Teamtailor: planned from the server-rendered form
+
+No account. Jobs come from the career site's JSON Feed (`<company>.teamtailor.com/jobs.json`:
+`url` = `…/jobs/<id>-<slug>`, `title`, and a schema.org `_jobposting` with the location).
+`<job url>/applications/new` returns the application form as server-rendered HTML, so it is
+planned **before** the browser opens:
+
+- built-ins `candidate[first_name|last_name|email|phone]` (required when the label says
+  "Required"), the résumé upload (`forms--inputs--upload`, `…-required-value`), the cover
+  letter, and consent boxes;
+- questions: each `[data-question-mandatory]` block, with a hidden `question_id` and a
+  `forms--inputs--<kind>` control: `text` (`[text]` / `[number]`), `boolean` (Yes/No),
+  `choice` (radios, or checkboxes when multiple choice). Anything else is never guessed.
+
+In the browser each question is found by its `question_id`, the résumé goes into the upload
+component's file input, and only the **required** consent box is ticked ("contact me about
+future jobs" and SMS consent are left alone). The hidden `verify_token` / `ctoken` fields
+are set by the page's own script, as for any visitor.
+
+**Verified live (dry run, Anyfin *Site Reliability Engineer*, 2026-11-21):** planned over
+HTTP, filled, résumé uploaded, Submit found and not clicked. A long "Background check?"
+question there showed a shared-rule bug: the text mentions "criminal record", so the
+criminal-record rule answered **No**, but the question asks whether you *accept* the check.
+That rule now answers only questions about having a record. The confirmation after Submit
+hasn't been seen live.
 
 ## Personio and BambooHR: discovery only (a bot check guards the form)
 
@@ -322,6 +349,7 @@ ATS_HEADLESS=0                         # headed real Chrome by default (captchas
 | `tests/unit/test_ats_apply.py` | router, each adapter's discovery, form parsing and planning against **real captured responses** (`tests/fixtures/ats/`), the shared runner with fake adapters, and the flow |
 | `tests/e2e/test_ats_apply_browser.py` | hermetic Chromium runs on locally served copies of each platform's **real form DOM** (`tests/e2e/ats_fixture/`), plus a full `run_ats_apply` funnel through Lever. Checks the exact values submitted |
 | `tests/unit/test_ats_recruitee.py` / `tests/e2e/test_recruitee_apply_browser.py` | Recruitee routing, discovery and planning against a captured Channable offer; a Chromium run on a stand-in whose question ids differ from the API's, with a late Cookiebot banner |
+| `tests/unit/test_ats_teamtailor.py` / `tests/e2e/test_teamtailor_apply_browser.py` | Teamtailor routing, the JSON Feed, form parsing and planning against a captured Anyfin form; a Chromium run on that real form DOM with a shim for its scripts |
 | `tests/unit/test_ats_personio_bamboohr.py` | Personio / BambooHR routing and discovery against captured feeds (ottonova, Scribd), and the runner listing them as manual with the reason |
 | `tests/unit/test_ats_sources.py` | each source against **real captured responses** (HN thread, Remote OK, Remotive, We Work Remotely RSS, with e-mail addresses scrubbed to `@example.com`), plus how source refs flow through the runner: filtering, de-duplication, leads-only runs |
 | `scripts/ats_live_smoke.py` | **operational check, not pytest** (tests stay offline): a dry run against live Greenhouse, Lever, Ashby and Workable boards and every discovery source. Never submits. Exits 1 on API or form drift |
