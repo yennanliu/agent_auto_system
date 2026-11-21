@@ -184,15 +184,16 @@ def workday(board, day):
 
 
 def amazon(board, day):
-    want = f"{day:%B} {day.day}, {day.year}"  # e.g. "November 19, 2026"
     for q in QUERIES:
-        for offset in range(0, 500, 100):  # sorted newest first: stop at the first older post
+        for offset in range(0, 500, 100):  # sorted newest first
             jobs = _get("https://www.amazon.jobs/en/search.json?sort=recent&result_limit=100"
                         f"&offset={offset}&base_query={urllib.request.quote(q)}")["jobs"]
-            fresh = [j for j in jobs if j["posted_date"] == want]
-            for j in fresh:
-                yield j["title"], "https://www.amazon.jobs" + j["job_path"], True
-            if not jobs or len(fresh) < len(jobs):
+            # posted_date reads e.g. "November 19, 2026"
+            dates = [datetime.strptime(j["posted_date"], "%B %d, %Y").date() for j in jobs]
+            for j, posted in zip(jobs, dates):
+                if posted == day:
+                    yield j["title"], "https://www.amazon.jobs" + j["job_path"], True
+            if not jobs or dates[-1] < day:  # paged past the day (a past day starts on later pages)
                 break
 
 

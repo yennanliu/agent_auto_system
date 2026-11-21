@@ -109,3 +109,25 @@ def test_microsoft_pages_past_newer_posts_for_a_past_day(monkeypatch):
     urls = [u for _, u, ts in dnj.microsoft("", DAY) if dnj.on_day(ts, DAY)]
     assert urls == ["https://apply.careers.microsoft.com/b"]
     assert len(calls) == 3  # stopped once a page ended before the day
+
+
+def test_amazon_pages_past_newer_posts_for_a_past_day(monkeypatch):
+    def job(path, posted):
+        return {"title": "Software Engineer", "job_path": path, "posted_date": posted}
+    pages = [
+        [job("/a", "November 20, 2026"), job("/b", "November 19, 2026")],  # today's first
+        [job("/c", "November 19, 2026"), job("/d", "November 19, 2026")],
+        [job("/e", "November 19, 2026"), job("/f", "November 18, 2026")],
+        [job("/g", "November 17, 2026")],
+    ]
+    calls = []
+
+    def fake_get(url, body=None):
+        calls.append(url)
+        return {"jobs": pages[len(calls) - 1] if len(calls) <= len(pages) else []}
+
+    monkeypatch.setattr(dnj, "_get", fake_get)
+    monkeypatch.setattr(dnj, "QUERIES", ["software engineer"])
+    urls = [u.removeprefix("https://www.amazon.jobs") for _, u, _ in dnj.amazon("", DAY)]
+    assert urls == ["/b", "/c", "/d", "/e"]
+    assert len(calls) == 3  # stopped once a page ended before the day
