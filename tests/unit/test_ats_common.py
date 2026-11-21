@@ -437,6 +437,11 @@ def test_prior_employment_is_about_the_hiring_company_only():
     assert ac.rule_answer("Have you ever been employed by a State government?", acme) is None
     assert ac.rule_answer("Have you ever worked for Armanino before?", {"job_company": "arm"}) is None
     assert ac.rule_answer("Have you previously worked for Acme's subsidiaries?", acme) == "No"
+    # A leading determiner isn't the name (Micron, Workday, live 2026-11-21).
+    micron = {"job_company": "micron"}
+    assert ac.rule_answer("Have you previously been employed by any Micron company?", micron) == "No"
+    assert ac.rule_answer("Have you ever worked for the Micron group?", micron) == "No"
+    assert ac.rule_answer("Have you previously been employed by any Epic Systems company?", micron) is None
     assert ac.rule_answer("Have you ever worked for Metropolitan Hospital before?",
                           {"job_company": "metropolitan-hospital"}) == "No"
     # Without the job's company (legacy callers) the old answer stands.

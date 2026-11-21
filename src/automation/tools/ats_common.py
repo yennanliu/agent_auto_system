@@ -406,6 +406,9 @@ def profile_url_field(label: str) -> str | None:
     field, None for anything else — including questions that mention the site."""
     t = re.sub(r"[*:✱?]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Workday in CJK locales: "Given Name - Western Script" is the romanised
+    # name (the profile's); the "Local Script" one isn't, so it stays unmapped.
+    t = re.sub(r"\s*[-–(]\s*western script\)?$", "", t)
     site = next((name for name, pat in _URL_SITES if re.search(pat, t)), None)
     if site is None or _CONTENT_Q.search(t):
         return None
@@ -450,6 +453,8 @@ def _prior_employment(lbl: str, profile: dict):
     # The whole name, as its first one to three words ("3M or a subsidiary",
     # "Metropolitan Hospital"): never a prefix, or "a state government" would
     # pass for "acme".
+    # "…employed by any Micron company": a leading determiner isn't the name.
+    target = re.sub(r"^(?:any|a|an|the|one of)\s+(?:of\s+)?", "", target, flags=re.I)
     words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
     if any("".join(words[:n]) == company for n in (1, 2, 3)):
         return "No"
@@ -848,6 +853,9 @@ def standard_for_label(label: str) -> str | None:
         return site
     t = re.sub(r"[*:✱]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Workday in CJK locales: "Given Name - Western Script" is the romanised
+    # name (the profile's); the "Local Script" one isn't, so it stays unmapped.
+    t = re.sub(r"\s*[-–(]\s*western script\)?$", "", t)
     if len(t.split()) > 5:  # contact-field labels are a few words
         return None
     for name, pat in _STANDARD_LABELS:
