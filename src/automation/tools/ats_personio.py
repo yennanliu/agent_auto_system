@@ -29,16 +29,24 @@ class PersonioAdapter(Adapter):
                      "solved automatically — open apply_url to apply by hand")
 
     def discover(self, client, ref: BoardRef, search: tuple[str, ...] = ()) -> list[dict]:
-        last = None
+        # Every domain is tried: a failure on .de (not only a 404) must not stop
+        # .com from being asked (PR #123 review). If none answers, a real error
+        # wins over "no such company", so a transient failure isn't reported as
+        # a missing board.
+        errors: list[str] = []
         for tld in TLDS:
             base = f"https://{ref.company}.jobs.personio.{tld}"
-            resp = client.get(f"{base}/xml")
-            if resp.status_code == 404:
-                last = "no such Personio company"
-                continue
-            resp.raise_for_status()
-            return parse_feed(resp.content, ref.company, base)
-        raise RuntimeError(last or "no such Personio company")
+            try:
+                resp = client.get(f"{base}/xml")
+                if resp.status_code == 404:
+                    continue
+                resp.raise_for_status()
+                return parse_feed(resp.content, ref.company, base)
+            except Exception as exc:  # noqa: BLE001 — try the next domain
+                errors.append(f".{tld}: {exc}")
+        if errors:
+            raise RuntimeError("Personio feed failed (" + "; ".join(errors) + ")")
+        raise RuntimeError("no such Personio company")
 
 
 def parse_feed(xml: bytes, company: str, base: str) -> list[dict]:
