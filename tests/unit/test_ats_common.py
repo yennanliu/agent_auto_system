@@ -469,3 +469,15 @@ def test_explicit_extra_answers_survive_the_yes_no_guard():
     inferred = {"authorized_countries": {"netherlands"}}
     assert ac.answer_question(ac.Question(
         "k", "If you selected valid work permit, please specify which type", "text", False, []), inferred) is None
+
+
+def test_availability_after_an_offer_is_the_notice_period():
+    """Micron (Workday), live 2026-11-21: the options are "Within 1 month after
+    offer acceptance", …; a notice period that maps onto none stays unanswered."""
+    q = "When would you be available if an offer was accepted?"
+    opts = ["Immediately after offer acceptance", "Within 1 month after offer acceptance",
+            "Within 2 months after offer acceptance", "More than 2 months after offer acceptance"]
+    assert ac.rule_answer(q, {"notice_period": "1 month"}) == "1 month"
+    assert ac.rule_answer(q, {}) is None
+    ans = ac.answer_question(ac.Question(q, q, "select", True, opts), {"notice_period": "1 month"}, None)
+    assert ans["value"] == "Within 1 month after offer acceptance"

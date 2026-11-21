@@ -359,7 +359,8 @@ def _profile_answer(label: str, profile: dict):
         return progs or None
 
     if re.search(r"notice period|how soon can you (start|join)|when can you (start|join)|"
-                 r"earliest (possible )?(start|joining)|availability to (start|join)", lbl):
+                 r"earliest (possible )?(start|joining)|availability to (start|join)|"
+                 r"when (would|will|could|can) you be available", lbl):
         return profile.get("notice_period") or None
     if re.search(r"reasons? for (leaving|wanting to leave|looking|changing)|"
                  r"why (are you|did you|do you want to) (leave|leaving|looking|change)", lbl):
