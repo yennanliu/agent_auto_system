@@ -2,6 +2,7 @@
 Auto-apply across applicant-tracking systems: Greenhouse, Lever, Ashby,
 Workable, Recruitee, SmartRecruiters (guest apply) and Workday (only with a
 stored per-employer account). SmartRecruiters and Workday plan in the browser.
+Personio and BambooHR are discovery only: a bot check guards their forms.
 
 Phase 1 of ``doc/job-platforms-automation-plan.md``. Every platform plugs in as
 an ``Adapter`` with four steps; everything else — title / location matching,
@@ -127,15 +128,17 @@ def discover_with_hint(adapter, client, ref: BoardRef, search: tuple[str, ...] =
 
 def _adapters() -> dict[str, Adapter]:
     from src.automation.tools.ats_ashby import AshbyAdapter
+    from src.automation.tools.ats_bamboohr import BambooHRAdapter
     from src.automation.tools.ats_greenhouse import GreenhouseAdapter
     from src.automation.tools.ats_lever import LeverAdapter
+    from src.automation.tools.ats_personio import PersonioAdapter
     from src.automation.tools.ats_recruitee import RecruiteeAdapter
     from src.automation.tools.ats_smartrecruiters import SmartRecruitersAdapter
     from src.automation.tools.ats_workable import WorkableAdapter
     from src.automation.tools.ats_workday import WorkdayAdapter
     return {a.platform: a for a in (GreenhouseAdapter(), LeverAdapter(), AshbyAdapter(),
                                     WorkableAdapter(), SmartRecruitersAdapter(), WorkdayAdapter(),
-                                    RecruiteeAdapter())}
+                                    RecruiteeAdapter(), PersonioAdapter(), BambooHRAdapter())}
 
 
 # ── the browser half every adapter shares ────────────────────────────────────

@@ -736,7 +736,8 @@ register(AutomationSpec(
         for g in (
             (Field("boards", "text", "Job Boards",
                    placeholder="lever:palantir, https://jobs.ashbyhq.com/openai, workable:huggingface",
-                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable, Recruitee, SmartRecruiters or "
+                   help="Board or job URLs on Greenhouse, Lever, Ashby, Workable, Recruitee, SmartRecruiters, "
+                        "Personio / BambooHR (listed for manual apply: CAPTCHA-protected forms) or "
                         "Workday, or platform:token (greenhouse:figma). A job URL applies to that one job. "
                         "SmartRecruiters' apply page needs headed Chrome (its bot wall blocks headless). Optional when "
                         "Discovery Sources are set."),

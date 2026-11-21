@@ -19,6 +19,8 @@ commas. `tools/ats_router.py` resolves each entry:
 | Workable | `apply.workable.com/<account>[/j/<SHORTCODE>]`, `<account>.workable.com/j/…` | `workable:huggingface` |
 | SmartRecruiters | `jobs.smartrecruiters.com/<Company>[/<id>-slug]` | `smartrecruiters:BoschGroup` |
 | Recruitee | `<company>.recruitee.com[/o/<slug>]` (custom careers domains: use the shorthand) | `recruitee:channable` |
+| Personio (discovery) | `<company>.jobs.personio.de[/job/<id>]` (or `.com`) | `personio:clark` |
+| BambooHR (discovery) | `<company>.bamboohr.com/careers[/<id>]` | `bamboohr:scribd` |
 | Workday | `<tenant>.<wdN>.myworkdayjobs.com/[<lang>/]<site>[/job/…]`, `<wdN>.myworkdaysite.com/recruiting/<tenant>/<site>/…` | `workday:ngc.wd1/Northrop_Grumman_External_Site` |
 
 A job URL applies to that one job and bypasses the keyword and location filters. A bare
@@ -128,6 +130,25 @@ form: that job fails with "form did not load".
 **Verified live (dry run, Channable, 2026-11-20):** planned from the API, then every field
 filled and the Send button found, not clicked. The confirmation after Send hasn't been
 observed live.
+
+## Personio and BambooHR: discovery only (a bot check guards the form)
+
+Both have public job feeds, so their matching jobs are found and filtered like any other
+board, then listed under `manual[]` with the apply link and the reason:
+
+- **Personio**: `https://<company>.jobs.personio.de/xml` (some boards use `.com`; both are
+  tried). Only each `<position>`'s direct children are read, so a description heading such
+  as "DEIN TEAM" is never taken for a job title. The hosted form is simple and
+  server-rendered, but **Submit stays disabled until Cloudflare Turnstile issues a token**,
+  which it doesn't do for an automated browser (checked live on Clark and 1KOMMA5°,
+  2026-11-21).
+- **BambooHR**: `https://<company>.bamboohr.com/careers/list` (JSON; an unknown company
+  redirects to bamboohr.com). `/careers/<id>/detail` even describes the form, but it has a
+  visible **reCAPTCHA "I'm not a robot" checkbox** next to Submit (checked live on Scribd).
+  The form also has a honeypot field ("Please leave this field blank").
+
+A CAPTCHA or bot check is **never solved or bypassed** by the automation, so these stay
+discovery-only.
 
 ## SmartRecruiters: guest apply, planned in the browser
 
@@ -301,5 +322,6 @@ ATS_HEADLESS=0                         # headed real Chrome by default (captchas
 | `tests/unit/test_ats_apply.py` | router, each adapter's discovery, form parsing and planning against **real captured responses** (`tests/fixtures/ats/`), the shared runner with fake adapters, and the flow |
 | `tests/e2e/test_ats_apply_browser.py` | hermetic Chromium runs on locally served copies of each platform's **real form DOM** (`tests/e2e/ats_fixture/`), plus a full `run_ats_apply` funnel through Lever. Checks the exact values submitted |
 | `tests/unit/test_ats_recruitee.py` / `tests/e2e/test_recruitee_apply_browser.py` | Recruitee routing, discovery and planning against a captured Channable offer; a Chromium run on a stand-in whose question ids differ from the API's, with a late Cookiebot banner |
+| `tests/unit/test_ats_personio_bamboohr.py` | Personio / BambooHR routing and discovery against captured feeds (ottonova, Scribd), and the runner listing them as manual with the reason |
 | `tests/unit/test_ats_sources.py` | each source against **real captured responses** (HN thread, Remote OK, Remotive, We Work Remotely RSS, with e-mail addresses scrubbed to `@example.com`), plus how source refs flow through the runner: filtering, de-duplication, leads-only runs |
 | `scripts/ats_live_smoke.py` | **operational check, not pytest** (tests stay offline): a dry run against live Greenhouse, Lever, Ashby and Workable boards and every discovery source. Never submits. Exits 1 on API or form drift |
