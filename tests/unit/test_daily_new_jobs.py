@@ -1,6 +1,6 @@
 """Role filter, date window and report shape of scripts/daily_new_jobs.py (no network)."""
 import importlib.util
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -80,3 +80,54 @@ def test_collect_sorts_and_isolates_failures(monkeypatch):
 
 def test_every_company_uses_a_known_source():
     assert {s for _, s, _ in dnj.COMPANIES} <= set(dnj.SOURCES)
+
+
+@pytest.mark.parametrize("age, expected", [
+    (0, "Posted Today"), (1, "Posted Yesterday"), (2, None), (-1, None),
+])
+def test_workday_label_maps_report_day(age, expected):
+    assert dnj.workday_label(DAY, today=DAY + timedelta(days=age)) == expected
+
+
+def test_microsoft_pages_past_newer_posts_for_a_past_day(monkeypatch):
+    """A scheduled run reports yesterday, so page 1 holds only today's posts: keep paging
+    until the listing is older than the day instead of stopping at the first miss."""
+    pages = [
+        [{"name": "Software Engineer", "positionUrl": "/a", "postedTs": "2026-11-20T08:00:00Z"}],
+        [{"name": "Software Engineer", "positionUrl": "/b", "postedTs": "2026-11-19T08:00:00Z"}],
+        [{"name": "Software Engineer", "positionUrl": "/c", "postedTs": "2026-11-18T08:00:00Z"}],
+        [{"name": "Software Engineer", "positionUrl": "/d", "postedTs": "2026-11-17T08:00:00Z"}],
+    ]
+    calls = []
+
+    def fake_get(url, body=None):
+        calls.append(url)
+        return {"data": {"positions": pages[len(calls) - 1] if len(calls) <= len(pages) else []}}
+
+    monkeypatch.setattr(dnj, "_get", fake_get)
+    monkeypatch.setattr(dnj, "QUERIES", ["software engineer"])
+    urls = [u for _, u, ts in dnj.microsoft("", DAY) if dnj.on_day(ts, DAY)]
+    assert urls == ["https://apply.careers.microsoft.com/b"]
+    assert len(calls) == 3  # stopped once a page ended before the day
+
+
+def test_amazon_pages_past_newer_posts_for_a_past_day(monkeypatch):
+    def job(path, posted):
+        return {"title": "Software Engineer", "job_path": path, "posted_date": posted}
+    pages = [
+        [job("/a", "November 20, 2026"), job("/b", "November 19, 2026")],  # today's first
+        [job("/c", "November 19, 2026"), job("/d", "November 19, 2026")],
+        [job("/e", "November 19, 2026"), job("/f", "November 18, 2026")],
+        [job("/g", "November 17, 2026")],
+    ]
+    calls = []
+
+    def fake_get(url, body=None):
+        calls.append(url)
+        return {"jobs": pages[len(calls) - 1] if len(calls) <= len(pages) else []}
+
+    monkeypatch.setattr(dnj, "_get", fake_get)
+    monkeypatch.setattr(dnj, "QUERIES", ["software engineer"])
+    urls = [u.removeprefix("https://www.amazon.jobs") for _, u, _ in dnj.amazon("", DAY)]
+    assert urls == ["/b", "/c", "/d", "/e"]
+    assert len(calls) == 3  # stopped once a page ended before the day

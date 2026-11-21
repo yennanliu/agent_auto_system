@@ -2,16 +2,21 @@ name: Daily new jobs
 
 # Scrapes today's SWE / backend / full-stack / AI / FDE postings from big-tech and
 # top-AI companies' official careers boards (scripts/daily_new_jobs.py) and commits
-# report/YYYYMMDD/new_job.txt back to main. "Today" is the UTC date, so the run sits
-# near the end of the UTC day to catch most of it.
+# report/YYYYMMDD/new_job.txt back to main.
+#
+# A scheduled run reports the *previous* UTC day. GitHub cron is best-effort and can fire
+# hours late (the first run was 4h40m late), so "today at run time" drifted into the next
+# day and produced a near-empty report under the wrong date. Reporting yesterday makes the
+# delay harmless; the off-the-hour minute dodges the top-of-hour queue. Manual runs default
+# to today (UTC), or take an explicit date.
 
 on:
   schedule:
-    - cron: "30 23 * * *"   # 23:30 UTC = 07:30 Asia/Taipei next morning
+    - cron: "17 0 * * *"    # 00:17 UTC = 08:17 Asia/Taipei; reports the UTC day just ended
   workflow_dispatch:
     inputs:
       date:
-        description: "Report date YYYY-MM-DD (blank = today UTC)"
+        description: "Report date YYYY-MM-DD (blank = today UTC; scheduled runs use yesterday)"
         required: false
         default: ""
 
@@ -33,12 +38,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scrape today's new jobs   # stdlib only, no install step
+      - name: Scrape the day's new jobs   # stdlib only, no install step
         env:
-          REPORT_DATE: ${{ inputs.date }}
+          INPUT_DATE: ${{ inputs.date }}
+          EVENT: ${{ github.event_name }}
         run: |
-          echo "REPORT_DATE=${REPORT_DATE:-$(date -u +%F)}" >> "$GITHUB_ENV"
-          python scripts/daily_new_jobs.py --date "${REPORT_DATE:-$(date -u +%F)}"
+          if [ -n "$INPUT_DATE" ]; then day="$INPUT_DATE"
+          elif [ "$EVENT" = "schedule" ]; then day="$(date -u -d yesterday +%F)"
+          else day="$(date -u +%F)"; fi
+          echo "REPORT_DATE=$day" >> "$GITHUB_ENV"
+          python scripts/daily_new_jobs.py --date "$day"
 
       - name: Commit and push report
         run: |

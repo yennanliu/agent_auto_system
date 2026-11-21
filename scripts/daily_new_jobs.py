@@ -107,16 +107,28 @@ def is_target_role(title: str) -> bool:
     return bool(ROLE.search(title)) and not NOT_ROLE.search(title)
 
 
-def on_day(stamp, day: date) -> bool:
-    """True if an ISO-8601 string or epoch (s or ms) timestamp falls on ``day`` in UTC."""
+def utc_date(stamp) -> date | None:
+    """The UTC date of an ISO-8601 string or epoch (s or ms) timestamp; None if absent."""
     if stamp in (None, ""):
-        return False
+        return None
     if isinstance(stamp, (int, float)):
         when = datetime.fromtimestamp(stamp / 1000 if stamp > 1e11 else stamp, UTC)
     else:
         when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
         when = when.astimezone(UTC) if when.tzinfo else when.replace(tzinfo=UTC)  # naive = UTC
-    return when.date() == day
+    return when.date()
+
+
+def on_day(stamp, day: date) -> bool:
+    """True if ``stamp`` falls on ``day`` in UTC."""
+    return utc_date(stamp) == day
+
+
+def workday_label(day: date, today: date | None = None) -> str | None:
+    """Workday only says "Posted Today" / "Posted Yesterday" / "Posted N Days Ago"; map a
+    report day onto that label, or None when the day is too old to tell apart."""
+    age = ((today or datetime.now(UTC).date()) - day).days
+    return {0: "Posted Today", 1: "Posted Yesterday"}.get(age)
 
 
 def _get(url: str, body: dict | None = None, tries: int = 4):
@@ -157,27 +169,31 @@ def workday(board, day):
     host, site = board.split("/")
     base = f"https://{host}.myworkdayjobs.com"
     api = f"{base}/wday/cxs/{host.split('.')[0]}/{site}/jobs"
+    label = workday_label(day)
+    if label is None:
+        return
     for q in QUERIES:
         for offset in range(0, 100, 20):  # Workday caps a page at 20 and can't sort by date
             page = _get(api, {"limit": 20, "offset": offset, "searchText": q, "appliedFacets": {}})
             posts = page.get("jobPostings", [])
             for j in posts:
-                if j.get("postedOn") == "Posted Today":
+                if j.get("postedOn") == label:
                     yield j["title"], f"{base}/{site}{j['externalPath']}", True
             if len(posts) < 20:
                 break
 
 
 def amazon(board, day):
-    want = f"{day:%B} {day.day}, {day.year}"  # e.g. "November 19, 2026"
     for q in QUERIES:
-        for offset in range(0, 500, 100):  # sorted newest first: stop at the first older post
+        for offset in range(0, 500, 100):  # sorted newest first
             jobs = _get("https://www.amazon.jobs/en/search.json?sort=recent&result_limit=100"
                         f"&offset={offset}&base_query={urllib.request.quote(q)}")["jobs"]
-            fresh = [j for j in jobs if j["posted_date"] == want]
-            for j in fresh:
-                yield j["title"], "https://www.amazon.jobs" + j["job_path"], True
-            if not jobs or len(fresh) < len(jobs):
+            # posted_date reads e.g. "November 19, 2026"
+            dates = [datetime.strptime(j["posted_date"], "%B %d, %Y").date() for j in jobs]
+            for j, posted in zip(jobs, dates):
+                if posted == day:
+                    yield j["title"], "https://www.amazon.jobs" + j["job_path"], True
+            if not jobs or dates[-1] < day:  # paged past the day (a past day starts on later pages)
                 break
 
 
@@ -189,7 +205,8 @@ def microsoft(board, day):
                        )["data"]["positions"]
             for j in pos:
                 yield j["name"], "https://apply.careers.microsoft.com" + j["positionUrl"], j["postedTs"]
-            if not pos or not on_day(pos[-1]["postedTs"], day):
+            last = utc_date(pos[-1]["postedTs"]) if pos else None
+            if last is None or last < day:  # paged past the day (a past day starts on later pages)
                 break
 
 
