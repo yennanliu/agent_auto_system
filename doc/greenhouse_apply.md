@@ -10,7 +10,7 @@ account to authenticate.
 | Step | How | Where |
 |---|---|---|
 | Discover | Public Job Board API `GET /v1/boards/<token>/jobs`, filtered by title keywords and location, interleaved across boards | `discover_jobs` |
-| Dedupe | Local ledger of submitted jobs (`GREENHOUSE_LEDGER`, default `data/greenhouse_applied.json`). The site can't tell us "already applied" without a login | `load_ledger` / `record_applied` |
+| Dedupe | Local ledger of submitted jobs (`GREENHOUSE_LEDGER`, default `data/greenhouse_applied.json`). The site can't tell us "already applied" without a login. A submission whose confirmation never appeared (`unconfirmed`, or `needs_verification` when Greenhouse e-mailed a code) is recorded as `"status": "pending"`. It is **never resent automatically** (check by hand, then delete the entry to retry) and it counts toward `max_applications`. The ledger is shared with `ats_apply`'s Greenhouse jobs | `load_ledger` / `record_applied` / `ledger_status` |
 | Gate (optional) | `task_filter` → `GreenhouseRelevanceCrew`, fails open | flow `relevance_fn` |
 | Plan | `GET /v1/boards/<token>/jobs/<id>?questions=true` returns every form question (label, required, field name, options). Answers are planned **in Python before the browser opens** | `plan_answers` |
 | Apply | Playwright fills `job-boards.greenhouse.io/embed/job_app?for=<token>&token=<id>` (never redirects to the employer's own careers site), uploads the resume, clicks Submit | `_apply_to_job` |
