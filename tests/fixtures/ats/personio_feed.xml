@@ -1,0 +1,141 @@
+<?xml version='1.0' encoding='utf-8'?>
+<workzag-jobs>
+
+<position>
+    <id>2888695</id>
+    <subcompany>ottonova Krankenversicherung AG - 9698</subcompany>
+    <office>München</office>
+    <additionalOffices>
+        <office>Köln</office>
+    </additionalOffices>
+    <department>Customer Support</department>
+    <recruitingCategory>Versicherung</recruitingCategory>
+    <name>(Junior) Customer Support Agent - private Krankenversicherung (m/w/d)</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>DEIN TEAM</name>
+            <value>
+                &lt;span style="border:0px solid;margin:0px;color:rgb(31,31,31);font-size:14px;font-style:normal;font-weig</value>
+        </jobDescription>
+        <jobDescription>
+            <name>DEIN WIRKUNGSBEREICH</name>
+            <value>
+                &lt;span style="color:rgb(31,31,31);font-family:Inter, '-apple-system', BlinkMacSystemFont, 'Segoe UI', Ro</value>
+        </jobDescription>
+        <jobDescription>
+            <name>DEIN PROFIL</name>
+            <value>
+                &lt;strong style="border:0px solid;margin:0px;font-weight:600;color:rgb(31,31,31);font-size:14px;font-styl</value>
+        </jobDescription>
+        <jobDescription>
+            <name>WORAUF DU DICH FREUEN DARFST</name>
+            <value>
+                &lt;span style="border:0px solid;margin:0px;color:rgb(31,31,31);font-size:14px;font-style:normal;font-weig</value>
+        </jobDescription>
+        <jobDescription>
+            <name>URL</name>
+            <value>
+                cs-agent
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>entry-level</seniority>
+    <schedule>full-time</schedule>
+    <occupation>call_center</occupation>
+    <occupationCategory>customer_support_and_client_care</occupationCategory>
+    <createdAt>2026-11-13T16:21:35+00:00</createdAt>
+</position>
+
+<position>
+    <id>2573573</id>
+    <subcompany>ottonova Krankenversicherung AG - 9698</subcompany>
+    <office>München</office>
+    <additionalOffices>
+        <office>Köln</office>
+    </additionalOffices>
+    <department>Risk Management &amp; Actuary</department>
+    <recruitingCategory>Versicherung</recruitingCategory>
+    <name>(Senior) Aktuar (m/w/d) mit Schwerpunkt Solvency II (20h) (m/w/d)</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>DEIN TEAM</name>
+            <value>
+                ottonova ist eine rein digitale private Krankenversicherung - innovativ, zeitgemäß und anders. An unser</value>
+        </jobDescription>
+        <jobDescription>
+            <name>DEIN WIRKUNGSBEREICH</name>
+            <value>
+                Mit deinem &lt;strong&gt;Schwerpunkt Solvency II&lt;/strong&gt; trägst du entscheidend dazu bei, unsere qualitative</value>
+        </jobDescription>
+        <jobDescription>
+            <name>DEIN PROFIL</name>
+            <value>
+                Die Grundlage deines Profils bildet ein erfolgreich abgeschlossenes Studium der (Wirtschafts-/Versicher</value>
+        </jobDescription>
+        <jobDescription>
+            <name>WORAUF DU DICH FREUEN DARFST</name>
+            <value>
+                &lt;strong style="border:0px solid;margin:0px;font-weight:600;color:rgb(31,31,31);font-family:Inter, '-app</value>
+        </jobDescription>
+        <jobDescription>
+            <name>URL</name>
+            <value>
+                rma-solvency
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-or-part-time</schedule>
+    <keywords>Solvency 2,Risikomanagemen,Aktuariat,Risk Reporting</keywords>
+    <occupation>acturial_analysis</occupation>
+    <occupationCategory>accounting_and_finance</occupationCategory>
+    <createdAt>2026-03-23T15:24:29+00:00</createdAt>
+</position>
+
+<position>
+    <id>2832722</id>
+    <subcompany>ottonova Technology Services GmbH - 9699</subcompany>
+    <office>München</office>
+    <department>Product</department>
+    <recruitingCategory>Technology</recruitingCategory>
+    <name>(Senior) Product Manager (m/w/d) – Customer &amp; Agent Experience</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>DEIN TEAM</name>
+            <value>
+                ottonova ist eine digitale private Krankenversicherung - innovativ, zeitgemäß und anders.  Wir brennen </value>
+        </jobDescription>
+        <jobDescription>
+            <name>DEIN WIRKUNGSBEREICH</name>
+            <value>
+                Als (Senior) Product Manager (m/w/d) wird dein Fokus auf einem zentralen Teil unserer Customer &amp;amp; Ag</value>
+        </jobDescription>
+        <jobDescription>
+            <name>DEIN PROFIL</name>
+            <value>
+                Grundlage deines Profils ist ein abgeschlossenes Studium der Betriebswirtschaftslehre / Wirtschaftsinfo</value>
+        </jobDescription>
+        <jobDescription>
+            <name>WORAUF DU DICH FREUEN DARFST</name>
+            <value>
+                &lt;span style="border:0px solid;margin:0px;color:rgb(31,31,31);font-size:14px;font-style:normal;font-weig</value>
+        </jobDescription>
+        <jobDescription>
+            <name>URL</name>
+            <value>
+                pm-experience
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <keywords>Product Management,User Experience</keywords>
+    <occupation>product_management</occupation>
+    <occupationCategory>marketing_and_product</occupationCategory>
+    <createdAt>2026-10-07T15:44:38+00:00</createdAt>
+</position>
+
+</workzag-jobs>

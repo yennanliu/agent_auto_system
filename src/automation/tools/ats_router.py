@@ -20,7 +20,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
-SUPPORTED = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "recruitee")
+SUPPORTED = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "recruitee",
+             "personio", "bamboohr")
 KNOWN = SUPPORTED
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -103,6 +104,22 @@ def detect_ats(url: str) -> BoardRef | None:
             return BoardRef("recruitee", company, parts[1].lower())
         return BoardRef("recruitee", company)
 
+    if re.fullmatch(r"[a-z0-9-]+\.jobs\.personio\.(de|com)", host):
+        # <company>.jobs.personio.de[/job/<id>[/apply]]
+        company = host.split(".")[0]
+        if len(parts) > 1 and parts[0] == "job":
+            return BoardRef("personio", company, parts[1]) if parts[1].isdigit() else None
+        return BoardRef("personio", company)
+
+    if host.endswith(".bamboohr.com") and host.count(".") == 2:
+        # <company>.bamboohr.com/careers[/<id>]
+        company = host.split(".")[0]
+        if company in ("www", "app", "api", "help", "partners", "marketplace") or not parts or parts[0] != "careers":
+            return None
+        if len(parts) > 1:
+            return BoardRef("bamboohr", company, parts[1]) if parts[1].isdigit() else None
+        return BoardRef("bamboohr", company)
+
     if host == "apply.workable.com":
         if not parts or not _TOKEN_RE.match(parts[0]) or parts[0] in ("api", "j"):
             return None
@@ -183,6 +200,10 @@ def parse_board_ref(ref: str, default_platform: str = "") -> BoardRef | None:
             return BoardRef(platform, token, job.lower() if _UUID_RE.match(job) else "")
         if platform == "workable":
             return BoardRef(platform, token.lower(), job.upper() if job else "")
+        if platform in ("personio", "bamboohr"):
+            if job and not job.isdigit():
+                return None  # their job ids are numeric; a bad one is refused, not widened
+            return BoardRef(platform, token.lower(), job)
         if platform == "recruitee":
             if job and not _SLUG_RE.match(job.lower()):
                 return None  # a bad job slug is refused, not widened to the board
