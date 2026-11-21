@@ -2,7 +2,9 @@
 
 English | [繁體中文](job-platforms-automation-plan.zh-TW.md)
 
-Status: **Phases 0–2 shipped** (#107, #109, #110). The rest is still a proposal. See
+Status: **Phases 0–2 shipped** (#107, #109, #110), plus **Workday and SmartRecruiters apply**
+(#117, #119) and the first small-ATS adapter, **Recruitee** (in review). The rest is still a
+proposal. See
 [Progress and lessons](#progress-and-lessons-as-of-2026-11-19) for what changed when it met
 the real sites.
 
@@ -33,12 +35,13 @@ must be re-checked against the site before work starts.
 | Phase | Status | What shipped |
 |---|---|---|
 | 0. Shared ATS core | ✅ #107 | `tools/ats_common.py`: shared answer rules (`Question` → `answer_question`), matching, ledger and browser helpers. Greenhouse moved onto it with no behaviour change |
-| 1. ATS adapters | ✅ #109, #112 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). SmartRecruiters is discovery-only. Country board scanner `scripts/ats_country_boards.py` (#112) |
+| 1. ATS adapters | ✅ #109, #112, #119 | the `ats_apply` job type, `ats_router.py`, and adapters for **Lever, Ashby, Workable** (plus Greenhouse). **SmartRecruiters guest apply** (#119): planned in the browser, diversity questions declined; DataDome's CAPTCHA is never solved, so such a job goes to `manual[]`. Country board scanner `scripts/ats_country_boards.py` (#112) |
+| 1b. Small-ATS adapters | 🔄 Recruitee (in review) | **Recruitee**: planned from its public careers API, filled by question text (the form's ids differ from the API's); Cookiebot refused without "Allow all". Teamtailor, Personio, BambooHR, JazzHR next |
 | 2. Discovery sources | ✅ #110 | `sources`: **HN "Who is hiring"**, Remote OK, Remotive and We Work Remotely feed the adapters; everything else becomes a manual lead |
 | 3. Taiwan boards | ⏸ skipped for now | Investigated live, nothing built (findings below) |
 | 4 (part). Freelancer.com bids | ✅ #115, #116 | `freelancer_bids` job type: official public search API, USD budget / type / competition filters, LLM-drafted proposals from the user's background (declines misfits), and **opt-in bid placement** with the user's `FREELANCER_OAUTH_TOKEN` (#116). Not yet verified with a real token. PRO360 and Upwork are still to do |
 | 5 (part). Seek / JobStreet discovery | ✅ #114 | `seek_au`, `seek_nz`, `jobstreet_sg/my/ph/id` sources via Seek's search API, as manual leads. JobsDB HK/TH answer 403; job pages are behind a bot challenge. **Applying (Quick Apply)** needs the user's Seek account and is still to do |
-| 6 (part). Workday discovery | ✅ #113 | Workday jobs found via the public `/wday/cxs` API and listed as manual leads; in the board scanner. **Applying on Workday** (an account per employer) is still to do |
+| 6 (part). Workday discovery + apply | ✅ #113, #117 | Workday jobs found via the public `/wday/cxs` API (#113). **Applying** (#117) with a stored per-employer account (env, encrypted store, git-ignored `data/workday_accounts.json` or Keychain), opt-in account creation; planned step by step in the browser. **Verified with a real submission on 3M** (2026-11-20, In Process) |
 | 4–6 | not started | — |
 
 **What the live sites showed (each checked in a real browser, not assumed):**

@@ -2,7 +2,7 @@
 
 [English](job-platforms-automation-plan.md) | 繁體中文
 
-狀態：**Phase 0–2 已上線**（#107、#109、#110），其餘仍為提案。實際碰到真實網站後的修正見
+狀態：**Phase 0–2 已上線**（#107、#109、#110），另有 **Workday 與 SmartRecruiters 應徵**（#117、#119），以及第一個小型 ATS adapter **Recruitee**（審查中）。其餘仍為提案。實際碰到真實網站後的修正見
 「進度與實測心得」。
 
 | 已支援 | 類型 | 程式碼 |
@@ -30,12 +30,13 @@ DOM 或反機器人機制的內容，開工前都必須再對照實際網站確�
 | 階段 | 狀態 | 已上線內容 |
 |---|---|---|
 | 0. 共用 ATS 核心 | ✅ #107 | `tools/ats_common.py`：共用答題規則（`Question` → `answer_question`）、比對、ledger、瀏覽器 helper。Greenhouse 已搬到上面，行為不變 |
-| 1. ATS adapter | ✅ #109、#112 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。SmartRecruiters 只做探索。國家職缺頁掃描器 `scripts/ats_country_boards.py`（#112） |
+| 1. ATS adapter | ✅ #109、#112、#119 | `ats_apply` 工作類型、`ats_router.py`，以及 **Lever、Ashby、Workable** 的 adapter（另含 Greenhouse）。**SmartRecruiters 訪客應徵**（#119）：在瀏覽器內規劃，多元性問題一律選「不願透露」；DataDome 的 CAPTCHA 絕不自動破解，遇到時該職缺列入 `manual[]`。國家職缺頁掃描器 `scripts/ats_country_boards.py`（#112） |
+| 1b. 小型 ATS adapter | 🔄 Recruitee（審查中） | **Recruitee**：由公開 careers API 規劃，依問題文字填寫（表單的 id 與 API 不同）；Cookiebot 只接受必要 cookie，絕不按「Allow all」。接下來是 Teamtailor、Personio、BambooHR、JazzHR |
 | 2. 探索來源 | ✅ #110 | `sources`：**HN「Who is hiring」**、Remote OK、Remotive、We Work Remotely 接進 adapter；其餘一律成為手動 lead |
 | 3. 台灣求職網站 | ⏸ 暫緩 | 已實測調查，未實作（見下方） |
 | 4（部分）. Freelancer.com 提案 | ✅ #115、#116 | `freelancer_bids` 工作類型：官方公開搜尋 API、以 USD 計的預算／類型／競爭篩選，由 LLM 依使用者背景起草提案（不適合的會婉拒），以及使用者 `FREELANCER_OAUTH_TOKEN` 的**選用自動投標**（#116）。尚未以真實 token 驗證。PRO360、Upwork 尚未完成 |
 | 5（部分）. Seek／JobStreet 探索 | ✅ #114 | 透過 Seek 的搜尋 API 提供 `seek_au`、`seek_nz`、`jobstreet_sg/my/ph/id` 來源，列為手動 lead。JobsDB HK／TH 回應 403；職缺頁在機器人驗證之後。**應徵（Quick Apply）**需要使用者的 Seek 帳號，尚未完成 |
-| 6（部分）. Workday 探索 | ✅ #113 | 透過公開的 `/wday/cxs` API 找到 Workday 職缺並列為手動 lead；已加入職缺頁掃描器。**在 Workday 上應徵**（每個雇主各需一個帳號）尚未完成 |
+| 6（部分）. Workday 探索＋應徵 | ✅ #113、#117 | 透過公開的 `/wday/cxs` API 找到 Workday 職缺（#113）。**應徵**（#117）：使用每個雇主各自儲存的帳號（環境變數、加密設定、git 忽略的 `data/workday_accounts.json` 或 Keychain），可選擇自動建立帳號；在瀏覽器內逐步規劃。**已在 3M 實際送出並確認**（2026-11-20，In Process） |
 | 4–6 | 尚未開始 | — |
 
 **真實網站的實測結果（皆在真實瀏覽器中確認，而非假設）：**
