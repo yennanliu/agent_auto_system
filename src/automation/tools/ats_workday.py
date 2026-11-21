@@ -438,11 +438,28 @@ def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
     if kind == "text":
         std = standard_for_label(label)
         value = standard_value(std, profile) if std else ""
+        if std == "phone" and f.get("phone_code"):
+            value = national_number(value, f["phone_code"])
         if not value:
             ans = answer_question(Question(label, label, "text", required, []), profile, answer_fn)
             value = ans["value"] if ans else ""
         return {"action": "fill", "value": str(value)} if value else None
     return None  # date widgets, multi-select prompts: left to the user
+
+
+def national_number(phone: str, phone_code: str) -> str:
+    """The number to type next to Workday's Country Phone Code widget, which
+    holds the country code itself ("Taiwan (+886)"): a profile phone of
+    "+886 963335868" becomes "963335868" (Workday rejects the "+886" as "not a
+    valid format"). A phone in another country's code, or with none, is kept
+    as typed, minus the formatting."""
+    code = re.search(r"\+\s*(\d{1,4})", phone_code or "")
+    digits = re.sub(r"\D", "", phone or "")
+    if not phone.strip().startswith("+"):
+        return phone.strip()
+    if code and digits.startswith(code.group(1)):
+        return digits[len(code.group(1)):]
+    return phone.strip()
 
 
 # ── the wizard (browser) ─────────────────────────────────────────────────────
@@ -473,7 +490,8 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
 _BOXES = "[data-automation-id^='formField']"
 _NEXT = "[data-automation-id='pageFooterNextButton']"
 _SUBMIT = "[data-automation-id='pageFooterSubmitButton']"
-_ERRORS = "[data-automation-id='errorMessage'], [data-automation-id='inputErrorMessage'], [role='alert']"
+_ERRORS = ("[data-automation-id='errorMessage'], [data-automation-id='inputErrorMessage'], "
+           "[data-automation-id='inputAlert'], [role='alert']")
 SUCCESS_TEXTS = ("Application Submitted", "application has been submitted",
                  "Thanks for applying", "Thank you for applying", "successfully submitted")
 
@@ -706,6 +724,9 @@ class Wizard:
             if todo is None:
                 break
             tried.add((todo["label"], todo["kind"]))
+            if todo["field"] == "formField-phoneNumber":
+                todo["phone_code"] = next((f["value"] for f in self.fields()
+                                           if f["field"] == "formField-countryPhoneCode"), "")
             plan = self._act(todo, profile, answer_fn)
             if plan:
                 answers.append({"label": todo["label"][:80], "value": plan["value"]})
