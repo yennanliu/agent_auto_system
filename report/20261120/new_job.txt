@@ -1,8 +1,46 @@
+Airbnb | Senior Software Engineer, Partner Integrations | https://careers.airbnb.com/positions/8406371?gh_jid=8406371
+Amazon | Embedded SDE II, Hardware Engineering Services | https://www.amazon.jobs/en/jobs/10610733/embedded-sde-ii-hardware-engineering-services
+Amazon | Embedded Software Engineer , Fauna | https://www.amazon.jobs/en/jobs/10610208/embedded-software-engineer-fauna
+Amazon | Senior Forward Deployed Engineer, Forward Deployment Engineering | https://www.amazon.jobs/en/jobs/10609076/senior-forward-deployed-engineer-forward-deployment-engineering
+Amazon | Senior Forward Deployed Engineer, Forward Deployment Engineering | https://www.amazon.jobs/en/jobs/10609078/senior-forward-deployed-engineer-forward-deployment-engineering
 Amazon | Senior Forward Deployed Engineer, Sr Forward Deployment Engineering | https://www.amazon.jobs/en/jobs/10609070/senior-forward-deployed-engineer-sr-forward-deployment-engineering
+Amazon | Senior Software Development Engineer III, Secure Connection Services (SCS) | https://www.amazon.jobs/en/jobs/10610303/senior-software-development-engineer-iii-secure-connection-services-scs
+Amazon | Software Development Engineer | https://www.amazon.jobs/en/jobs/10610616/software-development-engineer
 Amazon | Software Development Engineer , AWS CloudWatch | https://www.amazon.jobs/en/jobs/10610061/software-development-engineer-aws-cloudwatch
+Amazon | Software Development Engineer II, Amazon Teams | https://www.amazon.jobs/en/jobs/10610702/software-development-engineer-ii-amazon-teams
+Amazon | Software Development Engineer II, FleetWatch Team | https://www.amazon.jobs/en/jobs/10610684/software-development-engineer-ii-fleetwatch-team
+Amazon | Software Development Engineer II, TopHat | https://www.amazon.jobs/en/jobs/10610705/software-development-engineer-ii-tophat
+Amazon | Software Development Engineer III - Advertising, MADS | https://www.amazon.jobs/en/jobs/10609944/software-development-engineer-iii-advertising-mads
+Amazon | Software Development Engineer, Agentic AI | https://www.amazon.jobs/en/jobs/10607195/software-development-engineer-agentic-ai
+Amazon | Software Development Engineer, AWS Security, AWS Secinformatics | https://www.amazon.jobs/en/jobs/10610660/software-development-engineer-aws-security-aws-secinformatics
+Amazon | Software Development Engineer, Network Operations | https://www.amazon.jobs/en/jobs/10607608/software-development-engineer-network-operations
+Amazon | Sr. Software Development Engineer, Amazon Leo Government, ALG Software | https://www.amazon.jobs/en/jobs/10610535/sr-software-development-engineer-amazon-leo-government-alg-software
+Anthropic | Staff+ Software Engineer, Capacity Engineering | https://job-boards.greenhouse.io/anthropic/jobs/5490979008
 Marvell | Software Engineer Intern | https://marvell.wd1.myworkdayjobs.com/MarvellCareers/job/Taipei/Software-Engineer-Intern_2604450
 Micron | Staff Semiconductor Applied AI Engineer | https://micron.wd1.myworkdayjobs.com/External/job/Boise-ID---Main-Site/Staff-Semiconductor-Applied-AI-Engineer_JR118166
+Microsoft | Backend Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557072714
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557070697
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557055352
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393556943185
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557056075
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557045446
+Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557050874
+Microsoft | Principal Software Engineer - Azure Storage | https://apply.careers.microsoft.com/careers/job/1970393557002623
+Microsoft | Senior Security Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557044880
+Microsoft | Senior Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557075165
+Microsoft | Senior Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557073544
+Microsoft | Senior Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557074525
+Microsoft | Senior Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393556980793
 Microsoft | Senior Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393556956528
+Microsoft | Senior Software Engineer - Azure Storage | https://apply.careers.microsoft.com/careers/job/1970393556999324
+Microsoft | Senior Software Engineer, Minecraft | https://apply.careers.microsoft.com/careers/job/1970393557073116
+Microsoft | Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393556955128
+Microsoft | Software Engineer - CoreAI | https://apply.careers.microsoft.com/careers/job/1970393557073165
+Microsoft | Software Engineer - CTJ - Top Secret | https://apply.careers.microsoft.com/careers/job/1970393557053350
+Microsoft | Software Engineer/Developer | https://apply.careers.microsoft.com/careers/job/1970393556943785
+MongoDB | Senior Software Engineer, Cloud Payments | https://www.mongodb.com/careers/job/?gh_jid=8403318
+MongoDB | Software Engineer 3 | https://www.mongodb.com/careers/job/?gh_jid=8406812
+MongoDB | Software Engineer 3 | https://www.mongodb.com/careers/job/?gh_jid=8406857
 NVIDIA | AI Compute Engineer - NVIS | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/AI-Compute-Engineer---NVIS_JR2025216
 NVIDIA | Embedded Software Engineer - RISCV | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Embedded-Software-Engineer---RISCV_JR2019685
 NVIDIA | Network Software Engineer, Automation and Intelligence | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Network-Software-Engineer--Automation-and-Intelligence_JR2028694
@@ -20,7 +58,6 @@ NVIDIA | Senior AI Infrastructure Engineer - EDA Infrastructure | https://nvidia
 NVIDIA | Senior AI Research Engineer, Agentic Systems Intelligence | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-AI-Research-Engineer--Agentic-Systems-Intelligence_JR2030090
 NVIDIA | Senior AI Workflow Engineer | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-AI-Workflow-Engineer_JR1999298
 NVIDIA | Senior Applied AI Engineer | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Applied-AI-Engineer_JR2025254-1
-NVIDIA | Senior Cloud Software Engineer, Developer Tools | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Cloud-Software-Engineer--Developer-Tools_JR2027772
 NVIDIA | Senior Compute System Software Engineer | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Compute-System-Software-Engineer_JR2022574
 NVIDIA | Senior Context Fusion AI Engineer - Autonomous Vehicles | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Context-Fusion-AI-Engineer---Autonomous-Vehicles_JR2025163
 NVIDIA | Senior Deep Learning Software Engineer, DLSim | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Deep-Learning-Software-Engineer--DLSim_JR2024154
@@ -45,6 +82,7 @@ NVIDIA | Senior Software Developer, AI Networking | https://nvidia.wd5.myworkday
 NVIDIA | Senior Software Engineer - AI Inference Performance | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer---AI-Inference-Performance_JR2024262
 NVIDIA | Senior Software Engineer - AV Platform | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer---AV-Platform_JR2023594
 NVIDIA | Senior Software Engineer - Distributed Systems Engineer, EDA Infrastructure | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-WA-Remote/Senior-Software-Engineer---Distributed-Systems-Engineer--EDA-Infrastructure_JR2024825-1
+NVIDIA | Senior Software Engineer - Enterprise Data | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Engineer---Enterprise-Data-Governance_JR2024554
 NVIDIA | Senior Software Engineer - GPU | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer---GPU_JR2027781
 NVIDIA | Senior Software Engineer - Simulation | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer---Simulation_JR2018093
 NVIDIA | Senior Software Engineer - SOC Platforms | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer---SOC-Platforms_JR2026394
@@ -111,4 +149,7 @@ Salesforce | Lead Software Engineer,  Database Systems- Database.com/Hyper | htt
 Salesforce | Principal Member of Technical Staff (PMTS) / Staff Software Engineer – Agentic Operations | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California---San-Francisco/Principal-Member-of-Technical-Staff--PMTS----Staff-Software-Engineer---AI-Platform--Agentic-Systems-_JR366779
 Salesforce | Principal Software Engineer , Database Systems - Database.com/Hyper | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Germany---Munich/Principal-Software-Engineer---Database-Systems---Databasecom-Hyper_JR368938
 Salesforce | Software Engineer Infrastructure and Distributed Systems | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California---San-Francisco/Software-Engineer-Infrastructure-and-Distributed-Systems_JR368687
+SpaceX | Full Stack Software Engineer (Build Reliability) | https://boards.greenhouse.io/spacex/jobs/8955898002?gh_jid=8955898002
+SpaceX | Lead Software Engineer (Full Stack) - Build Reliability | https://boards.greenhouse.io/spacex/jobs/8955900002?gh_jid=8955900002
+SpaceX | Software Engineer, Development Test (Starlink) | https://boards.greenhouse.io/spacex/jobs/8943795002?gh_jid=8943795002
 Stripe | Staff Software Engineer, Mobile Development Productivity | https://stripe.com/jobs/search?gh_jid=8404115
