@@ -27,6 +27,21 @@ def _stub_evaluate(mocker):
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_artifact_dirs(tmp_path_factory, mocker):
+    """Point uploads/ and reports/ at throwaway dirs for every test.
+
+    Deleting a run now also deletes ``reports/<run_id>.pdf``; test run ids start
+    at 1, so without this a test run could remove a real report on a dev machine.
+    """
+    import src.automation.report_render as _reports
+    import src.routers.uploads as _uploads
+
+    base = tmp_path_factory.mktemp("artifacts")
+    mocker.patch.object(_uploads, "UPLOAD_ROOT", base / "uploads")
+    mocker.patch.object(_reports, "REPORTS_ROOT", base / "reports")
+
+
 @pytest.fixture(scope="function")
 def test_engine():
     # StaticPool: all connections share the same in-memory SQLite database.
