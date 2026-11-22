@@ -8,7 +8,6 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
-from starlette.middleware.sessions import SessionMiddleware
 
 from src import telemetry as _tel
 from src.auth import require_user
@@ -25,14 +24,16 @@ from src.routers import (
     system,
     uploads,
 )
+from src.security import DEV_SECRET as _DEV_SECRET
+from src.security import SessionCookieMiddleware, enforce_secure_defaults
 
 setup_logging()  # LOG_FORMAT=json|text (default text = no-op), LOG_LEVEL
 logger = logging.getLogger(__name__)
 
-# Cookie signing + (later) key-derivation secret. A fixed dev default is used when
-# unset so local runs work out of the box; warn loudly because rotating it logs
-# everyone out and (in phase 3) makes stored API keys undecryptable.
-_DEV_SECRET = "dev-insecure-change-me"
+# Cookie signing + key-derivation secret (settings_store derives the Fernet key
+# from it, so rotating it logs everyone out and makes stored API keys
+# undecryptable). The dev fallback only survives startup in desktop mode or with
+# ALLOW_INSECURE_DEFAULTS=1 — see security.enforce_secure_defaults.
 APP_SECRET = os.getenv("APP_SECRET") or _DEV_SECRET
 
 
@@ -46,8 +47,9 @@ def _seed_admin() -> None:
     with Session(get_engine()) as session:
         if session.exec(select(User)).first():
             return
-        username = os.getenv("ADMIN_USERNAME", "admin")
-        password = os.getenv("ADMIN_PASSWORD", "admin")
+        # `or`: a blank value (e.g. `ADMIN_PASSWORD=` in .env) means unset, not "".
+        username = os.getenv("ADMIN_USERNAME") or "admin"
+        password = os.getenv("ADMIN_PASSWORD") or "admin"
         session.add(
             User(
                 username=username,
@@ -80,6 +82,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(langfuse_tracer.get_client)  # initialise + log once if configured
     await asyncio.to_thread(langfuse_tracer.ensure_score_configs)  # typed score schemas (idempotent)
     init_db()
+    enforce_secure_defaults(get_engine())  # raises → uvicorn exits (server mode only)
     _seed_admin()
     # In-flight runs from before the restart: resume the checkpointed, resumable
     # ones; mark the rest failed (see src/automation/resume.py).
@@ -109,9 +112,10 @@ if APP_SECRET == _DEV_SECRET:
         "APP_SECRET is unset; using an insecure dev default. Set APP_SECRET in "
         "production — sessions are signed with it."
     )
-# Added before SessionMiddleware so it runs *inside* it and can read the session.
+# Added before the session middleware so it runs *inside* it and can read the session.
 app.add_middleware(RequestContextMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=APP_SECRET, https_only=False)
+# `Secure` cookie flag: SESSION_COOKIE_SECURE=1 behind TLS; default follows the request scheme.
+app.add_middleware(SessionCookieMiddleware, secret_key=APP_SECRET)
 
 # Auth endpoints stay open (login must be reachable without a session).
 app.include_router(auth.router, prefix="/api")

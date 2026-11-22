@@ -71,8 +71,8 @@ admin-created via `POST /admin/users`. Session cookies work (`SessionMiddleware`
 **TODO**
 - [ ] Public signup flow → creates a new `Organization` + owner `User`, email verification,
       password reset (all currently missing).
-- [ ] Set `SessionMiddleware(https_only=True, same_site="lax")` in production; today it's
-      `https_only=False` (`main.py:93`).
+- [x] Session cookie `Secure` in production — `SESSION_COOKIE_SECURE=1` (or `auto` on
+      https requests) via `security.SessionCookieMiddleware`; `same_site="lax"` already.
 - [ ] **Programmatic API keys** (per-tenant, hashed at rest, scoped) so customers can call
       the API without a browser session — SaaS customers will want this.
 - [ ] Consider SSO / social login (Google is a natural fit given the Google-Form/Sheet
@@ -248,10 +248,9 @@ users will hit these:
 - [ ] **SSRF** in `WebScraperTool` — scrapes any URL, including `169.254.169.254`
       (cloud metadata) and RFC-1918 internal hosts. Add an allowlist/blocklist + response
       size cap. Critical once *customers* control the URL.
-- [ ] **No insecure defaults in production**: `admin`/`admin` seed and
-      `APP_SECRET=dev-insecure-change-me` are shipped in `.env.example` and are the fallback
-      defaults (`main.py:22,36`). Fail-fast (refuse to boot) when these are unset/default in
-      a prod env.
+- [x] **No insecure defaults in production**: a non-desktop server refuses to boot on
+      `admin`/`admin` or an unset/dev `APP_SECRET` (`security.enforce_secure_defaults`);
+      `.env.example` no longer ships usable values. Dev opt-out: `ALLOW_INSECURE_DEFAULTS=1`.
 - [ ] Rate-limit auth endpoints (brute-force) and run creation (already noted in §4).
 - [ ] Per-tenant secrets isolation — one tenant must never be able to read another's LLM
       keys or integration sessions (falls out of the §1 org model if done right).
@@ -331,9 +330,9 @@ checks). Gaps for running it *as a service*:
 - [ ] Add the registry-conformance test (§6) — catches the `tw104` drift class of bug today.
 - [ ] Fix the `pipeline.py:55` 3-tuple unpack bug (§6).
 - [ ] Scope `GET /jobs` and job detail/edit/delete by owner (§1) — a real isolation hole now.
-- [ ] Fail-fast on default `APP_SECRET` / `admin` password in prod (§8).
+- [x] Fail-fast on default `APP_SECRET` / `admin` password in prod (§8).
 - [ ] SSRF blocklist in `WebScraperTool` (§8).
-- [ ] `https_only=True` + `same_site` on the session cookie in prod (§2).
+- [x] `https_only=True` + `same_site` on the session cookie in prod (§2).
 - [ ] Confirmation dialog before bulk-delete; Retry button on failed runs (§9).
 </content>
 </invoke>

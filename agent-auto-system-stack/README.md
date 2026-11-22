@@ -27,7 +27,12 @@ npm run build && npm test          # tsc + jest
 # First time in a new account/region:
 cdk bootstrap
 
-# Deploy. Export only the keys you actually use; the rest default to "".
+# Deploy. APP_SECRET + ADMIN_PASSWORD are required (synth fails without them —
+# the app refuses to start on its shipped defaults). Keep APP_SECRET stable across
+# deploys. Add SESSION_COOKIE_SECURE=1 once the ALB serves HTTPS.
+# Export only the API keys you actually use; the rest are omitted.
+APP_SECRET=...               \
+ADMIN_PASSWORD=...           \
 OPENAI_API_KEY=sk-...        \
 ANTHROPIC_API_KEY=sk-ant-... \
 GEMINI_API_KEY=...           \
@@ -38,6 +43,8 @@ GMAIL_APP_PASSWORD=...       \
 
 
 # example
+export APP_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"   # save it; reuse on every deploy
+export ADMIN_PASSWORD=...
 export OPENAI_API_KEY=sk-...
 cdk deploy
 ```
