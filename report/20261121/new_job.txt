@@ -1,12 +1,22 @@
+Amazon | Embedded Software Engineer, Leo MAC | https://www.amazon.jobs/en/jobs/10610936/embedded-software-engineer-leo-mac
+Databricks | Sr. Staff Forward Deployed Engineer | https://databricks.com/company/careers/open-positions/job?gh_jid=8951023002
+Harvey | Creative AI Engineer | https://jobs.ashbyhq.com/harvey/a42047fc-fbd1-4e14-bf10-15207ae2d060
+Harvey | Creative AI Engineer | https://jobs.ashbyhq.com/harvey/e46d48b8-57c7-401c-be33-f56774dc072d
 Micron | AI Engineer - Technical Enablement - remote/Tel-Aviv | https://micron.wd1.myworkdayjobs.com/External/job/MIL---Israel-Hadera---Home/AI-Engineer---Technical-Enablement---remote-Tel-Aviv_JR110493
 Micron | HR Applied AI Engineer | https://micron.wd1.myworkdayjobs.com/External/job/Boise-ID---Main-Site/HR-Applied-AI-Engineer_JR117807
 Micron | Staff Full-Stack AI Engineer | https://micron.wd1.myworkdayjobs.com/External/job/Hyderabad---Phoenix-Aquila-India/Staff-Full-Stack-Engineer_JR113654
 Microsoft | Principal Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557075209
 Microsoft | Senior and/or Principal Software Engineer- AI GPU Performance | https://apply.careers.microsoft.com/careers/job/1970393556998542
+Microsoft | Senior Software Engineer | https://apply.careers.microsoft.com/careers/job/1970393557056068
 Microsoft | Senior Software Engineer - AI Engineering | https://apply.careers.microsoft.com/careers/job/1970393557074101
+Microsoft | Senior Software Engineer - Backend | https://apply.careers.microsoft.com/careers/job/1970393557073471
+Microsoft | Software Engineer 2 - M365 | https://apply.careers.microsoft.com/careers/job/1970393557044557
 Microsoft | Software Engineer II - AI Engineering | https://apply.careers.microsoft.com/careers/job/1970393557074099
+NVIDIA | Accounting AI Solution Engineer Intern - Summer 2027 | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Accounting-AI-Solution-Engineer-Intern---Summer-2027_JR2029155-1
+NVIDIA | Principal Software Engineer and System Architect | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Principal-Software-Engineer-and-System-Architect_JR2030252
 NVIDIA | Senior AI Engineer | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-AI-Engineer_JR2025309
 NVIDIA | Senior AI Engineer, Forward Deployed Engineering | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-AI-Engineer--Forward-Deployed-Engineering_JR2029041
+NVIDIA | Senior Software Engineer, DSX OS Control Plane | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer--DSX-OS-Control-Plane_JR2028497
 NVIDIA | Senior Software Engineer, Real-Time Data Platform | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/Germany-Munich/Senior-Software-Engineer--Real-Time-Data-Platform_JR2027710
 Salesforce | Lead/ Principal Forward Deployed Engineer | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/United-Arab-Emirates---Dubai/Forward-Deployed-Engineer_JR348987
 Salesforce | Software Engineer,  AI Agent Platform | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Ireland---Dublin/Software-Engineer---AI-Agent-Platform_JR368957
