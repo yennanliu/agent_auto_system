@@ -347,8 +347,19 @@ def _ledger_key(job: dict) -> str:
     return f"{job['token']}/{job['job_id']}"
 
 
-def record_applied(path: str, job: dict) -> None:
-    _record_applied(path, _ledger_key(job), job)
+def record_applied(path: str, job: dict, status: str = "applied") -> None:
+    """``status`` "pending" = Submit was clicked but no confirmation was seen:
+    the employer may have it, so it is never resent automatically."""
+    _record_applied(path, _ledger_key(job), job, status)
+
+
+def ledger_status(ledger: dict, job: dict) -> str | None:
+    """"applied", "pending" or None. Entries written before statuses existed
+    count as applied."""
+    entry = ledger.get(_ledger_key(job))
+    if entry is None:
+        return None
+    return entry.get("status", "applied") if isinstance(entry, dict) else "applied"
 
 
 # ── apply funnel (DOM) ────────────────────────────────────────────────────────
@@ -689,6 +700,7 @@ def run_greenhouse_apply(
         )
         ledger = load_ledger(ledger_path)
 
+        pending: list[dict] = []
         applied: list[dict] = []
         skipped: list[dict] = []
         scanned = filtered = 0
@@ -704,7 +716,9 @@ def run_greenhouse_apply(
             page = None
             try:
                 for job in candidates:
-                    if len(applied) >= max_applications:
+                    # Unconfirmed submissions may have reached the employer, so
+                    # they use up the cap like confirmed ones.
+                    if len(applied) + len(pending) >= max_applications:
                         break
                     if max_per_board and per_board.get(job["token"], 0) >= max_per_board:
                         continue  # this company's quota is used; keep the others going
@@ -716,7 +730,15 @@ def run_greenhouse_apply(
                     log(f"[{len(applied)}/{max_applications} applied | scan #{scanned}] "
                         f"{jid} — {job['title'][:60]}")
                     try:
-                        if _ledger_key(job) in ledger:
+                        seen = ledger_status(ledger, job)
+                        if seen == "pending":
+                            job.update(status="skipped", reason=(
+                                "submitted on an earlier run but never confirmed (ledger) — check "
+                                "your e-mail / the employer's portal; remove it from the ledger to retry"))
+                            log(f"↷ {jid}: earlier submission unconfirmed — not resending")
+                            skipped.append(job)
+                            continue
+                        if seen:
                             job.update(status="skipped", reason="already applied (ledger)")
                             log(f"↷ {jid}: already applied — next")
                             skipped.append(job)
@@ -769,7 +791,14 @@ def run_greenhouse_apply(
                             per_board[job["token"]] = per_board.get(job["token"], 0) + 1
                             if entry.get("submitted"):
                                 record_applied(ledger_path, job)
-                                ledger[_ledger_key(job)] = True
+                                ledger[_ledger_key(job)] = {"status": "applied"}
+                        elif not dry_run and entry.get("status") in ("unconfirmed", "needs_verification"):
+                            # Submit was clicked: the employer may have it. Block a
+                            # resend until the user reconciles; not counted as applied.
+                            record_applied(ledger_path, job, status="pending")
+                            ledger[_ledger_key(job)] = {"status": "pending"}
+                            pending.append(entry)
+                            skipped.append(entry)
                         else:
                             skipped.append(entry)
                         page.wait_for_timeout(2000)  # human-like pause between jobs
@@ -785,6 +814,8 @@ def run_greenhouse_apply(
         verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
         summary = (f"{scanned} matching job(s) scanned on {len(board_list)} board(s), "
                    f"{len(applied)} {verb}, {len(skipped)} skipped")
+        if pending:
+            summary += f", {len(pending)} submitted but unconfirmed (check by hand)"
         summary += f" ({filtered} filtered by task_filter)." if filtered else "."
         # Summary and counts lead: the LLM judge only reads the first few KB of
         # the serialized result, and a long skipped[] used to push them past it.
@@ -796,6 +827,7 @@ def run_greenhouse_apply(
             "submitted_count": submitted_n,
             "skipped_count": len(skipped),
             "filtered_count": filtered,
+            "unconfirmed_count": len(pending),
             **base,
             "applied": applied,
             "skipped": [{k: v for k, v in e.items() if k != "answers"} for e in skipped],

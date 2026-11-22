@@ -256,8 +256,11 @@ def test_full_funnel_submits_confirms_and_records(site, resume, tmp_path):
     assert rec.on_loop and not any(rec.on_loop)
     assert "Why do you want to join Acme?" in rec.asked
 
-    # Only the confirmed submission is in the ledger.
-    assert set(gh.load_ledger(str(tmp_path / "ledger.json"))) == {"acme/1"}
+    # The confirmed submission is "applied"; the e-mailed-code one may have
+    # reached the employer, so it is "pending" — never resent automatically.
+    ledger = gh.load_ledger(str(tmp_path / "ledger.json"))
+    assert {k: v["status"] for k, v in ledger.items()} == {"acme/1": "applied", "acme/2": "pending"}
+    assert out["unconfirmed_count"] == 1
 
 
 def test_rerun_skips_ledgered_job_without_resubmitting(site, resume, tmp_path):

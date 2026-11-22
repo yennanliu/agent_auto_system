@@ -56,10 +56,8 @@ class GreenhouseAdapter(Adapter):
 
     def ledger_status(self, job, ledger) -> str | None:
         return (super().ledger_status(job, ledger)
-                or ("applied" if gh._ledger_key(job) in load_ledger(self._gh_ledger_path()) else None))
+                or gh.ledger_status(load_ledger(self._gh_ledger_path()), job))
 
     def record(self, ledger_path, job, status: str = "applied") -> None:
         super().record(ledger_path, job, status)
-        # greenhouse_apply's ledger has no status: any entry blocks a resend,
-        # which is what a pending (maybe-received) submission needs too.
-        gh.record_applied(self._gh_ledger_path(), job)
+        gh.record_applied(self._gh_ledger_path(), job, status)
