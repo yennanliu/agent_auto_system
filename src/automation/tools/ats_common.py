@@ -448,7 +448,7 @@ def _years_required(lbl: str) -> int | None:
     return int(n) if n.isdigit() else _NUM_WORDS[n]
 
 
-_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|intern)\s+(?:for|at|by|with)\s+(.{1,60})")
+_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|contracted|intern)\s+(?:for|at|by|with)\s+(.{1,60})")
 _US_TARGET = re.compile(r"(us|our|this|the company|the organi[sz]ation|here)\b")
 
 
@@ -556,7 +556,7 @@ def rule_answer(label: str, profile: dict):
             return yes_no(authorized and not (sponsor and needs))
         return yes_no(needs)
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
-                 r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
+                 r"previously (worked|been (directly )?employed)|former employee|ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
     # "…are you an existing HP employee?" (HP, Workday): asked about the hiring
     # company, it's "No" when the profile's current employer is someone else.

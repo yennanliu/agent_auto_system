@@ -575,3 +575,11 @@ def test_company_site_option(company, aliases, options, expected):
     q = "How Did You Hear About Us?"
     if expected:
         assert ac.answer_question(Question(q, q, "select", True, options), p)["value"] == expected
+
+
+def test_prior_employment_directly_employed_or_contracted():
+    """Intel (Workday), live 2026-11-23."""
+    q = ("Are you currently or have you previously been directly employed, accepted an offer, "
+         "or contracted with Intel or an Intel subsidiary?")
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "intel"}) == "No"
+    assert ac.rule_answer(q.replace("Intel", "Acme"), {**PROFILE, "job_company": "intel"}) is None
