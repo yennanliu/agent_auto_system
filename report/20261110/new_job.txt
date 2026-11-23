@@ -1,0 +1,33 @@
+Amazon | Forward Deployed Engineer, Forward Deployment Engineering | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10593216/forward-deployed-engineer-forward-deployment-engineering
+Amazon | Senior Software Development Engineer , Frontier Networking Software Services | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10600027/senior-software-development-engineer-frontier-networking-software-services
+Amazon | Senior Software Development Engineer, Teleoperation | Wilmington, MA, US | https://www.amazon.jobs/en/jobs/10601360/senior-software-development-engineer-teleoperation
+Amazon | Software Development Engineer - Network Observability, Leo Networking Software | Redmond, WA, US | https://www.amazon.jobs/en/jobs/10600664/software-development-engineer-network-observability-leo-networking-software
+Amazon | Software Development Engineer II, AWS DynamoDB | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10601531/software-development-engineer-ii-aws-dynamodb
+Amazon | Software Development Engineer II, Business Data Technologies | Detroit, MI, US | https://www.amazon.jobs/en/jobs/10601713/software-development-engineer-ii-business-data-technologies
+Amazon | Software Development Engineer II, Leo Secure Communications, Amazon Leo Bus Software and Flight Operations | Redmond, WA, US | https://www.amazon.jobs/en/jobs/10601528/software-development-engineer-ii-leo-secure-communications-amazon-leo-bus-software-and-flight-operations
+Amazon | Software Development Engineer II, Teleoperation | Wilmington, MA, US | https://www.amazon.jobs/en/jobs/10601355/software-development-engineer-ii-teleoperation
+Amazon | Software Development Engineer, ADC2S | Herndon, VA, US | https://www.amazon.jobs/en/jobs/10601553/software-development-engineer-adc2s
+Amazon | Software Development Engineer, AI Foundations, Amazon Leo Networking Software | Redmond, WA, US | https://www.amazon.jobs/en/jobs/10601502/software-development-engineer-ai-foundations-amazon-leo-networking-software
+Amazon | Software Development Engineer, Amazon Dedicated Cloud, Early Career - 2027, Amazon Dedicated Cloud (ADC) | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10601956/software-development-engineer-amazon-dedicated-cloud-early-career-2027-amazon-dedicated-cloud-adc
+Amazon | Software Development Engineer, Global Tax Services - Data | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10601926/software-development-engineer-global-tax-services-data
+Amazon | Software Engineer, AWS Applied AI Solutions | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10599520/software-engineer-aws-applied-ai-solutions
+Amazon | Software Engineer, AWS Applied AI Solutions | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10599519/software-engineer-aws-applied-ai-solutions
+Amazon | Software Engineer, AWS Applied AI Solutions | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10599518/software-engineer-aws-applied-ai-solutions
+Amazon | Software Engineer, AWS Applied AI Solutions | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10599517/software-engineer-aws-applied-ai-solutions
+Amazon | Sr Forward Deployed Engineer, AWS Forward Deployed Engineering | Chicago, IL, US | https://www.amazon.jobs/en/jobs/10601763/sr-forward-deployed-engineer-aws-forward-deployed-engineering
+Amazon | Sr Forward Deployed Engineer, Forward Deployment Engineering | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10593217/sr-forward-deployed-engineer-forward-deployment-engineering
+Amazon | Sr. Software Development Engineer, Amazon Leo Commerce | Redmond, WA, US | https://www.amazon.jobs/en/jobs/10597735/sr-software-development-engineer-amazon-leo-commerce
+Amazon | Sr. Software Engineer, AI Trust and Innovation | Bengaluru, KA, IN | https://www.amazon.jobs/en/jobs/10596568/sr-software-engineer-ai-trust-and-innovation
+Anthropic | Staff+ Software Engineer, Claude Design | San Francisco, CA / New York City, NY | https://job-boards.greenhouse.io/anthropic/jobs/5477746008
+Cursor | Software Engineer, Pretraining Data | Palo Alto, CA | https://jobs.ashbyhq.com/cursor/d06d229f-eb2c-46d7-8e0f-96da5ecaec88
+Instacart | Staff Software Engineer, Ads Data Platform | Canada - Remote (ON, AB, BC, or NS Only) | https://instacart.careers/job/?gh_jid=8372848
+Instacart | Staff Software Engineer, Ads Data Platform | United States - Remote | https://instacart.careers/job/?gh_jid=8372846
+Netflix | Full Stack Software Engineer (4/5), Avatar Engineering Fixed Term Contract 24-months based in Tallinn/Tartu | Tartu, Estonia | https://explore.jobs.netflix.net/careers/job/790319434423
+OpenAI | Principal Software Engineer, Full Stack — Codex | San Francisco | https://jobs.ashbyhq.com/openai/74842880-e750-4664-9e2e-83b4c96c5a03
+Palantir | Software Engineer, Internship - Connectivity Platform and Product | Denver, CO | https://jobs.lever.co/palantir/eb496d6a-a960-43d3-a09b-e3843052f54e
+Pinterest | Staff Security Software Engineer, Detection & Response | Seattle, WA, US; Remote, US | https://www.pinterestcareers.com/jobs/?gh_jid=8230775
+Rocket Lab | Senior Ground Software Engineer I | Littleton, CO | https://job-boards.greenhouse.io/rocketlab/jobs/8200818003
+Scale AI | Senior Applied AI Engineer | Kuwait City, Kuwait | https://job-boards.greenhouse.io/scaleai/jobs/4751149005
+SoFi | Staff Software Engineer, Streaming and Workflows | WA - Seattle; CA - San Francisco | https://sofi.com/careers/job/8198249003?gh_jid=8198249003
+SpaceX | Sr. Software Engineer (Starlink Mobile) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8935801002?gh_jid=8935801002
+SpaceX | Sr. Software Engineer (Starlink Mobile) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8935776002?gh_jid=8935776002
