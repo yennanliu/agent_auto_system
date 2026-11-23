@@ -620,6 +620,20 @@ def rule_answer(label: str, profile: dict):
     return None
 
 
+def company_site_option(options: list[str], profile: dict) -> str | None:
+    """"How did you hear?": the option naming the hiring company's own site
+    ("Cadence.com", "Applied Materials Corporate Website"), which is where the
+    job was found. Never one that merely names the company ("I currently work
+    at/for Applied Materials", "Former Employee")."""
+    for name in company_names(profile):
+        n = re.escape(name.strip())
+        for o in options:
+            if re.search(rf"^\s*{n}\.(com|io|co)\b|\b{n}\b.*\b(web ?site|careers?|site|portal)\b", o, re.I) \
+                    and not re.search(r"\b(work|employee|referr|former)", o, re.I):
+                return o
+    return None
+
+
 def to_options(answer, options: list[str], label: str = "") -> list[str]:
     """Every option a list answer (spoken / programming languages) maps onto."""
     if _PROGRAMMING_Q.search(label or ""):
@@ -725,7 +739,8 @@ def answer_question(q: Question, profile: dict,
         picks = to_options(ans, options, label)
         return ans_dict(picks) if picks else None
     if kind in ("select", "multiselect"):
-        pick = to_option(ans, options, label) if ans else None
+        pick = company_site_option(options, profile) if ans == "__source__" else None
+        pick = pick or (to_option(ans, options, label) if ans else None)
         if pick is None and ans and profile.get("extra_answers"):
             # An extra answer is a keyword match, so one written for
             # another question ("currently reside: Taiwan") can catch

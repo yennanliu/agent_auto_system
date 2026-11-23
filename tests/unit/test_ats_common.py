@@ -558,3 +558,20 @@ def test_existing_employee_of_the_hiring_company():
     # Without a known current employer, or when it IS the company: never guessed.
     assert ac.rule_answer(q, {**PROFILE, "job_company": "hp", "employment": {}}) is None
     assert ac.rule_answer(q, {**me, "employment": {"company": "HP"}}) is None
+
+
+@pytest.mark.parametrize("company,aliases,options,expected", [
+    # Cadence (Workday), live: second level of "Job Board/Social Media Web Site".
+    ("cadence", (), ["104 portal", "51job", "Bizreach", "Cadence.com", "DICE", "Facebook"], "Cadence.com"),
+    ("amat", ("Applied Materials",), ["I currently work at/for Applied Materials",
+                                      "Applied Materials Corporate Website", "Staffing Agency"],
+     "Applied Materials Corporate Website"),
+    ("amat", ("Applied Materials",), ["I currently work at/for Applied Materials", "Staffing Agency"], None),
+    ("cadence", (), ["Agency", "Employee Referral", "Job Fair"], None),
+])
+def test_company_site_option(company, aliases, options, expected):
+    p = ac.with_job_location(PROFILE, None, company, aliases=aliases)
+    assert ac.company_site_option(options, p) == expected
+    q = "How Did You Hear About Us?"
+    if expected:
+        assert ac.answer_question(Question(q, q, "select", True, options), p)["value"] == expected
