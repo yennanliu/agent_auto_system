@@ -50,21 +50,76 @@ def test_on_day_is_utc(stamp, expected):
 
 def test_scan_keeps_todays_target_roles_once(monkeypatch):
     def fake(board, day):
-        yield "Backend Engineer", "https://x/1", "2026-11-19T10:00:00Z"
-        yield "Backend Engineer", "https://x/1", "2026-11-19T10:00:00Z"   # duplicate URL
-        yield "Software Engineer", "https://x/2", "2026-11-01T10:00:00Z"  # not today
-        yield "Account Executive", "https://x/3", "2026-11-19T10:00:00Z"  # not a target role
-        yield "  AI Engineer ", "https://x/4", True                         # source pre-filtered
+        yield "Backend Engineer", "https://x/1", "2026-11-19T10:00:00Z", "Taipei"
+        yield "Backend Engineer", "https://x/1", "2026-11-19T10:00:00Z", "Taipei"   # duplicate URL
+        yield "Software Engineer", "https://x/2", "2026-11-01T10:00:00Z", "Taipei"  # not today
+        yield "Account Executive", "https://x/3", "2026-11-19T10:00:00Z", "Taipei"  # not a target role
+        yield "  AI Engineer ", "https://x/4", True, "-"                              # source pre-filtered
     monkeypatch.setitem(dnj.SOURCES, "fake", fake)
     assert dnj.scan("Acme", "fake", "", DAY) == [
-        ("Acme", "Backend Engineer", "https://x/1"),
-        ("Acme", "AI Engineer", "https://x/4"),
+        ("Acme", "Backend Engineer", "Taipei", "https://x/1"),
+        ("Acme", "AI Engineer", "-", "https://x/4"),
     ]
+
+
+@pytest.mark.parametrize("places, expected", [
+    (("Tokyo, Japan",), "Tokyo, Japan"),
+    (("Bengaluru, India; Mumbai, India",), "Bengaluru, India; Mumbai, India"),  # Greenhouse
+    ((["Vancouver,Canada"],), "Vancouver, Canada"),                              # Netflix
+    (("San Francisco", ["New York", "San Francisco", None]), "San Francisco; New York"),  # Ashby
+    ((["A", "B", "C", "D", "E"],), "A; B; C (+2 more)"),
+    (("Remote | US",), "Remote / US"),          # "|" would add a column
+    ((None,), "-"), (("",), "-"), (([],), "-"), ((), "-"),
+])
+def test_fmt_location(places, expected):
+    assert dnj.fmt_location(*places) == expected
+
+
+def test_fetchers_read_each_boards_location(monkeypatch):
+    stamp = "2026-11-19T08:00:00Z"
+    payloads = {
+        "greenhouse": {"jobs": [{"title": "T", "absolute_url": "u", "first_published": stamp,
+                                 "location": {"name": "Tokyo, Japan"}},
+                                {"title": "T", "absolute_url": "u2"}]},  # no location at all
+        "lever": [{"text": "T", "hostedUrl": "u", "createdAt": 1795050585000,
+                   "categories": {"location": "London", "allLocations": ["London", "Paris"]}}],
+        "ashby": {"jobs": [{"title": "T", "jobUrl": "u", "publishedAt": stamp, "location": "SF",
+                            "secondaryLocations": [{"location": "NYC"}]}]},
+        "workday": {"jobPostings": [{"title": "T", "externalPath": "/job/x", "postedOn": "Posted Today",
+                                     "locationsText": "Taiwan, Taipei"}]},
+        "amazon": {"jobs": [{"title": "T", "job_path": "/a", "posted_date": "November 19, 2026",
+                             "location": "US, CA, Cupertino"}]},
+        "microsoft": {"data": {"positions": [{"name": "T", "positionUrl": "/a", "postedTs": stamp,
+                                              "locations": ["United States, Texas, Las Colinas"],
+                                              "standardizedLocations": ["Irving, TX, US"]}]}},
+        "netflix": {"positions": [{"name": "T", "canonicalPositionUrl": "u", "t_create": stamp,
+                                   "location": "Vancouver,Canada", "locations": ["Vancouver,Canada"]}]},
+    }
+    monkeypatch.setattr(dnj, "QUERIES", ["software engineer"])
+    monkeypatch.setattr(dnj, "workday_label", lambda day: "Posted Today")
+    got = {}
+    for source, payload in payloads.items():
+        monkeypatch.setattr(dnj, "_get", lambda url, body=None, payload=payload: payload)
+        board = "acme.wd1/Site" if source == "workday" else "acme"
+        # the paging fetchers re-read the same fake page, hence the de-dup
+        got[source] = list(dict.fromkeys(row[3] for row in dnj.SOURCES[source](board, DAY)))
+    assert got == {
+        "greenhouse": ["Tokyo, Japan", "-"], "lever": ["London; Paris"], "ashby": ["SF; NYC"],
+        "workday": ["Taiwan, Taipei"], "amazon": ["Cupertino, CA, US"],
+        "microsoft": ["Irving, TX, US"], "netflix": ["Vancouver, Canada"],
+    }
+
+
+def test_report_line_has_location_column(monkeypatch, tmp_path):
+    monkeypatch.setattr(dnj, "collect", lambda day: ([("Acme", "AI Engineer", "Taipei", "https://x/4")], []))
+    monkeypatch.setattr("sys.argv", ["daily_new_jobs.py", "--date", "2026-11-19", "--out", str(tmp_path)])
+    assert dnj.main() == 0
+    assert (tmp_path / "20261119" / "new_job.txt").read_text() == "Acme | AI Engineer | Taipei | https://x/4\n"
 
 
 def test_collect_sorts_and_isolates_failures(monkeypatch):
     def ok(board, day):
-        yield "Software Engineer", f"https://x/{board}", True
+        yield "Software Engineer", f"https://x/{board}", True, "Taipei"
 
     def boom(board, day):
         raise TimeoutError("slow board")
@@ -106,7 +161,7 @@ def test_microsoft_pages_past_newer_posts_for_a_past_day(monkeypatch):
 
     monkeypatch.setattr(dnj, "_get", fake_get)
     monkeypatch.setattr(dnj, "QUERIES", ["software engineer"])
-    urls = [u for _, u, ts in dnj.microsoft("", DAY) if dnj.on_day(ts, DAY)]
+    urls = [u for _, u, ts, _ in dnj.microsoft("", DAY) if dnj.on_day(ts, DAY)]
     assert urls == ["https://apply.careers.microsoft.com/b"]
     assert len(calls) == 3  # stopped once a page ended before the day
 
@@ -128,6 +183,6 @@ def test_amazon_pages_past_newer_posts_for_a_past_day(monkeypatch):
 
     monkeypatch.setattr(dnj, "_get", fake_get)
     monkeypatch.setattr(dnj, "QUERIES", ["software engineer"])
-    urls = [u.removeprefix("https://www.amazon.jobs") for _, u, _ in dnj.amazon("", DAY)]
+    urls = [u.removeprefix("https://www.amazon.jobs") for _, u, _, _ in dnj.amazon("", DAY)]
     assert urls == ["/b", "/c", "/d", "/e"]
     assert len(calls) == 3  # stopped once a page ended before the day

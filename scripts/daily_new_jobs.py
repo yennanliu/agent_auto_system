@@ -5,7 +5,7 @@ backs it (Greenhouse, Lever, Ashby, Workday, or the company's own search API),
 keeps the postings first published *today* (UTC) whose title matches a target
 role, and writes one line per job to ``report/YYYYMMDD/new_job.txt``:
 
-    Company | Role | URL
+    Company | Role | Location | URL
 
 Stdlib only — runs on a bare GitHub Actions runner. A board that fails is
 reported as a warning and skipped; it never fails the whole run.
@@ -147,22 +147,45 @@ def _get(url: str, body: dict | None = None, tries: int = 4):
             time.sleep(5 * 2 ** attempt)
 
 
-# Each fetcher yields (title, url, posted) for one board; ``posted`` is judged by on_day,
-# except Workday/Amazon, whose fetchers pre-filter on their own "today" signal and yield True.
+MAX_LOCATIONS = 3  # a posting open in 20 offices would otherwise swamp the line
+
+
+def fmt_location(*places) -> str:
+    """One report cell from a board's location values (strings, lists of them, or None):
+    de-duplicated, "; "-joined, capped at MAX_LOCATIONS, and "-" when the board gave none."""
+    names: list[str] = []
+    for place in places:
+        for item in ([place] if isinstance(place, str) else place or []):
+            for name in str(item or "").split(";"):  # Greenhouse pre-joins its offices with ";"
+                # "|" is the report's column separator; "Vancouver,Canada" lacks the space
+                name = re.sub(r"\s*,\s*", ", ", " ".join(name.replace("|", "/").split())).strip(", ")
+                if name and name not in names:
+                    names.append(name)
+    extra = len(names) - MAX_LOCATIONS
+    return "; ".join(names[:MAX_LOCATIONS]) + (f" (+{extra} more)" if extra > 0 else "") or "-"
+
+
+# Each fetcher yields (title, url, posted, location) for one board; ``posted`` is judged by
+# on_day, except Workday/Amazon, whose fetchers pre-filter on their own "today" signal and
+# yield True. ``location`` is whatever the board says (see fmt_location).
 
 def greenhouse(board, day):
     for j in _get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs")["jobs"]:
-        yield j["title"], j["absolute_url"], j.get("first_published")
+        yield (j["title"], j["absolute_url"], j.get("first_published"),
+               fmt_location((j.get("location") or {}).get("name")))
 
 
 def lever(board, day):
     for j in _get(f"https://api.lever.co/v0/postings/{board}?mode=json"):
-        yield j["text"], j["hostedUrl"], j["createdAt"]
+        cats = j.get("categories") or {}
+        yield (j["text"], j["hostedUrl"], j["createdAt"],
+               fmt_location(cats.get("allLocations") or cats.get("location")))
 
 
 def ashby(board, day):
     for j in _get(f"https://api.ashbyhq.com/posting-api/job-board/{board}")["jobs"]:
-        yield j["title"], j["jobUrl"], j.get("publishedAt")
+        others = [s.get("location") for s in j.get("secondaryLocations") or []]
+        yield j["title"], j["jobUrl"], j.get("publishedAt"), fmt_location(j.get("location"), others)
 
 
 def workday(board, day):
@@ -178,7 +201,9 @@ def workday(board, day):
             posts = page.get("jobPostings", [])
             for j in posts:
                 if j.get("postedOn") == label:
-                    yield j["title"], f"{base}/{site}{j['externalPath']}", True
+                    # locationsText is the office, or just "2 Locations" for a multi-site posting
+                    yield (j["title"], f"{base}/{site}{j['externalPath']}", True,
+                           fmt_location(j.get("locationsText")))
             if len(posts) < 20:
                 break
 
@@ -192,7 +217,9 @@ def amazon(board, day):
             dates = [datetime.strptime(j["posted_date"], "%B %d, %Y").date() for j in jobs]
             for j, posted in zip(jobs, dates):
                 if posted == day:
-                    yield j["title"], "https://www.amazon.jobs" + j["job_path"], True
+                    # location reads "US, CA, Cupertino": flip it to city-first like the others
+                    place = ", ".join(reversed((j.get("location") or "").split(", ")))
+                    yield j["title"], "https://www.amazon.jobs" + j["job_path"], True, fmt_location(place)
             if not jobs or dates[-1] < day:  # paged past the day (a past day starts on later pages)
                 break
 
@@ -204,7 +231,8 @@ def microsoft(board, day):
                        f"&sort_by=timestamp&start={start}&query={urllib.request.quote(q)}"
                        )["data"]["positions"]
             for j in pos:
-                yield j["name"], "https://apply.careers.microsoft.com" + j["positionUrl"], j["postedTs"]
+                yield (j["name"], "https://apply.careers.microsoft.com" + j["positionUrl"], j["postedTs"],
+                       fmt_location(j.get("standardizedLocations") or j.get("locations")))
             last = utc_date(pos[-1]["postedTs"]) if pos else None
             if last is None or last < day:  # paged past the day (a past day starts on later pages)
                 break
@@ -215,24 +243,25 @@ def netflix(board, day):
         pos = _get("https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com"
                    f"&sort_by=new&num=100&query={urllib.request.quote(q)}")["positions"]
         for j in pos:
-            yield j["name"], j["canonicalPositionUrl"], j["t_create"]
+            yield (j["name"], j["canonicalPositionUrl"], j["t_create"],
+                   fmt_location(j.get("locations") or j.get("location")))
 
 
 SOURCES = {f.__name__: f for f in (greenhouse, lever, ashby, workday, amazon, microsoft, netflix)}
 
 
-def scan(company: str, source: str, board: str, day: date) -> list[tuple[str, str, str]]:
+def scan(company: str, source: str, board: str, day: date) -> list[tuple[str, str, str, str]]:
     seen, rows = set(), []
-    for title, url, posted in SOURCES[source](board, day):
+    for title, url, posted, location in SOURCES[source](board, day):
         if url in seen or not is_target_role(title):
             continue
         if posted is True or on_day(posted, day):
             seen.add(url)
-            rows.append((company, title.strip(), url))
+            rows.append((company, title.strip(), location, url))
     return rows
 
 
-def collect(day: date) -> tuple[list[tuple[str, str, str]], list[str]]:
+def collect(day: date) -> tuple[list[tuple[str, str, str, str]], list[str]]:
     rows, warnings = [], []
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(scan, n, s, b, day): n for n, s, b in COMPANIES}
@@ -254,7 +283,7 @@ def main() -> int:
     rows, warnings = collect(args.date)
     path = Path(args.out) / f"{args.date:%Y%m%d}" / "new_job.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(f"{c} | {t} | {u}\n" for c, t, u in rows))
+    path.write_text("".join(f"{c} | {t} | {loc} | {u}\n" for c, t, loc, u in rows))
 
     print(f"{len(rows)} new jobs on {args.date} -> {path}")
     for w in warnings:
