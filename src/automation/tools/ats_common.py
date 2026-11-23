@@ -533,6 +533,16 @@ def rule_answer(label: str, profile: dict):
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
+    # "…are you an existing HP employee?" (HP, Workday): asked about the hiring
+    # company, it's "No" when the profile's current employer is someone else.
+    m = re.search(r"\bare you (?:an? )?(?:existing|current) (.{1,30}?) ?employee", lbl)
+    if m:
+        company = _norm(profile.get("job_company") or "")
+        current = _norm((profile.get("employment") or {}).get("company") or "")
+        named = _norm(m.group(1))
+        if company and named in (company, "") and current and current != company:
+            return "No"
+        return None
     # "Are you referred to this job by a Micron employee?" too (Workday, Micron).
     if re.search(r"were you referred|are you referred|referred (to [\w ]{1,30} )?by|referral", lbl):
         return "No"

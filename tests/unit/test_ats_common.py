@@ -547,3 +547,14 @@ def test_saved_default_answers_apply_after_the_runs_own(tmp_path, monkeypatch):
     assert ans["value"] == "11%-20%"
     monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(tmp_path / "missing.txt"))
     assert ac.default_answers() == []
+
+
+def test_existing_employee_of_the_hiring_company():
+    """HP (Workday), live 2026-11-23."""
+    q = ("To help us understand your preferences related to personal data and uses for future "
+         "recruitment processes, are you an existing HP employee?")
+    me = {**PROFILE, "job_company": "hp", "employment": {"company": "Self-employed"}}
+    assert ac.rule_answer(q, me) == "No"
+    # Without a known current employer, or when it IS the company: never guessed.
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "hp", "employment": {}}) is None
+    assert ac.rule_answer(q, {**me, "employment": {"company": "HP"}}) is None
