@@ -529,7 +529,8 @@ def rule_answer(label: str, profile: dict):
     # "Are you a citizen / lawful permanent resident of the U.S.…? (if you only
     # hold a temporary visa, check No)" is about citizenship, not sponsorship:
     # _profile_answer already said all it can (Western Digital, live).
-    if re.search(r"\bcitizen\b|permanent resident|green card|asylee|refugee", lbl):
+    if re.search(r"\bcitizen\b|permanent resident|green card|asylee|refugee", lbl) \
+            and not re.search(r"sponsor", lbl):
         return None
     # "Will you require a work permit…" is a sponsorship question, not "do you
     # have the right to work" — opposite answers.

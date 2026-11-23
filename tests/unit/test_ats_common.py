@@ -583,3 +583,14 @@ def test_prior_employment_directly_employed_or_contracted():
          "or contracted with Intel or an Intel subsidiary?")
     assert ac.rule_answer(q, {**PROFILE, "job_company": "intel"}) == "No"
     assert ac.rule_answer(q.replace("Intel", "Acme"), {**PROFILE, "job_company": "intel"}) is None
+
+
+def test_a_sponsorship_question_with_a_residency_note_is_still_sponsorship():
+    """Intel (Workday), live: its sponsorship question notes student visas and
+    permanent residents; the citizenship guard must not swallow it."""
+    p = {**PROFILE, "authorized_countries": {"united states"}, "job_countries": {"united states"},
+         "needs_sponsorship": True}
+    q = ("Do you now, or in the future, require Intel to sponsor you for a visa to work in the United "
+         "States? NOTE: Individuals with work authorization issued pursuant to their student visa "
+         "(e.g., F-1, J-1, M-1) or currently a lawful permanent resident should answer accordingly.")
+    assert ac.rule_answer(q, p) == "Yes"
