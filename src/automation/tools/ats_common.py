@@ -422,6 +422,23 @@ _YEARS_Q = re.compile(r"\b(do|does|have|has) you (have|possess|got)\b.{0,25}?\b(
                       r"(\d{1,2}|" + "|".join(_NUM_WORDS) + r")\b\s*(?:\(\s*\d{1,2}\s*\)\s*)?\+?\s*(?:or more\s*)?years?\b")
 
 
+# Words of a "how many years…?" question that don't name a skill.
+_YEARS_GENERIC = set("""how many years year yrs have has had you do does did of experience experienced
+    with in using used the a an and or more at least over than minimum total overall professional
+    relevant work working industry software engineering engineer development developer developing
+    product programming full stack fullstack full-stack backend back-end your plus number possess got
+    what is are career commercial hands-on hands on paid post-graduate post graduation
+    do you have""".split()) | set(_NUM_WORDS)
+
+
+def _skill_specific(lbl: str) -> bool:
+    """True when a years question names a skill, tool or domain ("…with C#",
+    ".NET development", "leading teams") rather than general software work."""
+    words = re.findall(r"[a-z0-9#+.]+(?:-[a-z]+)?", lbl.lower())
+    return any(w.strip(".") not in _YEARS_GENERIC and not w.strip(".").isdigit()
+               for w in words if w.strip("."))
+
+
 def _years_required(lbl: str) -> int | None:
     """N in a yes/no "Do you have N (or more) years of …?" question, else None."""
     m = _YEARS_Q.search(lbl)
@@ -457,6 +474,10 @@ def _prior_employment(lbl: str, profile: dict):
     # "…employed by any Micron company": a leading determiner isn't the name.
     target = re.sub(r"^(?:any|a|an|the|one of)\s+(?:of\s+)?", "", target, flags=re.I)
     words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
+    # "…employed by WD?" at Western Digital: the company's initials.
+    parts = re.findall(r"[a-z0-9]+", (profile.get("job_company") or "").lower())
+    if len(parts) > 1 and words and words[0] == "".join(w[0] for w in parts):
+        return "No"
     if any("".join(words[:n]) == company for n in (1, 2, 3)):
         return "No"
     return None
@@ -480,11 +501,20 @@ def rule_answer(label: str, profile: dict):
         return profile.get("github_url") or None
     if site == "website":
         return profile.get("website_url") or profile.get("github_url") or None
+    # "Are you a citizen / lawful permanent resident of the U.S.…? (if you only
+    # hold a temporary visa, check No)" is about citizenship, not sponsorship:
+    # _profile_answer already said all it can (Western Digital, live).
+    if re.search(r"\bcitizen\b|permanent resident|green card|asylee|refugee", lbl):
+        return None
     # "Will you require a work permit…" is a sponsorship question, not "do you
     # have the right to work" — opposite answers.
     sponsor = re.search(r"sponsor|visa|(require|need)\b.*\bwork permit", lbl)
     auth_q = re.search(r"authori[sz]ed|eligible to work|legally (able|permitted|allowed)|"
                        r"right to work|work permit", lbl)
+    # "Are you party to an agreement that restricts your right to work for us?"
+    # is a non-compete question, not work authorization (Western Digital, live).
+    if re.search(r"restrict|non-?compete|non-?solicit", lbl):
+        sponsor = auth_q = None
     if sponsor or auth_q:
         ok = _authorized_for(lbl, profile)
         if ok is _UNKNOWN:
@@ -506,7 +536,7 @@ def rule_answer(label: str, profile: dict):
     # "Are you referred to this job by a Micron employee?" too (Workday, Micron).
     if re.search(r"were you referred|are you referred|referred (to [\w ]{1,30} )?by|referral", lbl):
         return "No"
-    if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
+    if re.search(r"how (did )?you (first )?(hear|heard|find|found|learn|learned|came across)|"
                  r"where did you (hear|find|learn|see)", lbl):
         return "__source__"  # we found it on the employer's own job board
     # "Which university are you attending / did you last attend?" — the
@@ -518,11 +548,17 @@ def rule_answer(label: str, profile: dict):
         return (profile.get("education") or {}).get("degree") or None
     # "Do you have seven (7) / 5+ / at least 3 years of …?" is a yes/no about
     # the candidate's experience: compare with the profile's years, truthfully.
+    # The profile knows total years only: for a skill ("…with C#", "…used
+    # SQL") it can truthfully say "No" to "N years?" when the total is less,
+    # and nothing more (Experian, live: "8-12 years" of C# was a guess).
+    years = int(profile.get("years", 0) or 0)
     need = _years_required(lbl)
     if need is not None:
-        return yes_no(int(profile.get("years", 0) or 0) >= need)
+        if _skill_specific(lbl):
+            return "No" if years < need else None
+        return yes_no(years >= need)
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
-        return str(profile.get("years", 3))
+        return None if _skill_specific(lbl) else str(profile.get("years", 3))
     # "Last drawn / current salary" is a fact about the past, not the expectation.
     if re.search(r"(current|last|previous|present|most recent)( drawn)?( base)? (salary|compensation|pay)|"
                  r"last drawn", lbl) and not re.search(r"expect", lbl):

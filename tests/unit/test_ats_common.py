@@ -390,10 +390,8 @@ def test_real_consent_boxes_still_agree(label):
 
 @pytest.mark.parametrize("label,years,answer", [
     ("Do you have seven (7) years of full-stack or embedded device software development?", 5, "No"),
-    ("Do you have seven (7) years of full-stack or embedded device software development?", 8, "Yes"),
-    ("Do you have 5+ years of Python experience?", 5, "Yes"),
+    ("Do you have 7 years of professional software development experience?", 8, "Yes"),
     ("Do you have at least 3 years of experience with AWS?", 2, "No"),
-    ("Do you possess ten years or more of experience leading teams?", 12, "Yes"),
 ])
 def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
     """Found in the Workday e2e (3M asks 'seven (7) years'): answered truthfully
@@ -401,6 +399,52 @@ def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
     assert ac.rule_answer(label, {**PROFILE, "years": years}) == answer
     q = Question("q", label, "select", required=True, options=["Yes", "No"])
     assert ac.answer_question(q, {**PROFILE, "years": years})["value"] == answer
+
+
+@pytest.mark.parametrize("label,years", [
+    # The profile has total years only. Enough of them says nothing about one
+    # skill (Experian, live: "8-12 years" of C# would have been sent).
+    ("Do you have seven (7) years of full-stack or embedded device software development?", 8),
+    ("Do you have 5+ years of Python experience?", 5),
+    ("Do you possess ten years or more of experience leading teams?", 12),
+    ("How many years of experience with C# do you have?", 10),
+    ("How many years have you used SQL?", 10),
+    ("How many years of experience do you have in .NET development, including building REST APIs?", 10),
+])
+def test_years_of_one_skill_are_never_taken_from_the_total(label, years):
+    assert ac.rule_answer(label, {**PROFILE, "years": years}) is None
+
+
+def test_years_of_general_software_work_are_the_total():
+    p = {**PROFILE, "years": 10}
+    assert ac.rule_answer("How many years of Software Engineering/Product Development experience "
+                          "do you have?", p) == "10"
+
+
+def test_citizenship_is_never_read_from_a_visa_remark():
+    """Western Digital, live: the question's "(…temporary U.S. visa, check No)"
+    made the sponsorship rule answer "No"."""
+    p = {**PROFILE, "authorized_countries": {"united states"}, "job_country": "United States"}
+    assert ac.rule_answer("Are you a citizen of the U.S., a lawful permanent resident of the U.S., or a "
+                          "non-U.S. citizen who is in the U.S. as an asylee or a refugee? (if you only hold "
+                          "a temporary work/travel/student U.S. visa, please check No)", p) is None
+
+
+def test_an_agreement_restricting_your_right_to_work_is_not_authorization():
+    """Western Digital, live: "right to work" made it a work-authorization "Yes"."""
+    assert ac.rule_answer("Are you currently party to any employment, consulting or personal services "
+                          "agreement that (i) restricts your right to terminate such agreements or (ii) "
+                          "restricts your right to work for WD immediately upon hire?", PROFILE) is None
+
+
+def test_prior_employment_by_the_companys_initials():
+    wd = {**PROFILE, "job_company": "Western Digital"}
+    assert ac.rule_answer("Have you ever been employed by WD or any of its subsidiaries?", wd) == "No"
+    assert ac.rule_answer("Have you ever been employed by IBM?", wd) is None
+
+
+def test_how_did_you_first_hear():
+    assert ac.rule_answer("How did you first hear about the position you applied for?", PROFILE) == "__source__"
 
 
 def test_how_many_years_still_returns_the_number():
