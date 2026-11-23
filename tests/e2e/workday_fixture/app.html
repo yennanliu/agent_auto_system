@@ -11,6 +11,8 @@
   State lives in sessionStorage (sign-in) and localStorage (the draft).
 -->
 <html><head><meta charset="utf-8"><title>Acme careers</title>
+<!-- Like Applied Materials: the employer's name, which the tenant id ("acme") doesn't spell. -->
+<script type="application/ld+json">{"@type": "JobPosting", "hiringOrganization": {"@type": "Organization", "name": "0042 Widget Holdings Taiwan, Ltd"}}</script>
 <style>
   body { font: 14px sans-serif; margin: 0; }
   header { background: #000; color: #fff; padding: 8px; display: flex; gap: 8px; justify-content: flex-end; }
@@ -164,6 +166,7 @@
       { id: 'auth', label: 'Are you legally authorized to work in the United States?', kind: 'radio', required: true, options: ['Yes', 'No'] },
       { id: 'sponsor', label: 'Will you now or in the future require sponsorship for employment visa status?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
       { id: 'former', label: 'Have you ever been employed by Acme or any of its subsidiaries?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
+      { id: 'widget', label: 'Have you ever worked at Widget Holdings as a regular employee, contingent worker, intern, etc.?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
       { id: 'epic', label: 'Have you ever been employed by Epic Systems?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
       { id: 'noncompete', label: 'Have you signed an agreement with a current or former employer containing a non-compete?', kind: 'listbox', required: true, options: ['Yes', 'No'] },
     ],

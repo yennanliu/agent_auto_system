@@ -510,3 +510,52 @@ def test_my_experience_never_guesses():
 def test_degree_option_by_level(degree, options, expected):
     from src.automation.tools.ats_common import degree_option
     assert degree_option(options, degree) == expected
+
+
+# Applied Materials (Taiwan), live 2026-11-23: the tenant id "amat" doesn't
+# spell "Have you ever worked at Applied Materials…?"; the posting's
+# hiringOrganization does.
+@pytest.mark.parametrize("raw,clean", [
+    ("0027 Applied Materials Taiwan, Ltd", "Applied Materials"), ("HP Inc.", "HP"),
+    ("Micron Technology, Inc.", "Micron Technology"), ("3M Company", "3M"),
+    ("Western Digital Corporation", "Western Digital"), ("NVIDIA", "NVIDIA"), ("", ""),
+])
+def test_clean_company_name(raw, clean):
+    from src.automation.tools.ats_common import clean_company_name
+    assert clean_company_name(raw) == clean
+
+
+def test_prior_employment_by_the_employers_own_name():
+    from src.automation.tools.ats_common import rule_answer, with_job_location
+    p = with_job_location(PROFILE, None, "amat", aliases=("Applied Materials",))
+    assert rule_answer("Have you ever worked at Applied Materials as a regular employee, "
+                       "contingent worker, intern, etc.?", p) == "No"
+    assert rule_answer("Have you ever worked at Applied Signal before?", p) is None
+
+
+def test_a_source_prompt_is_answered_like_a_listbox():
+    """Applied Materials, live: "How Did You Hear About Us?" is a selectinput
+    prompt; its items get the same source answer as a listbox."""
+    from src.automation.tools.ats_common import with_job_location
+    items = ["Applied Materials Corporate Website", "I currently work at/for Applied Materials",
+             "Job Board or Social Media", "Staffing Agency"]
+    p = with_job_location(PROFILE, None, "amat", aliases=("Applied Materials",))
+    f = {**_f("How Did You Hear About Us?", kind="selectinput", options=items)}
+    assert wd.plan_field(f, p) == {"action": "pick", "value": "Applied Materials Corporate Website"}
+    # A search-as-you-type prompt with no items (skills) is left alone.
+    assert wd.plan_field(_f("Type to Add Skills", kind="selectinput", required=False), p) is None
+
+
+def test_a_choose_all_checkbox_group_ticks_only_the_named_boxes():
+    """Applied Materials, live 2026-11-23: "choose all cities that you would accept"."""
+    cities = ["Linkou", "Hsinchu", "Taichung", "Tainan", "Kaohsiung"]
+    q = "Applied Materials Taiwan has offices in 5 cities. Please choose all cities that you would accept."
+    p = build_profile(first_name="A", last_name="B", email="a@b.c",
+                      extra_answers="cities that you would accept: Linkou, Hsinchu")
+    assert wd.plan_field(_f(q, kind="checkbox", options=cities), p) == \
+        {"action": "ticks", "value": ["Linkou", "Hsinchu"]}
+    # No answer, or a city that isn't offered: nothing is ticked.
+    assert wd.plan_field(_f(q, kind="checkbox", options=cities), PROFILE) is None
+    other = build_profile(first_name="A", last_name="B", email="a@b.c",
+                          extra_answers="cities that you would accept: Linkou, Taipei")
+    assert wd.plan_field(_f(q, kind="checkbox", options=cities), other) is None

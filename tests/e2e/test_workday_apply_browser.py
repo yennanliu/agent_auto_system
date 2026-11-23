@@ -126,7 +126,7 @@ def test_dry_run_answers_every_step_and_stops_at_review(site, browser, resume):
     assert state["values"] == {
         "country": "United States", "source": "Acme Website", "first": "Ada", "last": "Lovelace",
         "device": "Mobile", "phone": "+1 415 555 0100",
-        "auth": "Yes", "sponsor": "No", "former": "No", "epic": "No", "noncompete": "No",
+        "auth": "Yes", "sponsor": "No", "former": "No", "widget": "No", "epic": "No", "noncompete": "No",
         "sex": "Not declared", "terms": True,
     }                                                                          # no middle name, no job alerts
     assert state["files"] == ["cv.pdf"]

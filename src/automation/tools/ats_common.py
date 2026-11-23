@@ -461,9 +461,9 @@ def _prior_employment(lbl: str, profile: dict):
     which is the question's usual meaning. When the job's company is known
     (``job_company``) and X is someone else ("…employed by Epic Systems",
     "…by a State government") it is a fact about the person: never guessed."""
-    company = _norm(profile.get("job_company") or "")
+    names = company_names(profile)
     m = _PRIOR_AT.search(lbl)
-    if not company or m is None:
+    if not names or m is None:
         return "No"
     target = m.group(1).strip()
     if _US_TARGET.match(target):
@@ -474,13 +474,38 @@ def _prior_employment(lbl: str, profile: dict):
     # "…employed by any Micron company": a leading determiner isn't the name.
     target = re.sub(r"^(?:any|a|an|the|one of)\s+(?:of\s+)?", "", target, flags=re.I)
     words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
-    # "…employed by WD?" at Western Digital: the company's initials.
-    parts = re.findall(r"[a-z0-9]+", (profile.get("job_company") or "").lower())
-    if len(parts) > 1 and words and words[0] == "".join(w[0] for w in parts):
-        return "No"
-    if any("".join(words[:n]) == company for n in (1, 2, 3)):
-        return "No"
+    for name in names:
+        # "…employed by WD?" at Western Digital: the company's initials.
+        parts = re.findall(r"[a-z0-9]+", name.lower())
+        if len(parts) > 1 and words and words[0] == "".join(w[0] for w in parts):
+            return "No"
+        if any("".join(words[:n]) == _norm(name) for n in (1, 2, 3)):
+            return "No"
     return None
+
+
+_LEGAL_SUFFIX = re.compile(r"[,.]?\s+(ltd|limited|inc|incorporated|llc|corp|corporation|co|company|gmbh|"
+                           r"plc|s\.?a|b\.?v|pte|pty|ag|k\.?k|sdn bhd|bhd)\.?$", re.I)
+
+
+def clean_company_name(name: str) -> str:
+    """A legal entity name as people write the company: "0027 Applied
+    Materials Taiwan, Ltd" → "Applied Materials" (no leading entity code,
+    legal suffix or trailing country)."""
+    t = re.sub(r"^\s*[\d-]+\s+", "", name or "").strip()
+    for _ in range(3):
+        t = _LEGAL_SUFFIX.sub("", t).strip().rstrip(",")
+        words = t.split()
+        if len(words) > 1 and countries_in(words[-1].lower()):
+            t = " ".join(words[:-1])
+    return t.strip()
+
+
+def company_names(profile: dict) -> list[str]:
+    """The hiring company's names: ``job_company`` and its aliases (on Workday
+    the tenant "amat" and the employer "Applied Materials")."""
+    names = [profile.get("job_company") or "", *(profile.get("job_company_aliases") or ())]
+    return [n for n in dict.fromkeys(n.strip() for n in names) if n]
 
 
 def rule_answer(label: str, profile: dict):
@@ -537,10 +562,10 @@ def rule_answer(label: str, profile: dict):
     # company, it's "No" when the profile's current employer is someone else.
     m = re.search(r"\bare you (?:an? )?(?:existing|current) (.{1,30}?) ?employee", lbl)
     if m:
-        company = _norm(profile.get("job_company") or "")
+        names = {_norm(n) for n in company_names(profile)}
         current = _norm((profile.get("employment") or {}).get("company") or "")
         named = _norm(m.group(1))
-        if company and named in (company, "") and current and current != company:
+        if names and (named in names or named == "") and current and current not in names:
             return "No"
         return None
     # "Are you referred to this job by a Micron employee?" too (Workday, Micron).
@@ -772,7 +797,8 @@ def plan_questions(questions: list[Question], profile: dict,
     return answers, unanswered
 
 
-def with_job_location(profile: dict, location: str | None, company: str | None = None) -> dict:
+def with_job_location(profile: dict, location: str | None, company: str | None = None,
+                      aliases: tuple[str, ...] = ()) -> dict:
     """The profile with the job's countries attached, so a generic "are you
     authorized to work in the country you applied for?" is judged against the
     job. ``None`` (no location known) leaves the profile as it is. ``company``
@@ -780,6 +806,8 @@ def with_job_location(profile: dict, location: str | None, company: str | None =
     question about another employer."""
     if company:
         profile = {**profile, "job_company": company}
+    if aliases:
+        profile = {**profile, "job_company_aliases": tuple(a for a in aliases if a)}
     if location is None:
         return profile
     return {**profile, "job_countries": job_countries(location)}

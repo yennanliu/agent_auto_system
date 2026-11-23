@@ -59,6 +59,7 @@ from src.automation.tools.ats_common import (
     _MONTHS,
     Question,
     answer_question,
+    clean_company_name,
     degree_option,
     match_option,
     noop,
@@ -223,6 +224,9 @@ class WorkdayAdapter(Adapter):
         if opened != "wizard":
             entry.update(status="failed", submitted=False, reason="the application wizard didn't load")
             return entry
+        if wiz.employer:
+            # "Have you ever worked at Applied Materials…?" on tenant "amat".
+            profile = with_job_location(profile, None, job.get("company"), aliases=(wiz.employer,))
         for _ in range(MAX_STEPS):
             step = wiz.step()
             if "Review" in step:
@@ -474,13 +478,25 @@ def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
         if re.search(pat, label, re.I) and kind in ("listbox", "radio"):
             pick = match_option(options, default)
             return {"action": "pick", "value": pick} if pick else None
-    if kind in ("listbox", "radio"):
+    if kind in ("listbox", "radio", "selectinput"):
+        if kind == "selectinput" and not options:
+            return None  # a search-as-you-type prompt (skills): nothing to pick
         ans = answer_question(Question(label, label, "select", required, options), profile, answer_fn)
         return {"action": "pick", "value": ans["value"]} if ans else None
     if kind == "checkbox":
         # Only a required acknowledgement / terms box is ticked; nothing else.
         if required and _TICK_RE.search(label + " " + " ".join(options)):
             return {"action": "tick", "value": "checked"}
+        # "Choose all cities you would accept": the boxes an answer names
+        # (extra_answers / saved defaults), each matched to its option; nothing
+        # when any named one isn't there.
+        if len(options) > 1:
+            from src.automation.tools.ats_common import rule_answer
+            ans = rule_answer(label, {"extra_answers": profile.get("extra_answers") or []})
+            names = split_list(ans) if isinstance(ans, str) else []
+            picks = [match_option(options, n) for n in names]
+            if picks and all(picks):
+                return {"action": "ticks", "value": list(dict.fromkeys(picks))}
         return None
     if kind == "text":
         std = standard_for_label(label)
@@ -538,7 +554,8 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
     else if (radios.length) { kind = 'radio'; options = radios.map(optLabel);
                               const c = radios.find(r => r.checked); value = c ? optLabel(c) : ''; }
     else if (checks.length) { kind = 'checkbox'; options = checks.map(optLabel);
-                              value = checks.every(c => c.checked) ? 'checked' : ''; }
+                              // a choose-all group is answered once any box is ticked
+                              value = checks.filter(c => c.checked).map(optLabel).join(', '); }
     else if (text) { kind = 'text'; value = text.value; }
     return {index, field: f.getAttribute('data-automation-id'), label, required, kind, value, options};
   })"""
@@ -551,8 +568,17 @@ SUCCESS_TEXTS = ("Application Submitted", "application has been submitted",
                  "Thanks for applying", "Thank you for applying", "successfully submitted")
 
 
+# The job page's schema.org JobPosting names the employer: "0027 Applied
+# Materials Taiwan, Ltd" where the tenant id is "amat".
+EMPLOYER_JS = r"""() => { for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+  try { const d = JSON.parse(s.textContent); if (d.hiringOrganization) return d.hiringOrganization.name || ''; }
+  catch (e) {} } return ''; }"""
+
+
 class Wizard:
     """Drives one tenant's apply wizard on a Playwright page."""
+
+    employer = ""  # from the job page (open_application); "" when it names none
 
     def __init__(self, page, log: Callable = noop):
         self.page, self.log = page, log
@@ -675,6 +701,10 @@ class Wizard:
         sel = "[data-automation-id='continueButton'], [data-automation-id='adventureButton']"
         if not self._wait(lambda: p.locator(sel).count(), 20):
             return "no_apply"
+        try:
+            self.employer = clean_company_name(p.evaluate(EMPLOYER_JS) or "")
+        except Exception:  # noqa: BLE001 — optional: the tenant id still applies
+            self.employer = ""
         # "Apply" renders first; with a saved draft it turns into "Continue
         # Application" a moment later. Clicking Apply → Apply Manually on a job
         # with a draft gives Workday's "Something went wrong".
@@ -752,6 +782,8 @@ class Wizard:
             opts.nth(texts.index(plan["value"])).click()
             self.page.wait_for_timeout(1200)  # dependent fields (state, phone code) re-render
             return plan
+        if f["kind"] == "selectinput":
+            return self._prompt(box, f, profile, answer_fn)
         plan = plan_field(f, profile, answer_fn)
         if not plan:
             return None
@@ -759,8 +791,10 @@ class Wizard:
             tick(box.locator("input[type=radio]").nth(f["options"].index(plan["value"])))
         elif f["kind"] == "checkbox":
             boxes = box.locator("input[type=checkbox]")
+            want = ({f["options"].index(v) for v in plan["value"]} if plan["action"] == "ticks"
+                    else set(range(boxes.count())))
             for i in range(boxes.count()):
-                if not boxes.nth(i).is_checked():
+                if i in want and not boxes.nth(i).is_checked():
                     tick(boxes.nth(i))
         elif plan["action"] == "date":
             # Workday's MM / YYYY spinbuttons sit under their "MM" / "YYYY"
@@ -776,6 +810,35 @@ class Wizard:
         elif f["kind"] == "text":
             box.locator("textarea, input:not([type=hidden]):not([type=file])").first.fill(plan["value"])
         return plan
+
+    def _prompt_options(self):
+        """The open prompt menu's items (the page's other chips, e.g. the
+        phone code, are "selectedItem", not "menuItem")."""
+        items = self.page.locator("[data-automation-id=menuItem]").filter(visible=True)
+        return [t.strip() for t in items.all_inner_texts()], items
+
+    def _prompt(self, box, f: dict, profile: dict, answer_fn) -> dict | None:
+        """A Workday prompt ("How Did You Hear About Us?"): open it, pick the
+        answer among its items; a category may open a second level, answered
+        the same way. Nothing confident: the menu is closed untouched."""
+        p = self.page
+        box.locator("input[data-uxi-widget-type=selectinput]").first.click()
+        p.wait_for_timeout(1200)
+        picked = []
+        for _ in range(2):
+            texts, items = self._prompt_options()
+            plan = plan_field({**f, "kind": "selectinput", "options": texts}, profile, answer_fn)
+            if not plan or plan["value"] not in texts:
+                break
+            items.nth(texts.index(plan["value"])).click()
+            picked.append(plan["value"])
+            p.wait_for_timeout(1200)
+            chip = box.locator("[data-automation-id=selectedItem]")
+            if chip.count():
+                p.keyboard.press("Escape")
+                return {"action": "pick", "value": " > ".join(picked)}
+        p.keyboard.press("Escape")
+        return None
 
     def answer_step(self, profile: dict, answer_fn=None) -> tuple[list[dict], list[str]]:
         """Answer every empty field of the current step. A choice (the country)
