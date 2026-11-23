@@ -781,6 +781,27 @@ _MONTHS = ("January", "February", "March", "April", "May", "June", "July",
            "August", "September", "October", "November", "December")
 
 
+_DEGREE_LEVELS = (("doctor", r"doctor|ph\.?\s?d|d\.?phil"),
+                  ("master", r"master|\bm\.?s\.?c?\b|\bm\.?a\.?\b|\bmba\b|\bm\.?eng\b"),
+                  ("bachelor", r"bachelor|\bb\.?s\.?c?\b|\bb\.?a\.?\b|\bb\.?eng\b"),
+                  ("associate", r"associate"),
+                  ("high school", r"high school|\bged\b|secondary"))
+
+
+def degree_level(text: str) -> str | None:
+    t = (text or "").lower()
+    return next((lvl for lvl, pat in _DEGREE_LEVELS if re.search(pat, t)), None)
+
+
+def degree_option(options: list[str], degree: str) -> str | None:
+    """The one option at the profile degree's level ("Master's Degree" →
+    "Masters (±18 years of education)"). None when no option, or several
+    ("Master of Science" / "Master of Arts"), are at that level: never a guess."""
+    level = degree_level(degree)
+    hits = [o for o in options if level and degree_level(o) == level]
+    return hits[0] if len(hits) == 1 else None
+
+
 def parse_start(text: str) -> dict:
     """"2025-06" / "06/2025" / "June 2025" → {start_month: "June", start_year: "2025"}."""
     t = (text or "").strip()

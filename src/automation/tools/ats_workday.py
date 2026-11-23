@@ -56,10 +56,13 @@ from datetime import UTC, datetime
 
 from src.automation.tools.ats_apply_tool import Adapter, entry_for, tick
 from src.automation.tools.ats_common import (
+    _MONTHS,
     Question,
     answer_question,
+    degree_option,
     match_option,
     noop,
+    split_list,
     standard_for_label,
     standard_value,
     url_path_has,
@@ -417,12 +420,56 @@ _TICK_RE = re.compile(r"agree|acknowledge|certify|terms|consent|i have read|read
 _PLACEHOLDER = ("", "select one")
 
 
+def experience_plan(f: dict, profile: dict) -> dict | None | bool:
+    """My Experience's built-in sections, keyed by automation id: the current
+    job (from current_company / current_title / current_start), the highest
+    degree, and the first spoken language with its level ("<language>
+    proficiency" in extra_answers / saved defaults). False when ``f`` isn't
+    one of them; None when it is but the profile has no answer."""
+    fid, kind = f.get("field") or "", f["kind"]
+    options = [o for o in f.get("options") or [] if o.strip().lower() not in _PLACEHOLDER]
+    emp, edu = profile.get("employment") or {}, profile.get("education") or {}
+    fill = lambda v: {"action": "fill", "value": v} if v else None  # noqa: E731
+    if fid == "formField-jobTitle":
+        return fill(emp.get("title"))
+    if fid == "formField-companyName":
+        return fill(emp.get("company"))
+    if fid == "formField-currentlyWorkHere":
+        # The profile's job is the current one (it has a start, never an end).
+        return {"action": "tick", "value": "checked"} if emp.get("start_year") else None
+    if fid == "formField-startDate":
+        month = _MONTHS.index(emp["start_month"]) + 1 if emp.get("start_month") in _MONTHS else 0
+        return {"action": "date", "value": f"{month:02d}/{emp['start_year']}"} \
+            if month and emp.get("start_year") else None
+    if fid == "formField-endDate":
+        return None  # the current job has none: "I currently work here" hides it
+    if fid == "formField-schoolName":
+        return fill(edu.get("school"))
+    if fid == "formField-degree" and kind == "listbox":
+        pick = degree_option(options, edu.get("degree") or "")
+        return {"action": "pick", "value": pick} if pick else None
+    lang = (split_list(profile.get("languages") or "") or [""])[0]
+    if fid == "formField-language" and kind == "listbox":
+        pick = next((o for o in options if lang and o.lower() == lang.lower()), None)
+        return {"action": "pick", "value": pick} if pick else None
+    if kind == "listbox" and re.fullmatch(r"(overall|proficiency|level)( level| proficiency)?", f["label"].strip().lower()):
+        from src.automation.tools.ats_common import rule_answer
+        level = rule_answer(f"{lang} proficiency", {"extra_answers": profile.get("extra_answers") or []}) \
+            if lang else None
+        pick = match_option(options, level) if isinstance(level, str) else None
+        return {"action": "pick", "value": pick} if pick else None
+    return False
+
+
 def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
     """What to do with one scraped ``formField``: ``{"action": "pick"|"fill"|
     "tick", "value"}``, or None when there's no confident answer. ``f`` is
     ``{label, kind, required, options}`` (see ``FIELDS_JS``)."""
     label, kind, required = f["label"], f["kind"], f["required"]
     options = [o for o in f.get("options") or [] if o.strip().lower() not in _PLACEHOLDER]
+    section = experience_plan(f, profile)
+    if section is not False:
+        return section
     for pat, default in SYSTEM_DEFAULTS:
         if re.search(pat, label, re.I) and kind in ("listbox", "radio"):
             pick = match_option(options, default)
@@ -481,6 +528,11 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
     const upload = f.querySelector('input[type=file]');
     if (upload) { kind = 'file'; value = Array.from(f.querySelectorAll('[data-automation-id=file-upload-item]'))
                     .map(e => e.innerText.trim().split('\n')[0]).filter(Boolean).join(', '); }
+    else if (f.querySelector('[data-automation-id=dateInputWrapper]')) {
+      kind = 'date';
+      const m = f.querySelector('[data-automation-id=dateSectionMonth-input]');
+      const y = f.querySelector('[data-automation-id=dateSectionYear-input]');
+      value = m && m.value && y && y.value ? m.value + '/' + y.value : ''; }
     else if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
     else if (btn) { kind = 'listbox'; value = btn.innerText.trim(); if (value === 'Select One') value = ''; }
     else if (radios.length) { kind = 'radio'; options = radios.map(optLabel);
@@ -710,6 +762,17 @@ class Wizard:
             for i in range(boxes.count()):
                 if not boxes.nth(i).is_checked():
                     tick(boxes.nth(i))
+        elif plan["action"] == "date":
+            # Workday's MM / YYYY spinbuttons sit under their "MM" / "YYYY"
+            # displays (the inputs themselves take no clicks): click a display,
+            # type that section.
+            month, year = plan["value"].split("/")
+            for part, text in (("Month", month), ("Year", year)):
+                inp = box.locator(f"[data-automation-id=dateSection{part}-input]")
+                if inp.input_value() != text.lstrip("0") and inp.input_value() != text:
+                    box.locator(f"[data-automation-id=dateSection{part}-display]").click()
+                    self.page.keyboard.type(text, delay=80)
+            self.page.wait_for_timeout(500)
         elif f["kind"] == "text":
             box.locator("textarea, input:not([type=hidden]):not([type=file])").first.fill(plan["value"])
         return plan

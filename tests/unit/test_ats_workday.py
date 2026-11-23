@@ -451,3 +451,62 @@ def test_phone_number_drops_the_code_the_widget_already_holds():
     assert plan == {"action": "fill", "value": "963335868"}
     # Without a country-code widget on the step the number is typed in full.
     assert wd.plan_field(_f("Phone Number", kind="text"), tw)["value"] == "+886 963335868"
+
+
+# HP (Taiwan), live 2026-11-23: My Experience requires a work-experience entry
+# (title, company, From MM/YYYY), the degree and a language with its level.
+HP_DEGREES = ["Graduate Certificate", "High School or GED (±11 years of education)",
+              "Bachelors (±16 years of education)", "Masters (±18 years of education)",
+              "Doctorate (over 19 years of education)", "Other (other type of degree or diploma)"]
+EXP = build_profile(first_name="Ada", last_name="Lovelace", email="ada@example.com",
+                    current_company="Self-employed", current_title="Sr. Backend Engineer",
+                    current_start="2025-06", school="National Taiwan University",
+                    degree="Master's Degree", languages="English, Chinese",
+                    extra_answers="english proficiency: 4 - Fluent")
+
+
+def _sec(field, label="x", kind="text", options=()):
+    return {**_f(label, kind=kind, options=options), "field": field}
+
+
+def test_my_experience_current_job_education_and_language():
+    assert wd.plan_field(_sec("formField-jobTitle"), EXP) == {"action": "fill", "value": "Sr. Backend Engineer"}
+    assert wd.plan_field(_sec("formField-companyName"), EXP) == {"action": "fill", "value": "Self-employed"}
+    assert wd.plan_field(_sec("formField-currentlyWorkHere", kind="checkbox",
+                              options=["I currently work here"]), EXP)["action"] == "tick"
+    assert wd.plan_field(_sec("formField-startDate", kind="date"), EXP) == {"action": "date", "value": "06/2025"}
+    assert wd.plan_field(_sec("formField-endDate", kind="date"), EXP) is None
+    assert wd.plan_field(_sec("formField-schoolName"), EXP)["value"] == "National Taiwan University"
+    assert wd.plan_field(_sec("formField-degree", kind="listbox", options=HP_DEGREES), EXP)["value"] == \
+        "Masters (±18 years of education)"
+    langs = ["Select One", "Chinese, Cantonese", "Chinese, Mandarin", "English"]
+    assert wd.plan_field(_sec("formField-language", kind="listbox", options=langs), EXP)["value"] == "English"
+    levels = ["1 - Beginner", "2 - Intermediate", "3 - Advanced", "4 - Fluent"]
+    assert wd.plan_field(_sec("formField-98cbd30d", label="Overall", kind="listbox", options=levels),
+                         EXP)["value"] == "4 - Fluent"
+
+
+def test_my_experience_never_guesses():
+    bare = build_profile(first_name="A", last_name="B", email="a@b.c", languages="Chinese")
+    for field, kind in (("formField-jobTitle", "text"), ("formField-companyName", "text"),
+                        ("formField-currentlyWorkHere", "checkbox"), ("formField-startDate", "date"),
+                        ("formField-schoolName", "text")):
+        assert wd.plan_field(_sec(field, kind=kind, options=["I currently work here"]), bare) is None, field
+    # "Chinese" is ambiguous on a list with Cantonese and Mandarin; no level without an answer.
+    langs = ["Chinese, Cantonese", "Chinese, Mandarin", "English"]
+    assert wd.plan_field(_sec("formField-language", kind="listbox", options=langs), bare) is None
+    assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=["4 - Fluent"]), bare) is None
+
+
+@pytest.mark.parametrize("degree,options,expected", [
+    ("Master's Degree", HP_DEGREES, "Masters (±18 years of education)"),
+    ("MSc Physics", HP_DEGREES, "Masters (±18 years of education)"),
+    ("Bachelor of Science", HP_DEGREES, "Bachelors (±16 years of education)"),
+    ("PhD", HP_DEGREES, "Doctorate (over 19 years of education)"),
+    # Western Digital (SmartRecruiters): two master's options, so no pick.
+    ("Master's Degree", ["Bachelors of Science", "Master of Science", "Master of Arts"], None),
+    ("", HP_DEGREES, None),
+])
+def test_degree_option_by_level(degree, options, expected):
+    from src.automation.tools.ats_common import degree_option
+    assert degree_option(options, degree) == expected
