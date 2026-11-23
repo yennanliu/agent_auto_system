@@ -2,7 +2,7 @@ name: Daily new jobs
 
 # Scrapes today's SWE / backend / full-stack / AI / FDE postings from big-tech and
 # top-AI companies' official careers boards (scripts/daily_new_jobs.py) and commits
-# report/YYYYMMDD/new_job.txt back to main.
+# report/YYYYMMDD/new_job.txt (one "Company | Role | Location | URL" line per job) back to main.
 #
 # A scheduled run reports the *previous* UTC day. GitHub cron is best-effort and can fire
 # hours late (the first run was 4h40m late), so "today at run time" drifted into the next
