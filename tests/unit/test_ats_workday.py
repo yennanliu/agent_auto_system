@@ -648,3 +648,21 @@ def test_a_required_confirm_the_statement_box_is_ticked():
     f = _f("Check this box to confirm the statement above.", kind="checkbox", options=[""])
     assert wd.plan_field(f, PROFILE) == {"action": "tick", "value": "checked"}
     assert wd.plan_field({**f, "required": False}, PROFILE) is None
+
+
+def test_job_country_from_the_url_when_the_location_is_a_count():
+    """PayPal, live 2026-11-24: "2 Locations" left sponsorship unanswerable."""
+    url = ("https://paypal.wd1.myworkdayjobs.com/jobs/job/San-Jose-California-United-States-of-America/"
+           "Sr-Staff-Software-Engineer_R0135015-1")
+    assert wd.job_country("2 Locations", url) == "United States"
+    assert wd.job_country("2 Locations") == "2 Locations"           # no URL: still unknown
+    assert wd.job_country("US-Minnesota-Maplewood", url) == "United States"
+
+
+def test_an_acknowledgement_date_is_today():
+    """PayPal, live 2026-11-24."""
+    from datetime import datetime
+    q = ("I understand that a positive declaration does not mean … Please enter today's date on your "
+         "acknowledgement.")
+    assert wd.plan_field(_sec("formField-46c8", label=q, kind="date"), PROFILE) == \
+        {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}

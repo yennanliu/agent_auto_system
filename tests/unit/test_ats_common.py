@@ -654,3 +654,20 @@ def test_extra_answers_match_the_question_not_its_fine_print():
          "visa petition, … (also known as I-140 portability …).")
     assert ac.rule_answer(q, p) == "Yes"
     assert ac.rule_answer("Was your I-140 approved more than 180 days ago?", p) == "No"
+
+
+def test_previous_employee_of_the_hiring_company():
+    """PayPal (Workday), live 2026-11-24."""
+    q = "Are you a previous Employee of PayPal or any of its subsidiaries?"
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "paypal"}) == "No"
+    assert ac.rule_answer(q.replace("PayPal", "eBay"), {**PROFILE, "job_company": "paypal"}) is None
+
+
+@pytest.mark.parametrize("company,options,expected", [
+    ("paypal", ["Contract Conversion", "Networking", "PayPal Career site"], "PayPal Career site"),   # PayPal, live
+    ("paypal", ["Direct Source Candidates", "Events", "Job Board", "Social Media"], None),          # categories: explored
+    ("trendmicro", ["Company Career Site"], "Company Career Site"),
+    ("amat", ["I currently work at/for Applied Materials", "Job Fair"], None),
+])
+def test_company_source_option(company, options, expected):
+    assert ac.company_source_option(options, ac.with_job_location(PROFILE, None, company)) == expected

@@ -62,9 +62,11 @@ from src.automation.tools.ats_common import (
     Question,
     answer_question,
     clean_company_name,
+    company_source_option,
     degree_option,
     match_option,
     noop,
+    rule_answer,
     split_list,
     standard_for_label,
     standard_value,
@@ -203,7 +205,8 @@ class WorkdayAdapter(Adapter):
         host, email = host_of(job["token"]), profile.get("email", "")
         password = self.password(host, email)
         apply_url = job["url"].rstrip("/") + "/apply/applyManually"
-        profile = with_job_location(profile, job_country(job.get("location") or ""), job.get("company"))
+        profile = with_job_location(profile, job_country(job.get("location") or "", job.get("url") or ""),
+                                    job.get("company"))
         wiz = Wizard(page, log)
         if not password and self.create_accounts and email:
             created = self._create_account(wiz, apply_url, host, email, log)
@@ -306,12 +309,19 @@ class WorkdayAdapter(Adapter):
         raise NotImplementedError("Workday plans in the browser (apply_live)")
 
 
-def job_country(location: str) -> str:
+def job_country(location: str, url: str = "") -> str:
     """Workday writes locations as ``<Country>-<Region>-<City>`` ("US-Minnesota-
     Maplewood", "Canada-Ontario-London"): the first segment is the country, and
     the city must not add another ("London" is not the UK here). Anything else
     ("2 Locations") is returned as is, so an unknown country stays unknown."""
     from src.automation.tools.ats_common import countries_in
+    if re.fullmatch(r"\s*\d+ Locations\s*", location or "", re.I) and "/job/" in url:
+        # "2 Locations" (PayPal): the URL's path names the primary one,
+        # "…/job/San-Jose-California-United-States-of-America/…".
+        primary = url.split("/job/", 1)[1].split("/", 1)[0].replace("-", " ")
+        found = countries_in(primary.lower())
+        if len(found) == 1:
+            return next(iter(found)).title()
     head = re.split(r"[-,]", location, maxsplit=1)[0].strip()
     if head.upper() in ("US", "USA"):
         return "United States"
@@ -463,6 +473,9 @@ def experience_plan(f: dict, profile: dict) -> dict | None | bool:
         month = _MONTHS.index(emp["start_month"]) + 1 if emp.get("start_month") in _MONTHS else 0
         return {"action": "date", "value": f"{month:02d}/{emp['start_year']}"} \
             if month and emp.get("start_year") else None
+    if kind == "date" and re.search(r"today'?s date", f["label"], re.I):
+        # "Please enter today's date on your acknowledgement." (PayPal)
+        return {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
     if fid == "formField-dateSignedOn":
         # The voluntary self-identification form's signing date: today.
         return {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
@@ -971,8 +984,13 @@ class Wizard:
         answer among its items; a category may open a second level, answered
         the same way. Nothing confident: the menu is closed untouched."""
         p = self.page
-        box.locator("input[data-uxi-widget-type=selectinput]").first.click()
+        inp = box.locator("input[data-uxi-widget-type=selectinput]").first
+        inp.click()
         p.wait_for_timeout(1200)
+        if rule_answer(f["label"], profile) == "__source__":
+            found = self._find_company_source(box, inp, profile)
+            if found:
+                return found
         picked = []
         for _ in range(2):
             texts, items = self._prompt_options()
@@ -992,6 +1010,56 @@ class Wizard:
                 return {"action": "pick", "value": " > ".join(picked)}
         self.log(f"'{f['label'][:40]}': picked {' > '.join(picked) or 'nothing'}, but no selection showed")
         p.keyboard.press("Escape")
+        return None
+
+    def _find_company_source(self, box, inp, profile: dict) -> dict | None:
+        """"How did you hear?": the company's own site or career site, on the
+        first level or inside any category ("Direct Source Candidates" >
+        "PayPal Career site", PayPal). None leaves the usual order to pick."""
+        p = self.page
+        chip = box.locator("[data-automation-id=selectedItem]")
+        top, items = self._prompt_options()
+        hit = company_source_option(top, profile)
+        if hit:
+            items.nth(top.index(hit)).click()
+            self._wait(lambda: chip.count() or self._prompt_options()[0] not in (top, []), 6)
+            if chip.count():
+                p.keyboard.press("Escape")
+                return {"action": "pick", "value": hit}
+            sub, sub_items = self._prompt_options()   # the site opened a level of its own
+            inner = company_source_option(sub, profile) or (sub[0] if len(sub) == 1 else None)
+            if inner:
+                sub_items.nth(sub.index(inner)).click()
+                if self._wait(lambda: chip.count(), 6):
+                    p.keyboard.press("Escape")
+                    return {"action": "pick", "value": f"{hit} > {inner}"}
+            return None
+        for cat in top:
+            p.keyboard.press("Escape")
+            p.wait_for_timeout(400)
+            inp.click()
+            self._wait(lambda: self._prompt_options()[0] == top, 6)
+            texts, items = self._prompt_options()
+            if cat not in texts:
+                continue
+            items.nth(texts.index(cat)).click()
+            self._wait(lambda: chip.count() or self._prompt_options()[0] not in (top, []), 6)
+            if chip.count():
+                # A leaf, not a category: undo is not possible, so only a
+                # company-site leaf would have been clicked (handled above).
+                continue
+            sub, sub_items = self._prompt_options()
+            hit = company_source_option(sub, profile)
+            if hit:
+                sub_items.nth(sub.index(hit)).click()
+                if self._wait(lambda: chip.count(), 6):
+                    p.keyboard.press("Escape")
+                    return {"action": "pick", "value": f"{cat} > {hit}"}
+        # Back to the first level for the usual order.
+        p.keyboard.press("Escape")
+        p.wait_for_timeout(400)
+        inp.click()
+        self._wait(lambda: self._prompt_options()[0] == top, 6)
         return None
 
     def _search_prompt(self, box, f: dict, term: str) -> dict | None:

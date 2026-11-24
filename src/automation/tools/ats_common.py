@@ -452,7 +452,7 @@ def _years_required(lbl: str) -> int | None:
     return int(n) if n.isdigit() else _NUM_WORDS[n]
 
 
-_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|contracted|intern)\s+(?:for|at|by|with)\s+(.{1,60})")
+_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|contracted|intern)\s+(?:for|at|by|with|of)\s+(.{1,60})")
 _US_TARGET = re.compile(r"(us|our|this|the company|the organi[sz]ation|here)\b")
 
 
@@ -570,7 +570,8 @@ def rule_answer(label: str, profile: dict):
         # exchange visitor visa?" (Intel, live) is a fact about the person.
         return None
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
-                 r"previously (worked|been (directly )?employed)|former employee|ever (worked|been employed)", lbl):
+                 r"previously (worked|been (directly )?employed)|(former|previous|past) employee|"
+                 r"ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
     # "…are you an existing HP employee?" (HP, Workday): asked about the hiring
     # company, it's "No" when the profile's current employer is someone else.
@@ -646,6 +647,14 @@ def company_site_option(options: list[str], profile: dict) -> str | None:
                     and not re.search(r"\b(work|employee|referr|former)", o, re.I):
                 return o
     return None
+
+
+def company_source_option(options: list[str], profile: dict) -> str | None:
+    """The company's own site ("Cadence.com", "PayPal Career site") or a
+    generic company career site ("Company Career Site"), nothing broader."""
+    return company_site_option(options, profile) \
+        or next((o for o in options if re.search(_SOURCE_PREFS[0], o, re.I)
+                 and not re.search(r"\b(work|employee|referr|former|recruit)", o, re.I)), None)
 
 
 def source_option(options: list[str], profile: dict) -> str | None:
