@@ -805,8 +805,11 @@ class Wizard:
                 return "exists"
             if verify.search(body):
                 return "verify"
-            if p.locator(_EMAIL_GATE).filter(visible=True).count():
-                # Yahoo: the new account lands back on the sign-in choices.
+            back_to_sign_in = (p.locator("[data-automation-id='signInSubmitButton']").filter(visible=True).count()
+                               and not p.locator("input[data-automation-id='verifyPassword']").count())
+            if p.locator(_EMAIL_GATE).filter(visible=True).count() or back_to_sign_in:
+                # Yahoo: the new account lands back on the sign-in choices;
+                # Salesforce: on the plain Sign In form.
                 if self.sign_in(url, email, password):
                     return "signed_in"
                 errors = " ".join(self.errors())
