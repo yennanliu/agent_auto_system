@@ -1,0 +1,42 @@
+Amazon | Cloud Software Engineer, Annapurna Labs | Haifa, IL | https://www.amazon.jobs/en/jobs/10611239/cloud-software-engineer-annapurna-labs
+Amazon | Robotics Software Engineer, Data Center Robotics | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10612129/robotics-software-engineer-data-center-robotics
+Amazon | Software Development Engineer , PaySec, StoreSec | Bengaluru, KA, IN | https://www.amazon.jobs/en/jobs/10610382/software-development-engineer-paysec-storesec
+Amazon | Software Development Engineer II, AWS Invoicing | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10612239/software-development-engineer-ii-aws-invoicing
+Amazon | Software Development Engineer II, AWS SageMaker | Bellevue, WA, US | https://www.amazon.jobs/en/jobs/10611673/software-development-engineer-ii-aws-sagemaker
+Amazon | Software Development Engineer II, Selling Partner Growth | Seattle, WA, US | https://www.amazon.jobs/en/jobs/10612182/software-development-engineer-ii-selling-partner-growth
+Amazon | Software Development Engineer III, Ads Reporting, Programmatic Reporting Interfaces | Toronto, ON, CA | https://www.amazon.jobs/en/jobs/10612079/software-development-engineer-iii-ads-reporting-programmatic-reporting-interfaces
+Amazon | Software Development Engineer III, PaySec, StoreSec | Bengaluru, KA, IN | https://www.amazon.jobs/en/jobs/10610387/software-development-engineer-iii-paysec-storesec
+Amazon | Software Development Engineer, Region Reliability Engineering | Bellevue, WA, US | https://www.amazon.jobs/en/jobs/10611446/software-development-engineer-region-reliability-engineering
+Amazon | Software Engineer Student, Virtual Platforms, Annapurna Labs | Tel Aviv, IL | https://www.amazon.jobs/en/jobs/10611215/software-engineer-student-virtual-platforms-annapurna-labs
+Amazon | Sr. Software Development Engineer – AI/ML Networking Disaggregated Inference, Annapurna Labs, Annapurna Labs | Cupertino, CA, US | https://www.amazon.jobs/en/jobs/10611672/sr-software-development-engineer-ai-ml-networking-disaggregated-inference-annapurna-labs-annapurna-labs
+Amazon | Sr. Software Development Engineer, ACE | Redmond, WA, US | https://www.amazon.jobs/en/jobs/10610935/sr-software-development-engineer-ace
+Anthropic | Software Engineer, Model-to-Product Behavior Engineering | San Francisco, CA | https://job-boards.greenhouse.io/anthropic/jobs/5487188008
+Cloudflare | Senior Software Engineer (Threat Intelligence), Cloudforce One | Hybrid | https://boards.greenhouse.io/cloudflare/jobs/8397865?gh_jid=8397865
+Decagon | Senior Software Engineer, Data Infrastructure | San Francisco; New York City | https://jobs.ashbyhq.com/decagon/97f14fcf-d8ff-41b2-9108-d35ddd9f595e
+Decagon | Software Engineer, Cloud Infrastructure | San Francisco; New York City | https://jobs.ashbyhq.com/decagon/87d6c46a-365c-4d97-98ca-de7e29b6cf72
+Decagon | Software Engineer, Developer Platform | San Francisco; New York City | https://jobs.ashbyhq.com/decagon/491d67c4-b877-4ddc-895a-496eed6777ed
+Decagon | Staff Software Engineer, Data Infrastructure | San Francisco; New York City | https://jobs.ashbyhq.com/decagon/68a779f4-5d46-42c9-ab7b-1c7ad3624939
+Instacart | Senior Software Engineer II, Pricing & Incentives (Fulfillment) | United States - Remote | https://instacart.careers/job/?gh_jid=8412255
+Micron | HR Applied AI Engineer | 3 Locations | https://micron.wd1.myworkdayjobs.com/External/job/Boise-ID---Main-Site/HR-Applied-AI-Engineer_JR117807
+Micron | Staff Semiconductor Applied AI Engineer | Boise, ID - Main Site | https://micron.wd1.myworkdayjobs.com/External/job/Boise-ID---Main-Site/Staff-Semiconductor-Applied-AI-Engineer_JR118166
+MongoDB | Senior Software Engineer, Atlas Clusters Platform | New York City | https://www.mongodb.com/careers/job/?gh_jid=8406252
+MongoDB | Software Engineer 3 | Cork, Ireland; Dublin, Ireland | https://www.mongodb.com/careers/job/?gh_jid=8403312
+MongoDB | Software Engineer 3 | Dublin, Ireland | https://www.mongodb.com/careers/job/?gh_jid=8403315
+Netflix | Security Software Engineer 5 - Security Observability | Poland - Remote | https://explore.jobs.netflix.net/careers/job/790319623568
+OpenAI | Forward Deployed Engineer - Dublin | Dublin, Ireland | https://jobs.ashbyhq.com/openai/b40efa93-da3c-4593-bc98-03d203cd0488
+Perplexity | Member of Technical Staff (Software Engineer, SPACE - Sandbox Platform) | San Francisco; New York City | https://jobs.ashbyhq.com/Perplexity/9e738c21-f2ab-49d7-b545-b519bb2cf8ae
+Ramp | AI Solutions Engineer | New York, NY (HQ); San Francisco, CA; Boston, MA (+3 more) | https://jobs.ashbyhq.com/ramp/8efd3a0a-fc66-46e2-9415-bffba10e2919
+Reddit | Senior Software Engineer, AI & Science Platform | Remote - United States | https://job-boards.greenhouse.io/reddit/jobs/8411613
+Rocket Lab | Senior Embedded Software Engineer II | Tucson, AZ | https://job-boards.greenhouse.io/rocketlab/jobs/8214024003
+Rocket Lab | Senior Embedded Software Engineer II | Chantilly, VA | https://job-boards.greenhouse.io/rocketlab/jobs/8214283003
+Salesforce | Forward Deployed Engineer | Switzerland - Lausanne - Remote | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Switzerland---Lausanne---Remote/Forward-Deployed-Engineer_JR349219-1
+Salesforce | Forward Deployed Engineer | Belgium - Brussels | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Belgium---Brussels/Forward-Deployed-Engineer_JR369123
+Salesforce | Lead Software Engineer, AI Labs (Product and Customer Facing) - Cleared | 4 Locations | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California---San-Francisco/Lead-Software-Engineer--AI-Labs--Product-and-Customer-Facing----Cleared_JR369159
+Salesforce | Product Designer/Front End SMTS Software Engineer - MeshMesh | 2 Locations | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California---San-Francisco/Front-End-SMTS-Software-Engineer---MeshMesh_JR366553
+Salesforce | Senior Forward Deployed Engineer | Ireland - Dublin | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Ireland---Dublin/Senior-Forward-Deployed-Engineer_JR369237
+Salesforce | Staff Backend Engineer, Slackbot AI - Slack | 2 Locations | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/California---San-Francisco/Staff-Backend-Product-Engineer--SlackBot-_JR359771-1
+Snowflake | Principal Software Engineer, Harness Engineering | US-WA-Bellevue | https://jobs.ashbyhq.com/snowflake/1f8252af-5383-44ad-ae97-4c555bc48adc
+SpaceX | Software Engineer, Ground Network (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8958880002?gh_jid=8958880002
+Stripe | Software Engineer, Core Technology | South San Francisco, CA | https://stripe.com/jobs/search?gh_jid=8411988
+Stripe | Software Engineer, Data Warehouse Analytics | Seattle, WA | https://stripe.com/jobs/search?gh_jid=8411927
+Together AI | Forward Deployed Engineer, Applied AI | San Francisco | https://job-boards.greenhouse.io/togetherai/jobs/5302781007
