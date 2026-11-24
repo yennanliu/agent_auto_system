@@ -524,6 +524,13 @@ def rule_answer(label: str, profile: dict):
     # resident…" (Intel) or "For purposes of this question … I-140 …"
     # (Broadcom) once caught keys written for other questions.
     asked = _NOTE_RE.split(lbl, maxsplit=1)[0]
+    # "Have you applied … with Micron before?" — asked of the hiring company,
+    # the ledger knows the answer; it overrides a saved "No" written before
+    # the first application there (Micron, live 2026-11-24).
+    if re.search(r"\bapplied\b.*\b(previous|before|in the past|prior)\b|previously applied", asked):
+        mine = {_norm(c) for c in profile.get("applied_companies") or ()}
+        if mine and any(_norm(n) in mine for n in company_names(profile)):
+            return "Yes"
     for kw, ans in profile.get("extra_answers") or []:
         if kw.lower() in asked:
             return ans

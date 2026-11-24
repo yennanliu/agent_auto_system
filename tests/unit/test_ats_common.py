@@ -678,3 +678,14 @@ def test_prior_employment_with_a_comma():
     q = ("Do you currently, or have you previously, worked at Capital One or a company acquired by "
          "Capital One as an employee, contractor, consultant, or temp?")
     assert ac.rule_answer(q, {**PROFILE, "job_company": "capitalone"}) == "No"
+
+
+def test_applied_before_comes_from_the_ledger():
+    """Micron, live 2026-11-24: a saved "applied on any previous occasions: No"
+    was written before the first Micron application; the second one is "Yes"."""
+    q = "Have you applied on any previous occasions for employment in any capacity with Micron?"
+    p = ac.with_job_location({**PROFILE, "extra_answers": [("applied on any previous occasions", "No")],
+                              "applied_companies": {"micron"}}, None, "micron", aliases=("Micron Technology",))
+    assert ac.rule_answer(q, p) == "Yes"
+    other = ac.with_job_location({**p, "applied_companies": {"hp"}}, None, "micron")
+    assert ac.rule_answer(q, other) == "No"                 # never applied there: the saved answer
