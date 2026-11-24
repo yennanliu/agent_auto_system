@@ -790,7 +790,16 @@ class Wizard:
                 return "verify"
             if p.locator(_EMAIL_GATE).filter(visible=True).count():
                 # Yahoo: the new account lands back on the sign-in choices.
-                return "signed_in" if self.sign_in(url, email, password) else "failed"
+                if self.sign_in(url, email, password):
+                    return "signed_in"
+                errors = " ".join(self.errors())
+                if re.search(r"verify your account", errors, re.I):
+                    return "verify"
+                if re.search(r"wrong email|password|locked", errors, re.I):
+                    # NVIDIA: an e-mail that already had an account lands on
+                    # the same choices; the new password then doesn't sign in.
+                    return "exists"
+                return "failed"
         return "failed"
 
     def _open_email_form(self) -> bool:
