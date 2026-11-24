@@ -387,7 +387,10 @@ def _profile_answer(label: str, profile: dict):
         here = countries_in(profile.get("location", "")) | {
             n for n, pat in _CITIES.items() if re.search(pat, profile.get("location", "").lower())}
         return yes_no(countries_in(lbl) <= here)
-    if re.search(r"(currently|last) employed|current (employer|company)|where (do|did) you (currently )?work", lbl):
+    # Not inside a sponsorship NOTE ("…work visas specific to their current
+    # employer…", Intel): that question is a yes/no, not "who employs you".
+    if re.search(r"(currently|last) employed|current (employer|company)|where (do|did) you (currently )?work", lbl) \
+            and not re.search(r"sponsor|visa", lbl):
         return (profile.get("employment") or {}).get("company") or None
     return None
 

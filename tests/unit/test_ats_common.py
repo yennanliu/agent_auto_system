@@ -608,3 +608,16 @@ def test_intel_sponsorship_with_a_permanent_resident_note():
     assert ac.rule_answer(q, p) == "Yes"
     p_us = ac.with_job_location({**PROFILE, "authorized_countries": {"united states"}}, "United States", "intel")
     assert ac.rule_answer(q, p_us) == "No"
+
+
+def test_sponsorship_note_about_a_current_employer_is_not_the_employer_question():
+    """Intel, live 2026-11-24: "…work visas specific to their current employer…"
+    made the current-employer rule answer "Self-employed"."""
+    q = ("11)* Do you now, or in the future, require Intel to sponsor you for a visa to work in the "
+         "United States? NOTE: Individuals … currently on work visas specific to their current "
+         "employer (e.g., H-1B, O-1, TN, H-1B1, E-3), should answer “Yes”.")
+    p = ac.with_job_location(ac.build_profile(first_name="A", last_name="B", email="a@b.c",
+                                              authorized_countries="Taiwan", current_company="Self-employed"),
+                             "United States", "intel")
+    assert ac.rule_answer(q, p) == "Yes"
+    assert ac.rule_answer("Who is your current employer?", p) == "Self-employed"
