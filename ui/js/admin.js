@@ -1,5 +1,5 @@
 // Admin page: users, API keys, enabled automations, eval judge, browser sessions,
-// custom (no-code) automations.
+// custom (no-code) automations, run concurrency limits.
 
 import { ALL_TYPES, AUTO_CATALOG, loadManifest } from './catalog.js';
 import { escHtml, showToast } from './helpers.js';
@@ -33,12 +33,14 @@ function adminSwitch(tab) {
   document.getElementById('admin-autos').hidden = tab !== 'autos';
   document.getElementById('admin-custom').hidden = tab !== 'custom';
   document.getElementById('admin-sessions').hidden = tab !== 'sessions';
+  document.getElementById('admin-concurrency').hidden = tab !== 'concurrency';
   if (tab === 'users') renderAdminUsers();
   if (tab === 'keys')  renderAdminKeys();
   if (tab === 'judge') renderAdminJudge();
   if (tab === 'autos') renderAdminAutos();
   if (tab === 'custom') renderAdminCustom();
   if (tab === 'sessions') renderAdminSessions();
+  if (tab === 'concurrency') renderAdminConcurrency();
 }
 
 // ── Custom (no-code) automations — Phase 3G ─────────────────────────────────────
@@ -234,6 +236,65 @@ async function renderAdminSessions() {
   if (anyRunning && ADMIN_TAB === 'sessions') {
     SESSION_POLL = setTimeout(renderAdminSessions, 2000);
   }
+}
+
+// ── Concurrency (read-only): per-automation queues + global ceilings ──────────
+function usageCell(r) {
+  const busy = r.running >= r.limit;
+  const queued = r.queued ? ` <span class="badge badge-off">${r.queued} queued</span>` : '';
+  return `<span class="badge ${busy ? 'badge-admin' : (r.running ? 'badge-on' : '')}">${r.running} / ${r.limit} running</span>${queued}`;
+}
+
+function sourceCell(src) {
+  return `<span class="muted" style="font-size:0.78rem">${escHtml(src)}</span>`;
+}
+
+async function renderAdminConcurrency() {
+  const el = document.getElementById('admin-concurrency');
+  el.innerHTML = '<div class="loading-state">Loading…</div>';
+  let data;
+  try {
+    const resp = await fetch('/api/admin/concurrency');
+    if (!resp.ok) throw new Error();
+    data = await resp.json();
+  } catch (err) {
+    el.innerHTML = '<div class="loading-state">Failed to load.</div>';
+    return;
+  }
+  const globals = data.global.map(r => `<tr>
+      <td><strong>${escHtml(r.run_class)}</strong></td>
+      <td>${usageCell(r)}</td>
+      <td>${sourceCell(r.source)}</td>
+      <td><code>${escHtml(r.env)}</code></td></tr>`).join('');
+  const defaults = data.per_type_default.map(r =>
+    `<span class="badge">${escHtml(r.run_class)}: ${r.limit}</span> ${sourceCell(r.source)}`).join(' &nbsp; ');
+  const queues = data.queues.map(r => `<tr>
+      <td><strong>${escHtml(AUTO_CATALOG[r.job_type]?.name || r.job_type)}</strong>
+        <div class="muted" style="font-size:0.78rem">${escHtml(r.job_type)}</div></td>
+      <td><span class="badge ${r.run_class === 'browser' ? 'badge-off' : ''}">${escHtml(r.run_class)}</span></td>
+      <td>${usageCell(r)}</td>
+      <td>${sourceCell(r.source)}</td>
+      <td><code>${escHtml(r.env)}</code></td></tr>`).join('');
+  const missing = data.config_exists ? '' : ' <span class="badge badge-off">file not found — using defaults</span>';
+  el.innerHTML = `
+    <div class="admin-card">
+      <div class="muted" style="margin-bottom:0.6rem">Each automation has its <strong>own queue</strong>, so a backlog
+        of one never blocks another; a run then also needs a slot under its class's <strong>global ceiling</strong>.
+        Limits come from an environment variable, else <code>${escHtml(data.config_path)}</code>${missing}, else the
+        built-in default. Edit the file and <strong>restart the server</strong> to change them.</div>
+      <div class="admin-bar"><div class="muted">Global ceilings</div>
+        <button class="btn btn-ghost btn-sm" id="admin-conc-refresh">Refresh</button></div>
+      <div style="overflow-x:auto"><table class="admin-table" style="margin-bottom:1rem">
+        <thead><tr><th>Class</th><th>Usage</th><th>Source</th><th>Env override</th></tr></thead>
+        <tbody>${globals}</tbody>
+      </table></div>
+      <div class="muted" style="margin-bottom:0.4rem">Per-automation default: ${defaults}</div>
+      <div style="overflow-x:auto"><table class="admin-table">
+        <thead><tr><th>Automation queue</th><th>Class</th><th>Usage</th><th>Source</th><th>Env override</th></tr></thead>
+        <tbody>${queues}</tbody>
+      </table></div>
+    </div>`;
+  document.getElementById('admin-conc-refresh').onclick = renderAdminConcurrency;
 }
 
 async function renderAdminUsers() {
