@@ -589,3 +589,43 @@ def test_self_identify_signs_today_and_declines():
 ])
 def test_same_answer_detection(plan, value, same):
     assert wd._same(plan, {"value": value}) is same
+
+
+def test_next_field_includes_empty_prompts_and_rechecks_filled_choices():
+    """Trend Micro, live 2026-11-24: the re-check filter skipped every empty
+    selectinput, so "How Did You Hear About Us?" was never answered."""
+    fields = [
+        {"label": "Phone Code", "kind": "selectinput", "value": "Taiwan (+886)"},   # filled prompt: left alone
+        {"label": "How Did You Hear About Us?", "kind": "selectinput", "value": ""},
+        {"label": "Resume", "kind": "file", "value": "cv.pdf"},
+        {"label": "Sponsorship?", "kind": "listbox", "value": "No"},                # filled choice: re-checked
+    ]
+    tried = set()
+    order = []
+    while (f := wd.next_field(fields, tried)) is not None:
+        tried.add((f["label"], f["kind"]))
+        order.append(f["label"])
+    assert order == ["How Did You Hear About Us?", "Sponsorship?"]
+
+
+def test_education_years_and_field_of_study():
+    """Trend Micro, live 2026-11-24: year-only From/To and a searchable Field of Study."""
+    p = build_profile(first_name="A", last_name="B", email="a@b.c", discipline="Physics",
+                      extra_answers="first year attended: 2011\nlast year attended: 2013")
+    assert wd.plan_field(_sec("formField-firstYearAttended", kind="date"), p) == {"action": "date", "value": "2011"}
+    assert wd.plan_field(_sec("formField-lastYearAttended", kind="date"), p) == {"action": "date", "value": "2013"}
+    assert wd.experience_plan(_sec("formField-fieldOfStudy", kind="selectinput"), p) == \
+        {"action": "search", "value": "Physics"}
+    bare = build_profile(first_name="A", last_name="B", email="a@b.c")
+    assert wd.plan_field(_sec("formField-firstYearAttended", kind="date"), bare) is None
+    assert wd.experience_plan(_sec("formField-fieldOfStudy", kind="selectinput"), bare) is None
+
+
+def test_language_level_takes_the_first_answer_the_scale_offers():
+    p = build_profile(first_name="A", last_name="B", email="a@b.c", languages="English",
+                      extra_answers="english proficiency: 4 - Fluent\nenglish proficiency: 3 - Advanced")
+    hp = ["1 - Beginner", "2 - Intermediate", "3 - Advanced", "4 - Fluent"]
+    trend = ["1 - Beginner", "2 - Intermediate", "3 - Advanced", "4 - Native"]
+    assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=hp), p)["value"] == "4 - Fluent"
+    assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=trend), p)["value"] == \
+        "3 - Advanced"

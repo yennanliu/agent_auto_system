@@ -54,6 +54,8 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
 from src.automation.tools.ats_apply_tool import Adapter, entry_for, tick
 from src.automation.tools.ats_common import (
     _MONTHS,
@@ -450,6 +452,16 @@ def experience_plan(f: dict, profile: dict) -> dict | None | bool:
         return {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
     if fid == "formField-endDate":
         return None  # the current job has none: "I currently work here" hides it
+    if fid in ("formField-firstYearAttended", "formField-lastYearAttended"):
+        # Education years: "first year attended: 2011" in extra answers / defaults.
+        from src.automation.tools.ats_common import rule_answer
+        key = "first year attended" if fid.endswith("firstYearAttended") else "last year attended"
+        year = rule_answer(key, {"extra_answers": profile.get("extra_answers") or []})
+        return {"action": "date", "value": str(year)} \
+            if isinstance(year, str) and re.fullmatch(r"(19|20)\d\d", year.strip()) else None
+    if fid == "formField-fieldOfStudy":
+        # A long searchable list: search the profile's discipline, pick only an exact item.
+        return {"action": "search", "value": edu["discipline"]} if edu.get("discipline") else None
     if fid == "formField-schoolName":
         return fill(edu.get("school"))
     if fid == "formField-degree" and kind == "listbox":
@@ -460,10 +472,12 @@ def experience_plan(f: dict, profile: dict) -> dict | None | bool:
         pick = next((o for o in options if lang and o.lower() == lang.lower()), None)
         return {"action": "pick", "value": pick} if pick else None
     if kind == "listbox" and re.fullmatch(r"(overall|proficiency|level)( level| proficiency)?", f["label"].strip().lower()):
-        from src.automation.tools.ats_common import rule_answer
-        level = rule_answer(f"{lang} proficiency", {"extra_answers": profile.get("extra_answers") or []}) \
-            if lang else None
-        pick = match_option(options, level) if isinstance(level, str) else None
+        # Every "<language> proficiency" answer in order, the first one this
+        # scale offers: "4 - Fluent" where it exists, "3 - Advanced" on a scale
+        # topped by "4 - Native" (Trend Micro).
+        key = f"{lang} proficiency".lower()
+        levels = [a for kw, a in profile.get("extra_answers") or [] if lang and kw.lower() == key]
+        pick = next((hit for lv in levels if (hit := match_option(options, lv))), None)
         return {"action": "pick", "value": pick} if pick else None
     return False
 
@@ -559,7 +573,9 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
       const m = f.querySelector('[data-automation-id=dateSectionMonth-input]');
       const d = f.querySelector('[data-automation-id=dateSectionDay-input]');
       const y = f.querySelector('[data-automation-id=dateSectionYear-input]');
-      value = m && m.value && y && y.value ? [m.value, ...(d ? [d.value] : []), y.value].join('/') : ''; }
+      // the sections the widget has (a year-only one has just YYYY)
+      const parts = [m, d, y].filter(Boolean);
+      value = parts.length && parts.every(x => x.value) ? parts.map(x => x.value).join('/') : ''; }
     else if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
     else if (btn) { kind = 'listbox'; value = btn.innerText.trim(); if (value === 'Select One') value = ''; }
     else if (radios.length) { kind = 'radio'; options = radios.map(optLabel);
@@ -586,9 +602,17 @@ EMPLOYER_JS = r"""() => { for (const s of document.querySelectorAll('script[type
   catch (e) {} } return ''; }"""
 
 
+_PHONE_CODE_ITEM = re.compile(r"\(\+\d{1,4}\)\s*$")
 # Filled fields of these kinds are re-planned on every pass (stale drafts);
 # a prompt (selectinput) or upload with a value is left as it is.
 RECHECK_KINDS = frozenset({"listbox", "radio", "text", "checkbox", "date"})
+
+
+def next_field(fields: list[dict], tried: set) -> dict | None:
+    """The next field to plan: any empty one, of any kind (a "How did you
+    hear?" prompt is a selectinput), or a filled one of a re-checked kind."""
+    return next((f for f in fields if (f["label"], f["kind"]) not in tried
+                 and (not f["value"] or f["kind"] in RECHECK_KINDS)), None)
 
 
 def _same(plan: dict, f: dict) -> bool:
@@ -796,9 +820,9 @@ class Wizard:
         """Open a listbox button; its options, scoped by ``aria-controls`` (the
         phone-code widget keeps a stray role=option in the page)."""
         p = self.page
-        btn.click()
+        btn.click(timeout=8000)
         p.wait_for_timeout(900)
-        lb = btn.get_attribute("aria-controls")
+        lb = btn.get_attribute("aria-controls", timeout=5000)
         opts = p.locator(f"[id={json.dumps(lb)}] [role='option']") if lb else \
             p.locator("[role='listbox'] >> visible=true").locator("[role='option']")
         return [t.strip() for t in opts.all_inner_texts()], opts
@@ -819,6 +843,9 @@ class Wizard:
             self.page.wait_for_timeout(1200)  # dependent fields (state, phone code) re-render
             return plan
         if f["kind"] == "selectinput":
+            search = experience_plan(f, profile)
+            if search and search["action"] == "search":
+                return self._search_prompt(box, f, search["value"])
             return self._prompt(box, f, profile, answer_fn)
         plan = plan_field(f, profile, answer_fn)
         if not plan or _same(plan, f):
@@ -839,21 +866,26 @@ class Wizard:
             # displays (the inputs themselves take no clicks): click a display,
             # type that section.
             parts = plan["value"].split("/")
-            names = ("Month", "Day", "Year") if len(parts) == 3 else ("Month", "Year")
+            names = {3: ("Month", "Day", "Year"), 2: ("Month", "Year"), 1: ("Year",)}[len(parts)]
             for part, text in zip(names, parts, strict=True):
                 inp = box.locator(f"[data-automation-id=dateSection{part}-input]")
                 if inp.input_value() != text.lstrip("0") and inp.input_value() != text:
-                    box.locator(f"[data-automation-id=dateSection{part}-display]").click()
+                    # Focus the spinbutton itself (a year-only widget's display
+                    # takes no clicks), then type that section.
+                    inp.focus()
                     self.page.keyboard.type(text, delay=80)
+            # Leave the widget so it commits (a year-only one keeps nothing otherwise).
+            self.page.keyboard.press("Tab")
             self.page.wait_for_timeout(500)
         elif f["kind"] == "text":
             box.locator("textarea, input:not([type=hidden]):not([type=file])").first.fill(plan["value"])
         return plan
 
     def _prompt_options(self):
-        """The open prompt menu's items (the page's other chips, e.g. the
-        phone code, are "selectedItem", not "menuItem")."""
-        items = self.page.locator("[data-automation-id=menuItem]").filter(visible=True)
+        """The open prompt menu's items. The phone-code prompt keeps its own
+        items in the page ("Taiwan (+886)"): never this menu's."""
+        items = self.page.locator("[data-automation-id=menuItem]").filter(visible=True) \
+            .filter(has_not_text=_PHONE_CODE_ITEM)
         return [t.strip() for t in items.all_inner_texts()], items
 
     def _prompt(self, box, f: dict, profile: dict, answer_fn) -> dict | None:
@@ -868,16 +900,42 @@ class Wizard:
             texts, items = self._prompt_options()
             plan = plan_field({**f, "kind": "selectinput", "options": texts}, profile, answer_fn)
             if not plan or plan["value"] not in texts:
+                self.log(f"'{f['label'][:40]}': no confident item among {texts[:12]}")
                 break
             items.nth(texts.index(plan["value"])).click()
             picked.append(plan["value"])
-            p.wait_for_timeout(1200)
             chip = box.locator("[data-automation-id=selectedItem]")
+            # Wait for the pick to land or the next level to replace the
+            # list (Trend Micro: a slow second level was read as the first).
+            self._wait(lambda: chip.count() or self._prompt_options()[0] not in (texts, []), 6)
+            p.wait_for_timeout(400)
             if chip.count():
                 p.keyboard.press("Escape")
                 return {"action": "pick", "value": " > ".join(picked)}
+        self.log(f"'{f['label'][:40]}': picked {' > '.join(picked) or 'nothing'}, but no selection showed")
         p.keyboard.press("Escape")
         return None
+
+    def _search_prompt(self, box, f: dict, term: str) -> dict | None:
+        """A searchable prompt (Field of Study): type the term, pick the item
+        that IS it ("Physics", never "Applied Physics")."""
+        p = self.page
+        inp = box.locator("input[data-uxi-widget-type=selectinput]").first
+        inp.click()
+        p.wait_for_timeout(1200)  # the menu opens first; typing before it is lost
+        inp.press_sequentially(term, delay=60)
+        p.keyboard.press("Enter")
+        self._wait(lambda: any(t.casefold() == term.casefold() for t in self._prompt_options()[0]), 6)
+        texts, items = self._prompt_options()
+        hit = next((i for i, t in enumerate(texts) if t.casefold() == term.casefold()), None)
+        if hit is None:
+            self.log(f"'{f['label'][:40]}': no item named {term!r} among {texts[:8]}")
+            p.keyboard.press("Escape")
+            return None
+        items.nth(hit).click()
+        p.wait_for_timeout(800)
+        p.keyboard.press("Escape")
+        return {"action": "pick", "value": texts[hit]}
 
     def answer_step(self, profile: dict, answer_fn=None) -> tuple[list[dict], list[str]]:
         """Answer every field of the current step. A choice (the country)
@@ -894,16 +952,21 @@ class Wizard:
         tried: set[tuple[str, str]] = set()
         questions = "Question" in self.step()
         for _ in range(80):
-            todo = next((f for f in self.fields()
-                         if (f["label"], f["kind"]) not in tried and f["kind"] in RECHECK_KINDS | {"other"}
-                         and (not f["value"] or f["kind"] in RECHECK_KINDS)), None)
+            todo = next_field(self.fields(), tried)
             if todo is None:
                 break
             tried.add((todo["label"], todo["kind"]))
             if todo["field"] == "formField-phoneNumber":
                 todo["phone_code"] = next((f["value"] for f in self.fields()
                                            if f["field"] == "formField-countryPhoneCode"), "")
-            plan = self._act(todo, profile, answer_fn)
+            try:
+                plan = self._act(todo, profile, answer_fn)
+            except PlaywrightTimeout:
+                # The step re-rendered under us (a control vanished): skip this
+                # field; a required one still empty is reported below.
+                self.log(f"'{todo['label'][:50]}': the control went away mid-step; skipped")
+                self.page.keyboard.press("Escape")
+                plan = None
             if plan:
                 answers.append({"label": todo["label"][:80], "value": plan["value"]})
             elif todo["value"] and todo["required"] and questions:
