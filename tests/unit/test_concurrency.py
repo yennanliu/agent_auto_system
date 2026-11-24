@@ -277,3 +277,85 @@ async def test_cancel_while_waiting_on_global_releases_its_type_slot(run_env, mo
     await _settle()
     await _drain(run_env, [a, b2])
     assert run_env["started"] == [a, b2]                # b2 got the 104 slot b1 gave back
+
+
+# ── config file (src/config/concurrency.yaml) ─────────────────────────────────
+
+_ALL_ENV = (
+    "MAX_CONCURRENT_BROWSER_RUNS", "MAX_CONCURRENT_LLM_RUNS",
+    "MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE", "MAX_CONCURRENT_LLM_RUNS_PER_TYPE",
+    "MAX_CONCURRENT_RUNS_LINKEDIN_APPLY", "MAX_CONCURRENT_RUNS_TW104_APPLY",
+)
+
+
+@pytest.fixture
+def cfg_file(tmp_path, monkeypatch):
+    for var in _ALL_ENV:
+        monkeypatch.delenv(var, raising=False)
+    path = tmp_path / "concurrency.yaml"
+    monkeypatch.setenv("CONCURRENCY_CONFIG", str(path))
+    return path
+
+
+def test_shipped_config_file_parses_and_matches_builtin_defaults(monkeypatch):
+    monkeypatch.delenv("CONCURRENCY_CONFIG", raising=False)
+    assert concurrency.config_path() == concurrency.CONFIG_PATH
+    assert concurrency.CONFIG_PATH.is_file()
+    cfg = concurrency.load_config()
+    assert cfg["global"] == {"browser": 4, "llm": 8}
+    assert cfg["per_type_default"] == {"browser": 1, "llm": 4}
+    for name, sec in (("global", concurrency._DEFAULTS), ("per_type_default", concurrency._TYPE_DEFAULTS)):
+        assert cfg[name] == sec, f"{name} in concurrency.yaml drifted from the built-in fallback"
+
+
+def test_config_file_values_are_used(cfg_file):
+    cfg_file.write_text(
+        "global: {browser: 3, llm: 5}\n"
+        "per_type_default: {browser: 2, llm: 6}\n"
+        "per_type: {linkedin_apply: 1, 'custom:x': 9}\n"
+    )
+    B, L = concurrency.BROWSER, concurrency.LLM
+    assert concurrency.limit_for(B) == 3
+    assert concurrency.limit_for(L) == 5
+    assert concurrency.type_limit_for("linkedin_apply", B) == 1
+    assert concurrency.type_limit_for("tw104_apply", B) == 2
+    assert concurrency.type_limit_for("hacker_news_digest", L) == 6
+    assert concurrency.type_limit_for("custom:x", L) == 9
+
+
+def test_env_beats_config_file(cfg_file, monkeypatch):
+    cfg_file.write_text("global: {browser: 3}\nper_type: {linkedin_apply: 2}\n")
+    monkeypatch.setenv("MAX_CONCURRENT_BROWSER_RUNS", "7")
+    monkeypatch.setenv("MAX_CONCURRENT_RUNS_LINKEDIN_APPLY", "5")
+    assert concurrency.limit_for(concurrency.BROWSER) == 7
+    assert concurrency.type_limit_for("linkedin_apply", concurrency.BROWSER) == 5
+
+
+def test_missing_or_broken_config_falls_back_to_defaults(cfg_file):
+    B = concurrency.BROWSER
+    assert concurrency.limit_for(B) == 4                       # file missing
+    cfg_file.write_text("global: [this is: not: valid")
+    assert concurrency.limit_for(B) == 4                       # unparsable
+    cfg_file.write_text("global: {browser: lots, llm: 0}\nper_type: nope\n")
+    assert concurrency.limit_for(B) == 4                       # bad value → default
+    assert concurrency.limit_for(concurrency.LLM) == 1         # 0 → floor of 1
+    assert concurrency.type_limit_for("linkedin_apply", B) == 1
+
+
+def test_snapshot_reports_limits_sources_and_live_counts(cfg_file, monkeypatch):
+    cfg_file.write_text("global: {browser: 3}\nper_type: {linkedin_apply: 2}\n")
+    monkeypatch.setenv("MAX_CONCURRENT_RUNS_TW104_APPLY", "4")
+    snap = concurrency.snapshot({"linkedin_apply": {"running": 2, "queued": 3},
+                                 "tw104_apply": {"running": 1}})
+    assert snap["config_path"] == str(cfg_file) and snap["config_exists"]
+    g = {r["run_class"]: r for r in snap["global"]}
+    assert (g["browser"]["limit"], g["browser"]["source"]) == (3, "config")
+    assert (g["llm"]["limit"], g["llm"]["source"]) == (8, "default")
+    assert (g["browser"]["running"], g["browser"]["queued"]) == (3, 3)
+    q = {r["job_type"]: r for r in snap["queues"]}
+    assert set(spec.REGISTRY) <= set(q)
+    assert (q["linkedin_apply"]["limit"], q["linkedin_apply"]["source"]) == (2, "config per_type")
+    assert (q["linkedin_apply"]["running"], q["linkedin_apply"]["queued"]) == (2, 3)
+    assert q["tw104_apply"]["source"] == "env MAX_CONCURRENT_RUNS_TW104_APPLY"
+    assert q["greenhouse_apply"]["source"].startswith("browser per-type default")
+    assert q["hacker_news_digest"]["run_class"] == "llm"

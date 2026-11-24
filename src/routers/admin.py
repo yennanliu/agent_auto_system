@@ -264,6 +264,28 @@ def set_eval_judge(data: EvalJudgeUpdate):
     return _eval_judge_payload()
 
 
+# ── Run concurrency (per-automation queues + global ceilings) ─────────────────
+
+@router.get("/admin/concurrency")
+def get_concurrency(session: Session = Depends(get_session)):
+    """Effective run limits (env > src/config/concurrency.yaml > default) with
+    the live running/queued count per automation queue. Read-only: edit the
+    config file (or env) and restart to change a limit."""
+    from src.automation import concurrency
+    from src.models import Job, Run
+
+    rows = session.exec(
+        select(Job.job_type, Run.status, func.count())
+        .join(Job, Job.id == Run.job_id)
+        .where(Run.status.in_(("running", "queued")))
+        .group_by(Job.job_type, Run.status)
+    ).all()
+    active: dict[str, dict[str, int]] = {}
+    for job_type, status, n in rows:
+        active.setdefault(job_type, {})[status] = n
+    return concurrency.snapshot(active)
+
+
 # ── Scraper drift canaries (E7) ─────────────────────────────────────────────────
 
 @router.get("/admin/canaries")

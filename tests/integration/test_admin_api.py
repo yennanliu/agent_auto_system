@@ -240,3 +240,35 @@ async def test_canaries_endpoint_lists_latest_status(client, test_engine):
     assert by_type["linkedin_apply"]["latest"] is None
     assert by_type["x_scraper"]["canary"] is None and by_type["x_scraper"]["skip_reason"]
     assert "web_scraper" not in by_type  # not a browser automation
+
+
+# ── Concurrency view ──────────────────────────────────────────────────────────
+
+async def test_concurrency_view_is_admin_only(user_client):
+    assert (await user_client.get("/api/admin/concurrency")).status_code == 403
+
+
+async def test_concurrency_view_counts_active_runs_per_queue(client, test_engine):
+    from src.models import Run
+
+    with Session(test_engine) as s:
+        li = Job(name="li", job_type="linkedin_apply", payload="{}")
+        tw = Job(name="tw", job_type="tw104_apply", payload="{}")
+        s.add(li)
+        s.add(tw)
+        s.commit()
+        for job, status in [(li, "running"), (li, "queued"), (li, "queued"),
+                            (tw, "running"), (tw, "success")]:
+            s.add(Run(job_id=job.id, status=status))
+        s.commit()
+
+    resp = await client.get("/api/admin/concurrency")
+    assert resp.status_code == 200
+    data = resp.json()
+    q = {r["job_type"]: r for r in data["queues"]}
+    assert (q["linkedin_apply"]["running"], q["linkedin_apply"]["queued"]) == (1, 2)
+    assert (q["tw104_apply"]["running"], q["tw104_apply"]["queued"]) == (1, 0)
+    assert q["greenhouse_apply"]["running"] == 0
+    browser = next(r for r in data["global"] if r["run_class"] == "browser")
+    assert (browser["running"], browser["queued"]) == (2, 2)
+    assert data["config_path"].endswith("concurrency.yaml")

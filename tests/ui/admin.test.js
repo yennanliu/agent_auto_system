@@ -1,5 +1,5 @@
 // admin.js — Users tab (table, create/edit modal, toggle, reset PW, delete), tab
-// switching, LLM Keys, Verification-LLM (eval judge) and Automations toggles.
+// switching, LLM Keys, Verification-LLM (eval judge), Automations toggles and Concurrency.
 // Custom automations + Sessions live in admin-custom.test.js (fresh module state).
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,6 +17,8 @@ const S = {
   autosPutStatus: 200,
   judge: null,
   judgeStatus: 200,
+  conc: null,
+  concStatus: 200,
   errors: {},          // "METHOD path" → [status, body] | () => Response (reset per test)
 };
 
@@ -41,6 +43,7 @@ const routes = [
     : jsonResponse({ detail: 'nope' }, { status: S.autosPutStatus }))],
   ['GET', '/api/admin/eval-judge', () => (S.judgeStatus === 200 ? S.judge : S.judgeStatus)],
   ['PUT', '/api/admin/eval-judge', (u, i, call) => err('PUT', call.path) || S.judge],
+  ['GET', '/api/admin/concurrency', () => (S.concStatus === 200 ? S.conc : S.concStatus)],
   ['GET', '/api/runs', () => []],
 ];
 
@@ -105,7 +108,7 @@ test('loadAdminPage opens the Users tab first and wires tab clicks once', async 
   loadAdminPage();  // second call must not double-wire the tab listener
   await until(() => $('admin-add-user'), 'users table');
   assert.equal($('admin-users').hidden, false);
-  for (const id of ['admin-keys', 'admin-judge', 'admin-autos', 'admin-custom', 'admin-sessions']) {
+  for (const id of ['admin-keys', 'admin-judge', 'admin-autos', 'admin-custom', 'admin-sessions', 'admin-concurrency']) {
     assert.equal($(id).hidden, true, `${id} hidden`);
   }
   assert.ok(document.querySelector('#admin-tabs [data-adm="users"]').classList.contains('active'));
@@ -686,4 +689,66 @@ test('Judge: unset provider renders on Auto with the model select disabled; load
   switchTab('judge');
   await until(() => /Failed to load\./.test($('admin-judge').textContent), 'error');
   S.judgeStatus = 200;
+});
+
+
+// ── Concurrency (read-only) ───────────────────────────────────────────────────
+
+function concFixture() {
+  return {
+    config_path: '/app/src/config/concurrency.yaml',
+    config_exists: true,
+    global: [
+      { run_class: 'browser', limit: 4, source: 'config', env: 'MAX_CONCURRENT_BROWSER_RUNS', running: 2, queued: 3 },
+      { run_class: 'llm', limit: 8, source: 'default', env: 'MAX_CONCURRENT_LLM_RUNS', running: 0, queued: 0 },
+    ],
+    per_type_default: [
+      { run_class: 'browser', limit: 1, source: 'config', env: 'MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE' },
+      { run_class: 'llm', limit: 4, source: 'config', env: 'MAX_CONCURRENT_LLM_RUNS_PER_TYPE' },
+    ],
+    queues: [
+      { job_type: 'linkedin_apply', run_class: 'browser', limit: 1, source: 'browser per-type default (config)',
+        env: 'MAX_CONCURRENT_RUNS_LINKEDIN_APPLY', running: 1, queued: 2 },
+      { job_type: 'tw104_apply', run_class: 'browser', limit: 2, source: 'env MAX_CONCURRENT_RUNS_TW104_APPLY',
+        env: 'MAX_CONCURRENT_RUNS_TW104_APPLY', running: 1, queued: 1 },
+      { job_type: XSS, run_class: 'llm', limit: 4, source: XSS, env: 'X', running: 0, queued: 0 },
+    ],
+  };
+}
+
+test('Concurrency tab shows global ceilings, per-type queues, usage and config path', async () => {
+  S.conc = concFixture();
+  switchTab('concurrency');
+  await until(() => $('admin-conc-refresh'), 'concurrency view');
+  const el = $('admin-concurrency');
+  assert.equal(el.hidden, false);
+  assert.equal($('admin-users').hidden, true);
+  const text = el.textContent;
+  assert.match(text, /\/app\/src\/config\/concurrency\.yaml/);
+  assert.match(text, /2 \/ 4 running/);
+  assert.match(text, /3 queued/);
+  assert.match(text, /linkedin_apply/);
+  assert.match(text, /1 \/ 1 running/);
+  assert.match(text, /env MAX_CONCURRENT_RUNS_TW104_APPLY/);
+  assert.equal(el.querySelectorAll('tbody tr').length, 2 + 3);
+  assert.equal(window.__xss, undefined);
+  assert.equal(el.querySelector('img'), null, 'job type / source are escaped');
+  assert.doesNotMatch(text, /file not found/);
+
+  fetchMock.reset();
+  click($('admin-conc-refresh'));
+  await flush();
+  assert.equal(fetchMock.callsTo('/api/admin/concurrency', 'GET').length, 1);
+});
+
+test('Concurrency tab flags a missing config file and handles load errors', async () => {
+  S.conc = { ...concFixture(), config_exists: false };
+  switchTab('concurrency');
+  await until(() => $('admin-conc-refresh'), 'concurrency view');
+  assert.match($('admin-concurrency').textContent, /file not found/);
+
+  S.concStatus = 500;
+  switchTab('concurrency');
+  await until(() => /Failed to load/.test($('admin-concurrency').textContent), 'error state');
+  S.concStatus = 200;
 });

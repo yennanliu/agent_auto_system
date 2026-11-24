@@ -1,0 +1,34 @@
+# Run concurrency limits — how many runs may execute at the same time.
+#
+# A run passes two gates, in this order:
+#   1. its automation's own queue  (per_type)  — a backlog of one automation
+#      (e.g. linkedin_apply) never holds up another (e.g. tw104_apply)
+#   2. the global class ceiling     (global)    — machine-wide safety net
+#
+# "browser" = automations that drive Playwright/Chromium (AutomationSpec.browser;
+# a pipeline counts as browser if any step does). "llm" = everything else.
+#
+# Precedence for every value: environment variable > this file > built-in default.
+#   global.browser         ← MAX_CONCURRENT_BROWSER_RUNS
+#   global.llm             ← MAX_CONCURRENT_LLM_RUNS
+#   per_type_default.*     ← MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE / MAX_CONCURRENT_LLM_RUNS_PER_TYPE
+#   per_type.<job_type>    ← MAX_CONCURRENT_RUNS_<JOB_TYPE>  (upper-cased, non-alphanumerics → _)
+# Point CONCURRENCY_CONFIG at another file to use it instead of this one.
+#
+# Changes take effect on server restart. Values below 1 are treated as 1.
+# Current effective values: Admin → Concurrency in the UI.
+
+global:
+  browser: 4   # at most 4 Chromium-driving runs at once, across all automations
+  llm: 8
+
+per_type_default:
+  browser: 1   # one run per browser automation (one session/login per site)
+  llm: 4
+
+# Per-automation overrides (job type → limit). Keys are job types, e.g.
+# linkedin_apply, tw104_apply, greenhouse_apply, ats_apply, tasker_apply,
+# email_collect, pipeline, custom:<slug>.
+per_type: {}
+#  linkedin_apply: 1
+#  greenhouse_apply: 2

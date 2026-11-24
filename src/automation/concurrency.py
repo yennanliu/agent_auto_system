@@ -4,6 +4,12 @@ Every run executes in this one process, so an unbounded ``asyncio.create_task``
 lets a burst of triggers (several schedules firing together, a user clicking
 "Run" ten times) start ten Chromium instances plus their LLM calls at once.
 
+Limits live in ``src/config/concurrency.yaml`` (path override: ``CONCURRENCY_CONFIG``);
+an environment variable beats the file, the file beats the built-in default.
+``snapshot()`` reports the effective values and where each came from (Admin →
+Concurrency). Limits are read when a queue's semaphore is first created, so a
+change takes effect on server restart.
+
 A run passes two gates, in this order:
 
 1. **Its automation's own queue** — one semaphore per job type (``linkedin_apply``,
@@ -29,11 +35,17 @@ slots are handed out in FIFO order within each queue. The caps are per process �
 they do not coordinate across multiple server workers.
 """
 import asyncio
+import logging
 import os
 import re
 import weakref
+from pathlib import Path
+
+import yaml
 
 from src.automation import spec
+
+logger = logging.getLogger(__name__)
 
 BROWSER = "browser"
 LLM = "llm"
@@ -41,6 +53,7 @@ LLM = "llm"
 _DEFAULTS = {BROWSER: 4, LLM: 8}
 _ENV = {BROWSER: "MAX_CONCURRENT_BROWSER_RUNS", LLM: "MAX_CONCURRENT_LLM_RUNS"}
 
+# Built-in fallbacks when neither the env nor the config file sets a value.
 # Per-automation queue defaults, by class (overridable per type, see type_limit_for).
 _TYPE_DEFAULTS = {BROWSER: 1, LLM: 4}
 _TYPE_ENV = {
@@ -59,18 +72,77 @@ _SEMAPHORES: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[tuple[st
 )
 
 
-def _env_int(name: str, default: int) -> int:
-    """Positive int from the environment (floor of 1 — a 0 cap would deadlock)."""
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "concurrency.yaml"
+
+
+def config_path() -> Path:
+    return Path(os.getenv("CONCURRENCY_CONFIG") or CONFIG_PATH)
+
+
+def load_config() -> dict:
+    """Parsed config file (``{}`` if missing/invalid — never raises)."""
+    path = config_path()
     try:
-        value = int(os.getenv(name, ""))
-    except ValueError:
-        value = default
-    return max(1, value)
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception:  # noqa: BLE001 — a bad file must not stop runs; fall back to defaults
+        logger.exception("Invalid concurrency config %s — using defaults", path)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _positive(value) -> int | None:
+    """``value`` as an int with a floor of 1 (a 0 cap would deadlock), or None."""
+    if isinstance(value, bool):
+        return None
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve(env: str, file_value, default: int) -> tuple[int, str]:
+    """(limit, source) — env beats the config file beats the built-in default."""
+    v = _positive(os.getenv(env, "").strip() or None)
+    if v is not None:
+        return v, f"env {env}"
+    v = _positive(file_value)
+    if v is not None:
+        return v, "config"
+    return default, "default"
+
+
+def _section(cfg: dict, name: str) -> dict:
+    sec = cfg.get(name)
+    return sec if isinstance(sec, dict) else {}
+
+
+def _global_limit(run_class: str, cfg: dict) -> tuple[int, str]:
+    return _resolve(_ENV[run_class], _section(cfg, "global").get(run_class), _DEFAULTS[run_class])
+
+
+def _type_default(run_class: str, cfg: dict) -> tuple[int, str]:
+    return _resolve(
+        _TYPE_ENV[run_class], _section(cfg, "per_type_default").get(run_class), _TYPE_DEFAULTS[run_class]
+    )
+
+
+def _type_limit(job_type: str, run_class: str, cfg: dict) -> tuple[int, str]:
+    """Per-type env/config entry, else the class's per-type default."""
+    v = _positive(os.getenv(type_env_var(job_type), "").strip() or None)
+    if v is not None:
+        return v, f"env {type_env_var(job_type)}"
+    v = _positive(_section(cfg, "per_type").get(queue_key(job_type)))
+    if v is not None:
+        return v, "config per_type"
+    limit, source = _type_default(run_class, cfg)
+    return limit, f"{run_class} per-type default ({source})"
 
 
 def limit_for(run_class: str) -> int:
-    """Configured global cap for a run class (env override, floor of 1)."""
-    return _env_int(_ENV[run_class], _DEFAULTS[run_class])
+    """Effective global cap for a run class."""
+    return _global_limit(run_class, load_config())[0]
 
 
 def queue_key(job_type: str) -> str:
@@ -84,9 +156,8 @@ def type_env_var(job_type: str) -> str:
 
 
 def type_limit_for(job_type: str, run_class: str) -> int:
-    """Cap for one automation's own queue: per-type env, else the class default."""
-    default = _env_int(_TYPE_ENV[run_class], _TYPE_DEFAULTS[run_class])
-    return _env_int(type_env_var(job_type), default)
+    """Effective cap for one automation's own queue."""
+    return _type_limit(job_type, run_class, load_config())[0]
 
 
 def _is_browser(job_type: str) -> bool:
@@ -138,3 +209,44 @@ def gates_for(job_type: str, payload: dict | None = None) -> list[tuple[asyncio.
             f"waiting for a free {rc} slot (global limit {limit_for(rc)})",
         ),
     ]
+
+
+def snapshot(active: dict[str, dict[str, int]] | None = None) -> dict:
+    """Effective limits + their source, for the Admin → Concurrency view.
+
+    ``active`` maps job type → ``{"running": n, "queued": n}`` (from the DB) and
+    is folded into each queue row and the class totals.
+    """
+    active = active or {}
+    cfg = load_config()
+    spec.ensure_plugins_loaded()
+    types = sorted(set(spec.REGISTRY) | set(_section(cfg, "per_type")) | set(active))
+    queues = []
+    totals = {BROWSER: {"running": 0, "queued": 0}, LLM: {"running": 0, "queued": 0}}
+    for jt in types:
+        rc = run_class(jt)
+        limit, source = _type_limit(jt, rc, cfg)
+        counts = active.get(jt, {})
+        running, queued = int(counts.get("running", 0)), int(counts.get("queued", 0))
+        totals[rc]["running"] += running
+        totals[rc]["queued"] += queued
+        queues.append({
+            "job_type": jt, "run_class": rc, "limit": limit, "source": source,
+            "env": type_env_var(jt), "running": running, "queued": queued,
+        })
+    global_rows = []
+    for rc in (BROWSER, LLM):
+        limit, source = _global_limit(rc, cfg)
+        global_rows.append({"run_class": rc, "limit": limit, "source": source, "env": _ENV[rc], **totals[rc]})
+    per_type_default = []
+    for rc in (BROWSER, LLM):
+        limit, source = _type_default(rc, cfg)
+        per_type_default.append({"run_class": rc, "limit": limit, "source": source, "env": _TYPE_ENV[rc]})
+    path = config_path()
+    return {
+        "config_path": str(path),
+        "config_exists": path.is_file(),
+        "global": global_rows,
+        "per_type_default": per_type_default,
+        "queues": queues,
+    }
