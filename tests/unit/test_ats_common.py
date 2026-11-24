@@ -671,3 +671,10 @@ def test_previous_employee_of_the_hiring_company():
 ])
 def test_company_source_option(company, options, expected):
     assert ac.company_source_option(options, ac.with_job_location(PROFILE, None, company)) == expected
+
+
+def test_prior_employment_with_a_comma():
+    """Capital One (Workday), live 2026-11-24."""
+    q = ("Do you currently, or have you previously, worked at Capital One or a company acquired by "
+         "Capital One as an employee, contractor, consultant, or temp?")
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "capitalone"}) == "No"

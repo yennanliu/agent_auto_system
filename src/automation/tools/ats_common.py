@@ -570,7 +570,7 @@ def rule_answer(label: str, profile: dict):
         # exchange visitor visa?" (Intel, live) is a fact about the person.
         return None
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
-                 r"previously (worked|been (directly )?employed)|(former|previous|past) employee|"
+                 r"previously,? (worked|been (directly )?employed)|(former|previous|past) employee|"
                  r"ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
     # "…are you an existing HP employee?" (HP, Workday): asked about the hiring
