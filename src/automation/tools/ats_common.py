@@ -512,13 +512,20 @@ def company_names(profile: dict) -> list[str]:
     return [n for n in dict.fromkeys(n.strip() for n in names) if n]
 
 
+_NOTE_RE = re.compile(r"\bnote\s*:|for (the )?purposes? of this question|\bplease note\b")
+
+
 def rule_answer(label: str, profile: dict):
     """Heuristic answer for a custom question label, or None when unsure. The
     caller maps the answer onto a select's options when the field is a select.
     A list means several values (spoken / programming languages)."""
     lbl = label.lower()
+    # A keyword answers the question, not its fine print: "…NOTE: …permanent
+    # resident…" (Intel) or "For purposes of this question … I-140 …"
+    # (Broadcom) once caught keys written for other questions.
+    asked = _NOTE_RE.split(lbl, maxsplit=1)[0]
     for kw, ans in profile.get("extra_answers") or []:
-        if kw.lower() in lbl:
+        if kw.lower() in asked:
             return ans
     prof = _profile_answer(label, profile)
     if prof:

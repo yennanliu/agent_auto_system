@@ -642,3 +642,15 @@ def test_a_visa_history_question_is_not_sponsorship():
 def test_source_option_order(company, options, expected):
     p = ac.with_job_location(PROFILE, None, company)
     assert ac.source_option(options, p) == expected
+
+
+def test_extra_answers_match_the_question_not_its_fine_print():
+    """Broadcom, live 2026-11-24: "…For purposes of this question … I-140
+    portability…" caught a saved "i-140: No" and answered sponsorship "No"."""
+    p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"},
+                              "extra_answers": [("i-140", "No")]}, "United States", "broadcom")
+    q = ("Will you now or in the future require support or sponsorship for an immigration-related "
+         "employment benefit? For purposes of this question “support or sponsorship …” means an H-1B "
+         "visa petition, … (also known as I-140 portability …).")
+    assert ac.rule_answer(q, p) == "Yes"
+    assert ac.rule_answer("Was your I-140 approved more than 180 days ago?", p) == "No"
