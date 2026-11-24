@@ -153,7 +153,9 @@ class WorkdayAdapter(Adapter):
         base = f"https://{tenant}.{wd}.myworkdayjobs.com/{site}"
         if ref.job_id:
             # One job: search its requisition id ("…_R10225937-1" → "R10225937-1").
-            terms, max_pages = [ref.job_id.rsplit("_", 1)[-1]], 1
+            # "…_R1004419-1": some boards (Capital One) only find "R1004419".
+            req = ref.job_id.rsplit("_", 1)[-1]
+            terms, max_pages = list(dict.fromkeys([req, re.sub(r"-\d+$", "", req)])), 1
         elif search:
             terms, max_pages = search_terms(search), MAX_PAGES_PER_TERM
         else:
@@ -161,6 +163,8 @@ class WorkdayAdapter(Adapter):
         jobs: dict[str, dict] = {}
         first = True
         for term in terms:
+            if ref.job_id and ref.job_id in jobs:
+                break  # the job link's posting is found: no fallback search
             for page in range(max_pages):
                 if not first:
                     self._sleep(PACE_S)

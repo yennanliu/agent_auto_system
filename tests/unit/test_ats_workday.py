@@ -666,3 +666,25 @@ def test_an_acknowledgement_date_is_today():
          "acknowledgement.")
     assert wd.plan_field(_sec("formField-46c8", label=q, kind="date"), PROFILE) == \
         {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
+
+
+def test_a_job_link_falls_back_to_the_requisition_id_without_its_suffix():
+    """Capital One, live 2026-11-24: "R1004419-1" finds nothing, "R1004419" finds it."""
+    class _Seq:
+        def __init__(self):
+            self.terms = []
+
+        def post(self, url, json):
+            self.terms.append(json["searchText"])
+            postings = [] if json["searchText"].endswith("-1") else [
+                {"title": "Full Stack Engineer 4", "externalPath": "/job/New-York-NY/Full-Stack-Engineer-4_R1004419-1",
+                 "locationsText": "New York, NY"}]
+            return type("R", (), {"status_code": 200, "raise_for_status": lambda self: None,
+                                  "json": lambda self: {"total": len(postings), "jobPostings": postings}})()
+    from src.automation.tools.ats_router import parse_board_ref
+    c = _Seq()
+    ref = parse_board_ref("https://capitalone.wd12.myworkdayjobs.com/Capital_One/job/New-York-NY/"
+                          "Full-Stack-Engineer-4_R1004419-1")
+    jobs = wd.WorkdayAdapter(sleep=lambda _s: None).discover(c, ref)
+    assert c.terms == ["R1004419-1", "R1004419"]
+    assert [j["job_id"] for j in jobs] == ["Full-Stack-Engineer-4_R1004419-1"]
