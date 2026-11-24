@@ -629,3 +629,22 @@ def test_language_level_takes_the_first_answer_the_scale_offers():
     assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=hp), p)["value"] == "4 - Fluent"
     assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=trend), p)["value"] == \
         "3 - Advanced"
+
+
+def test_a_never_worked_here_box_is_ticked_for_the_hiring_company():
+    """Adobe, live 2026-11-24."""
+    from src.automation.tools.ats_common import with_job_location
+    boxes = ["Employee", "Intern", "Temporary Agency or Vendor", "Other", "I have not worked for Adobe in the past."]
+    q = "Have you ever worked at Adobe in the following capacity:"
+    p = with_job_location(PROFILE, None, "adobe")
+    assert wd.plan_field(_f(q, kind="checkbox", options=boxes), p) == \
+        {"action": "ticks", "value": ["I have not worked for Adobe in the past."]}
+    other = with_job_location(PROFILE, None, "acme")
+    assert wd.plan_field(_f(q, kind="checkbox", options=boxes), other) is None   # another company: never guessed
+
+
+def test_a_required_confirm_the_statement_box_is_ticked():
+    """Adobe, live 2026-11-24: the box under its Terms & Conditions."""
+    f = _f("Check this box to confirm the statement above.", kind="checkbox", options=[""])
+    assert wd.plan_field(f, PROFILE) == {"action": "tick", "value": "checked"}
+    assert wd.plan_field({**f, "required": False}, PROFILE) is None

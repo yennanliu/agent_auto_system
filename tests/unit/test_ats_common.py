@@ -629,3 +629,16 @@ def test_a_visa_history_question_is_not_sponsorship():
     p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"}}, "United States", "intel")
     q = "11a)* Are you now, or have you in the past, been on a J-1 or J-2 exchange visitor visa?"
     assert ac.rule_answer(q, p) is None
+
+
+@pytest.mark.parametrize("company,options,expected", [
+    # Adobe (Workday), live 2026-11-24: "Adobe Source" opens "Adobe.com".
+    ("adobe", ["Adobe Source", "Contingent Worker-Specific", "Job Board", "Social Media"], "Adobe Source"),
+    ("adobe", ["Adobe.com", "Adobe Career Academy", "Adobe Recruiting Team"], "Adobe.com"),
+    # Trend Micro: the generic career site beats a recruiter category.
+    ("trendmicro", ["Agency", "Company Career Site", "Job Boards", "Trend Micro Recruiter"], "Company Career Site"),
+    ("trend micro", ["Agency", "Job Boards", "Trend Micro Recruiter"], None),
+])
+def test_source_option_order(company, options, expected):
+    p = ac.with_job_location(PROFILE, None, company)
+    assert ac.source_option(options, p) == expected

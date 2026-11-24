@@ -273,6 +273,13 @@ class WorkdayAdapter(Adapter):
         if outcome == "signed_in":
             mark_account(host, email, "active")
             return True
+        if outcome == "guest":
+            # The tenant takes applications without an account (Adobe): none
+            # was created, so no password is kept for it.
+            forget_account(host, email)
+            self._passwords.pop((host, email.lower()), None)
+            log(f"{host} takes applications without an account: applying as a guest")
+            return True
         if outcome == "verify":
             mark_account(host, email, "needs_verification")
             return {"status": "needs_verification",
@@ -430,7 +437,8 @@ def password_for(host: str, email: str = "") -> str | None:
 MAX_STEPS = 9
 # Workday's own My Information fields the shared rules don't cover.
 SYSTEM_DEFAULTS = ((r"phone device type", "Mobile"),)
-_TICK_RE = re.compile(r"agree|acknowledge|certify|terms|consent|i have read|read and understand", re.I)
+_TICK_RE = re.compile(r"agree|acknowledge|certify|terms|consent|i have read|read and understand|"
+                      r"confirm (the|this) statement", re.I)  # Adobe: its Terms & Conditions box
 _PLACEHOLDER = ("", "select one")
 
 
@@ -523,12 +531,19 @@ def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
         # (extra_answers / saved defaults), each matched to its option; nothing
         # when any named one isn't there.
         if len(options) > 1:
-            from src.automation.tools.ats_common import rule_answer
+            from src.automation.tools.ats_common import rule_answer, to_option
             ans = rule_answer(label, {"extra_answers": profile.get("extra_answers") or []})
             names = split_list(ans) if isinstance(ans, str) else []
             picks = [match_option(options, n) for n in names]
             if picks and all(picks):
                 return {"action": "ticks", "value": list(dict.fromkeys(picks))}
+            # "Have you ever worked at Adobe in the following capacity:" with
+            # "I have not worked for Adobe in the past.": a rule's "No" ticks
+            # the box that says so (Adobe, live), and nothing else.
+            if rule_answer(label, profile) == "No":
+                none = to_option("No", options)
+                if none and re.search(r"\b(not|never|none)\b", none, re.I):
+                    return {"action": "ticks", "value": [none]}
         return None
     if kind == "text":
         std = standard_for_label(label)
@@ -669,15 +684,24 @@ class Wizard:
         except Exception:  # noqa: BLE001
             return False
 
+    def on_wizard(self) -> bool:
+        """The apply wizard is open without signing in (Adobe lets a guest
+        apply): a real step, not the "Create Account/Sign In" one."""
+        p = self.page
+        step = self.step() if p.locator("[data-automation-id='progressBarActiveStep']").count() else ""
+        return bool(step) and not re.search(r"sign in|account", step, re.I) \
+            and not p.locator("input[data-automation-id='password']").count() \
+            and p.locator(_BOXES).count() > 0
+
     def sign_in(self, url: str, email: str, password: str) -> bool:
         p = self.page
         self.email = email
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         pw_box = "input[data-automation-id='password']"
         if not self._wait(lambda: p.locator(pw_box).count() or self.signed_in()
-                          or p.locator(_EMAIL_GATE).count(), 25):
+                          or p.locator(_EMAIL_GATE).count() or self.on_wizard(), 25):
             return False
-        if self.signed_in():
+        if self.signed_in() or self.on_wizard():
             return True
         self._open_email_form()
         if not self._wait(lambda: p.locator(pw_box).count(), 10):
@@ -721,10 +745,12 @@ class Wizard:
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         create = "[data-automation-id='createAccountSubmitButton']"
         if not self._wait(lambda: p.locator(create).count() or self.signed_in()
-                          or p.locator(_EMAIL_GATE).count(), 25):
+                          or p.locator(_EMAIL_GATE).count() or self.on_wizard(), 25):
             return "failed"
         if self.signed_in():
             return "signed_in"
+        if self.on_wizard():
+            return "guest"  # no account needed here
         if self._open_email_form():
             # The e-mail form opens on Sign In: switch to Create Account.
             link = p.locator("[data-automation-id='createAccountLink']").first

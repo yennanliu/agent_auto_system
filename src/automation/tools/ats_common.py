@@ -641,6 +641,26 @@ def company_site_option(options: list[str], profile: dict) -> str | None:
     return None
 
 
+def source_option(options: list[str], profile: dict) -> str | None:
+    """"How did you hear?", most truthful first (the job was found on the
+    employer's own board): the company's own site ("Cadence.com"), a generic
+    company career site, then a category named after the company that may
+    hold its site ("Adobe Source" > "Adobe.com"); never a recruiter /
+    employee / referral one ("Trend Micro Recruiter")."""
+    hit = company_site_option(options, profile)
+    if hit:
+        return hit
+    hit = next((o for o in options if re.search(_SOURCE_PREFS[0], o, re.I)), None)
+    if hit:
+        return hit
+    for name in company_names(profile):
+        for o in options:
+            if re.match(rf"\s*{re.escape(name.strip())}\b", o, re.I) \
+                    and not re.search(r"\b(work|employee|referr|former|recruit|know)", o, re.I):
+                return o
+    return None
+
+
 def to_options(answer, options: list[str], label: str = "") -> list[str]:
     """Every option a list answer (spoken / programming languages) maps onto."""
     if _PROGRAMMING_Q.search(label or ""):
@@ -746,7 +766,7 @@ def answer_question(q: Question, profile: dict,
         picks = to_options(ans, options, label)
         return ans_dict(picks) if picks else None
     if kind in ("select", "multiselect"):
-        pick = company_site_option(options, profile) if ans == "__source__" else None
+        pick = source_option(options, profile) if ans == "__source__" else None
         pick = pick or (to_option(ans, options, label) if ans else None)
         if pick is None and ans and profile.get("extra_answers"):
             # An extra answer is a keyword match, so one written for
