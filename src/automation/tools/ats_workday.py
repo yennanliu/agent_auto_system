@@ -908,6 +908,16 @@ class Wizard:
                 answers.append({"label": todo["label"][:80], "value": plan["value"]})
             elif todo["value"] and todo["required"] and questions:
                 stale.append(todo["label"])
+        # A later field can re-render the step and clear an earlier answer
+        # (Intel's Self Identify: committing the Date unticks the disability
+        # box a moment later). Settle, then put back what was cleared, once.
+        answered = {a["label"] for a in answers}
+        self.page.wait_for_timeout(1500)
+        for f in self.fields():
+            if f["required"] and not f["value"] and f["label"][:80] in answered:
+                self.log(f"re-answering '{f['label'][:60]}' (cleared by the form)")
+                self._act(f, profile, answer_fn)
+                self.page.wait_for_timeout(800)
         unanswered = [f["label"] for f in self.fields() if f["required"] and not f["value"]]
         return answers, unanswered + [s for s in stale if s not in unanswered]
 
