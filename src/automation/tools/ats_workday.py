@@ -214,9 +214,17 @@ class WorkdayAdapter(Adapter):
             entry.update(status="manual", submitted=False, reason=self.manual_reason_for(job, profile))
             return entry
         elif not wiz.sign_in(apply_url, email, password):
+            errors = wiz.errors()
+            if any(re.search(r"verify your account", e, re.I) for e in errors):
+                # Yahoo: the account exists but its e-mail isn't confirmed yet.
+                mark_account(host, email, "needs_verification")
+                entry.update(status="needs_verification", submitted=False,
+                             reason=f"the Workday account at {host} isn't verified yet: click the link "
+                                    f"Workday e-mailed to {email} (check spam); the next run signs in")
+                return entry
             entry.update(status="failed", submitted=False,
                          reason=f"could not sign in to Workday at {host}: "
-                                + (" | ".join(wiz.errors()) or "check the stored password"))
+                                + (" | ".join(errors) or "check the stored password"))
             return entry
         opened = wiz.open_application(job["url"])
         if opened == "no_apply":
@@ -602,6 +610,7 @@ EMPLOYER_JS = r"""() => { for (const s of document.querySelectorAll('script[type
   catch (e) {} } return ''; }"""
 
 
+_EMAIL_GATE = "[data-automation-id='SignInWithEmailButton']"
 _PHONE_CODE_ITEM = re.compile(r"\(\+\d{1,4}\)\s*$")
 # Filled fields of these kinds are re-planned on every pass (stale drafts);
 # a prompt (selectinput) or upload with a value is left as it is.
@@ -665,10 +674,14 @@ class Wizard:
         self.email = email
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         pw_box = "input[data-automation-id='password']"
-        if not self._wait(lambda: p.locator(pw_box).count() or self.signed_in(), 25):
+        if not self._wait(lambda: p.locator(pw_box).count() or self.signed_in()
+                          or p.locator(_EMAIL_GATE).count(), 25):
             return False
         if self.signed_in():
             return True
+        self._open_email_form()
+        if not self._wait(lambda: p.locator(pw_box).count(), 10):
+            return False
         if p.locator("input[data-automation-id='verifyPassword']").count():
             # The create-account form: switch to Sign In (accounts are never created here).
             # A click before the form has settled is lost: retry until it switches.
@@ -707,10 +720,18 @@ class Wizard:
         self.email = email
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         create = "[data-automation-id='createAccountSubmitButton']"
-        if not self._wait(lambda: p.locator(create).count() or self.signed_in(), 25):
+        if not self._wait(lambda: p.locator(create).count() or self.signed_in()
+                          or p.locator(_EMAIL_GATE).count(), 25):
             return "failed"
         if self.signed_in():
             return "signed_in"
+        if self._open_email_form():
+            # The e-mail form opens on Sign In: switch to Create Account.
+            link = p.locator("[data-automation-id='createAccountLink']").first
+            if self._wait(lambda: link.count(), 8):
+                link.click()
+            if not self._wait(lambda: p.locator(create).count(), 10):
+                return "failed"
         p.wait_for_timeout(1500)  # the form re-mounts as it settles, like Sign In
         for sel, value in (("input[data-automation-id='email']", email),
                            ("input[data-automation-id='password']", password),
@@ -741,7 +762,29 @@ class Wizard:
                 return "exists"
             if verify.search(body):
                 return "verify"
+            if p.locator(_EMAIL_GATE).filter(visible=True).count():
+                # Yahoo: the new account lands back on the sign-in choices.
+                return "signed_in" if self.sign_in(url, email, password) else "failed"
         return "failed"
+
+    def _open_email_form(self) -> bool:
+        """Yahoo's tenant first offers Apple / Google / LinkedIn sign-in and
+        hides the e-mail form behind "Sign in with email": open it."""
+        p = self.page
+        gate = p.locator(_EMAIL_GATE).filter(visible=True)
+        if not gate.count():
+            return False
+        # Like Sign In, a click before the page settles is lost: retry until
+        # the e-mail form replaces the gate.
+        for _ in range(4):
+            p.wait_for_timeout(1500)
+            try:
+                gate.first.click(timeout=5000)
+            except Exception:  # noqa: BLE001 — gone already
+                pass
+            if self._wait(lambda: p.locator("input[data-automation-id='email']").count(), 5):
+                break
+        return True
 
     def _click_sign_in(self) -> None:
         p = self.page
