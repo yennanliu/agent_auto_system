@@ -5,6 +5,7 @@ Both the HTTP trigger endpoint (``routers/runs.py``) and the cron scheduler
 the create → asyncio task → register sequence lives in exactly one place.
 """
 import asyncio
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -66,21 +67,20 @@ async def _run_in_background(run_id: int, job_type: str, payload: dict) -> None:
     from src.automation.executor import execute_run
     started = False
     try:
-        run_class = concurrency.run_class(job_type, payload)
-        sem = concurrency.semaphore_for(run_class)
-        # No await between locked() and acquire(), so this check cannot race.
-        queued = sem.locked()
-        if queued:
-            _set_queued(run_id, True)
-            append_log(
-                run_id,
-                f"Queued — waiting for a free {run_class} slot "
-                f"(limit {concurrency.limit_for(run_class)})",
-            )
-            logger.info("run_id=%d queued (%s slots full)", run_id, run_class)
-        # Cancelling a queued run raises CancelledError out of acquire(); the
-        # cancel endpoint has already marked the row, and no slot is consumed.
-        async with sem:
+        queued = False
+        async with contextlib.AsyncExitStack() as held:
+            for sem, reason in concurrency.gates_for(job_type, payload):
+                # No await between locked() and acquire(), so this check cannot race.
+                if sem.locked():
+                    if not queued:
+                        _set_queued(run_id, True)
+                        queued = True
+                    append_log(run_id, f"Queued — {reason}")
+                    logger.info("run_id=%d queued (%s)", run_id, reason)
+                # Cancelling a queued run raises CancelledError out of acquire();
+                # the cancel endpoint has already marked the row, and the exit
+                # stack releases any gate already held.
+                await held.enter_async_context(sem)
             if queued:
                 _set_queued(run_id, False)
             started = True
@@ -108,8 +108,9 @@ def launch_run(
     """Create a pending Run and spawn its executor task. Returns the new run_id.
 
     Must be called from within the running event loop (asyncio.create_task).
-    The task waits for a per-class concurrency slot (see ``concurrency.py``); a
-    run that has to wait shows as ``queued`` until it gets one.
+    The task waits for a slot in its automation's own queue, then a global
+    per-class slot (see ``concurrency.py``); a run that has to wait shows as
+    ``queued`` until it gets both.
     ``trigger`` is informational ("manual" | "schedule") and recorded in the log.
     """
     with Session(get_engine()) as s:
