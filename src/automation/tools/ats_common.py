@@ -116,7 +116,7 @@ def interleave(groups: list[list[dict]]) -> list[dict]:
 
 # Every wording of "I'd rather not self-identify" seen on real forms
 # (3M's Workday uses "Not declared").
-_DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|preferred not|not to (say|answer|disclose)|"
+_DECLINE_RE = re.compile(r"decline|don.?t (wish|want)|do not (wish|want)|prefer not|preferred not|not to (say|answer|disclose)|"
                          r"not declared|undeclared|not specified|choose not|rather not", re.I)
 _AGREE_RE = re.compile(r"^(yes|i agree|i acknowledge|i consent|i understand|i confirm|i accept|agree|acknowledge|confirm|accept)", re.I)
 # Most-truthful first: adapters find jobs on the employer's own ATS board.
@@ -374,7 +374,8 @@ def _profile_answer(label: str, profile: dict):
     # "Are you a Singapore Citizen or PR?" / "Residency status in Singapore" /
     # "Work eligibility in Singapore": a country you are not authorized to work
     # in is one you are not a citizen or resident of.
-    if re.search(r"citizen|permanent resident|residency status|resident status|\bpr\b|work eligibility", lbl):
+    if re.search(r"citizen|permanent resident|residency status|resident status|\bpr\b|work eligibility", lbl) \
+            and not re.search(r"sponsor", lbl):  # Intel's sponsorship NOTE names "permanent resident"
         named = countries_in(lbl)
         allowed = profile.get("authorized_countries") or set()
         if named and allowed and not (named <= allowed):

@@ -445,6 +445,9 @@ def experience_plan(f: dict, profile: dict) -> dict | None | bool:
         month = _MONTHS.index(emp["start_month"]) + 1 if emp.get("start_month") in _MONTHS else 0
         return {"action": "date", "value": f"{month:02d}/{emp['start_year']}"} \
             if month and emp.get("start_year") else None
+    if fid == "formField-dateSignedOn":
+        # The voluntary self-identification form's signing date: today.
+        return {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
     if fid == "formField-endDate":
         return None  # the current job has none: "I currently work here" hides it
     if fid == "formField-schoolName":
@@ -487,6 +490,13 @@ def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
         # Only a required acknowledgement / terms box is ticked; nothing else.
         if required and _TICK_RE.search(label + " " + " ".join(options)):
             return {"action": "tick", "value": "checked"}
+        # Voluntary self-identification ("Please check one of the boxes
+        # below:" for disability): only ever the decline box.
+        from src.automation.tools.ats_common import DEMOGRAPHIC_RE, decline_option
+        if re.search(r"disabilit|veteran|gender|race|ethnic", " ".join(options), re.I) \
+                or DEMOGRAPHIC_RE.search(label):
+            pick = decline_option(options)
+            return {"action": "ticks", "value": [pick]} if pick else None
         # "Choose all cities you would accept": the boxes an answer names
         # (extra_answers / saved defaults), each matched to its option; nothing
         # when any named one isn't there.
@@ -547,8 +557,9 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
     else if (f.querySelector('[data-automation-id=dateInputWrapper]')) {
       kind = 'date';
       const m = f.querySelector('[data-automation-id=dateSectionMonth-input]');
+      const d = f.querySelector('[data-automation-id=dateSectionDay-input]');
       const y = f.querySelector('[data-automation-id=dateSectionYear-input]');
-      value = m && m.value && y && y.value ? m.value + '/' + y.value : ''; }
+      value = m && m.value && y && y.value ? [m.value, ...(d ? [d.value] : []), y.value].join('/') : ''; }
     else if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
     else if (btn) { kind = 'listbox'; value = btn.innerText.trim(); if (value === 'Select One') value = ''; }
     else if (radios.length) { kind = 'radio'; options = radios.map(optLabel);
@@ -573,6 +584,24 @@ SUCCESS_TEXTS = ("Application Submitted", "application has been submitted",
 EMPLOYER_JS = r"""() => { for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
   try { const d = JSON.parse(s.textContent); if (d.hiringOrganization) return d.hiringOrganization.name || ''; }
   catch (e) {} } return ''; }"""
+
+
+# Filled fields of these kinds are re-planned on every pass (stale drafts);
+# a prompt (selectinput) or upload with a value is left as it is.
+RECHECK_KINDS = frozenset({"listbox", "radio", "text", "checkbox", "date"})
+
+
+def _same(plan: dict, f: dict) -> bool:
+    """The field already holds the planned answer."""
+    have = (f.get("value") or "").strip()
+    if plan["action"] == "ticks":
+        return have == ", ".join(plan["value"])
+    if plan["action"] == "tick":
+        return bool(have)
+    if plan["action"] == "date":
+        want = [p.lstrip("0") for p in plan["value"].split("/")]
+        return [p.lstrip("0") for p in have.split("/")] == want
+    return have == str(plan["value"]).strip()
 
 
 class Wizard:
@@ -771,22 +800,27 @@ class Wizard:
         return [t.strip() for t in opts.all_inner_texts()], opts
 
     def _act(self, f: dict, profile: dict, answer_fn) -> dict | None:
+        """Plan one field and put the answer in, unless it's already there."""
         box = self.page.locator(_BOXES).nth(f["index"])
         if f["kind"] == "listbox":
             btn = box.locator("button[aria-haspopup=listbox]").first
             texts, opts = self._listbox_options(btn)
             plan = plan_field({**f, "options": texts}, profile, answer_fn)
-            if not plan:
+            if not plan or plan["value"] == f["value"]:
                 self.page.keyboard.press("Escape")
-                return None
+                return plan
+            if f["value"]:
+                self.log(f"correcting '{f['label'][:60]}': {f['value']} → {plan['value']}")
             opts.nth(texts.index(plan["value"])).click()
             self.page.wait_for_timeout(1200)  # dependent fields (state, phone code) re-render
             return plan
         if f["kind"] == "selectinput":
             return self._prompt(box, f, profile, answer_fn)
         plan = plan_field(f, profile, answer_fn)
-        if not plan:
-            return None
+        if not plan or _same(plan, f):
+            return plan
+        if f["value"]:
+            self.log(f"correcting '{f['label'][:60]}': {f['value']} → {plan['value']}")
         if f["kind"] == "radio":
             tick(box.locator("input[type=radio]").nth(f["options"].index(plan["value"])))
         elif f["kind"] == "checkbox":
@@ -794,14 +828,15 @@ class Wizard:
             want = ({f["options"].index(v) for v in plan["value"]} if plan["action"] == "ticks"
                     else set(range(boxes.count())))
             for i in range(boxes.count()):
-                if i in want and not boxes.nth(i).is_checked():
-                    tick(boxes.nth(i))
+                if (i in want) != boxes.nth(i).is_checked():
+                    tick(boxes.nth(i))  # tick the wanted, untick a stale one
         elif plan["action"] == "date":
             # Workday's MM / YYYY spinbuttons sit under their "MM" / "YYYY"
             # displays (the inputs themselves take no clicks): click a display,
             # type that section.
-            month, year = plan["value"].split("/")
-            for part, text in (("Month", month), ("Year", year)):
+            parts = plan["value"].split("/")
+            names = ("Month", "Day", "Year") if len(parts) == 3 else ("Month", "Year")
+            for part, text in zip(names, parts, strict=True):
                 inp = box.locator(f"[data-automation-id=dateSection{part}-input]")
                 if inp.input_value() != text.lstrip("0") and inp.input_value() != text:
                     box.locator(f"[data-automation-id=dateSection{part}-display]").click()
@@ -841,15 +876,23 @@ class Wizard:
         return None
 
     def answer_step(self, profile: dict, answer_fn=None) -> tuple[list[dict], list[str]]:
-        """Answer every empty field of the current step. A choice (the country)
+        """Answer every field of the current step. A choice (the country)
         re-renders the step, adding fields and shifting positions, so the
         fields are re-read after every action; each label is tried once.
-        Returns (answers, labels of required fields still empty)."""
+
+        A resumed draft keeps what an earlier run chose, possibly from an
+        older profile ("no sponsorship needed") or rule: a filled field is
+        re-planned and corrected when the answer differs, and on a questions
+        step a filled required field with no confident answer now is
+        reported, not trusted. Returns (answers, labels still needing one)."""
         answers: list[dict] = []
+        stale: list[str] = []
         tried: set[tuple[str, str]] = set()
-        for _ in range(60):
+        questions = "Question" in self.step()
+        for _ in range(80):
             todo = next((f for f in self.fields()
-                         if not f["value"] and (f["label"], f["kind"]) not in tried), None)
+                         if (f["label"], f["kind"]) not in tried and f["kind"] in RECHECK_KINDS | {"other"}
+                         and (not f["value"] or f["kind"] in RECHECK_KINDS)), None)
             if todo is None:
                 break
             tried.add((todo["label"], todo["kind"]))
@@ -859,8 +902,10 @@ class Wizard:
             plan = self._act(todo, profile, answer_fn)
             if plan:
                 answers.append({"label": todo["label"][:80], "value": plan["value"]})
+            elif todo["value"] and todo["required"] and questions:
+                stale.append(todo["label"])
         unanswered = [f["label"] for f in self.fields() if f["required"] and not f["value"]]
-        return answers, unanswered
+        return answers, unanswered + [s for s in stale if s not in unanswered]
 
     def save_and_continue(self) -> bool:
         before = self.step()

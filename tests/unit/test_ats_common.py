@@ -594,3 +594,17 @@ def test_a_sponsorship_question_with_a_residency_note_is_still_sponsorship():
          "States? NOTE: Individuals with work authorization issued pursuant to their student visa "
          "(e.g., F-1, J-1, M-1) or currently a lawful permanent resident should answer accordingly.")
     assert ac.rule_answer(q, p) == "Yes"
+
+
+def test_intel_sponsorship_with_a_permanent_resident_note():
+    """Intel, live 2026-11-23: "…Intel filing employment-based visa and permanent
+    resident applications…" made the citizenship rule answer "No" (no
+    sponsorship needed) for a candidate not authorized in the U.S."""
+    q = ("11)* Do you now, or in the future, require Intel to sponsor you for a visa to work in the "
+         "United States? NOTE: … Intel immigration sponsorship refers to Intel filing employment-based "
+         "visa and permanent resident applications on behalf of the employee in order for the "
+         "individual to have the legal right to work in the U.S.")
+    p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"}}, "United States", "intel")
+    assert ac.rule_answer(q, p) == "Yes"
+    p_us = ac.with_job_location({**PROFILE, "authorized_countries": {"united states"}}, "United States", "intel")
+    assert ac.rule_answer(q, p_us) == "No"

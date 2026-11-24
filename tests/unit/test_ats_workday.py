@@ -559,3 +559,29 @@ def test_a_choose_all_checkbox_group_ticks_only_the_named_boxes():
     other = build_profile(first_name="A", last_name="B", email="a@b.c",
                           extra_answers="cities that you would accept: Linkou, Taipei")
     assert wd.plan_field(_f(q, kind="checkbox", options=cities), other) is None
+
+
+# Intel (US), live 2026-11-23: the Self Identify step (CC-305 disability form).
+def test_self_identify_signs_today_and_declines():
+    from datetime import datetime
+    assert wd.plan_field(_sec("formField-dateSignedOn", label="Date", kind="date"), PROFILE) == \
+        {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
+    boxes = ["Yes, I have a disability, or have had one in the past",
+             "No, I do not have a disability and have not had one in the past", "I do not want to answer"]
+    assert wd.plan_field(_sec("formField-disabilityStatus", label="Please check one of the boxes below:",
+                              kind="checkbox", options=boxes), PROFILE) == \
+        {"action": "ticks", "value": ["I do not want to answer"]}
+
+
+@pytest.mark.parametrize("plan,value,same", [
+    ({"action": "pick", "value": "Yes"}, "No", False),          # a stale draft answer is corrected
+    ({"action": "pick", "value": "Yes"}, "Yes", True),
+    ({"action": "fill", "value": "963335868"}, "963335868", True),
+    ({"action": "ticks", "value": ["Linkou", "Hsinchu"]}, "Linkou, Hsinchu", True),
+    ({"action": "ticks", "value": ["Neither"]}, "Linkou", False),
+    ({"action": "tick", "value": "checked"}, "I agree", True),
+    ({"action": "date", "value": "06/2025"}, "6/2025", True),
+    ({"action": "date", "value": "11/23/2026"}, "", False),
+])
+def test_same_answer_detection(plan, value, same):
+    assert wd._same(plan, {"value": value}) is same
