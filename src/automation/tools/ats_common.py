@@ -559,7 +559,9 @@ def rule_answer(label: str, profile: dict):
             return yes_no(needs)
         if auth_q:
             return yes_no(authorized and not (sponsor and needs))
-        return yes_no(needs)
+        # Mentions a visa but asks neither: "Have you ever been on a J-1 or J-2
+        # exchange visitor visa?" (Intel, live) is a fact about the person.
+        return None
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
                  r"previously (worked|been (directly )?employed)|former employee|ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)

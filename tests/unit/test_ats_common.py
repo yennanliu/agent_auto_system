@@ -621,3 +621,11 @@ def test_sponsorship_note_about_a_current_employer_is_not_the_employer_question(
                              "United States", "intel")
     assert ac.rule_answer(q, p) == "Yes"
     assert ac.rule_answer("Who is your current employer?", p) == "Self-employed"
+
+
+def test_a_visa_history_question_is_not_sponsorship():
+    """Intel, live 2026-11-24: "Are you now, or have you in the past, been on a
+    J-1 or J-2 exchange visitor visa?" got the sponsorship answer ("Yes")."""
+    p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"}}, "United States", "intel")
+    q = "11a)* Are you now, or have you in the past, been on a J-1 or J-2 exchange visitor visa?"
+    assert ac.rule_answer(q, p) is None

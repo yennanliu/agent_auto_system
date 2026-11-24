@@ -601,7 +601,11 @@ def _same(plan: dict, f: dict) -> bool:
     if plan["action"] == "date":
         want = [p.lstrip("0") for p in plan["value"].split("/")]
         return [p.lstrip("0") for p in have.split("/")] == want
-    return have == str(plan["value"]).strip()
+    want = str(plan["value"]).strip()
+    if re.fullmatch(r"[\d\s()+-]{6,}", want) and re.fullmatch(r"[\d\s()+-]{6,}", have):
+        # A phone Workday re-formats on save ("963335868" → "0963 335 868").
+        return re.sub(r"\D", "", have).lstrip("0") == re.sub(r"\D", "", want).lstrip("0")
+    return have.casefold() == want.casefold()  # "Self-Employed" as re-cased by Workday
 
 
 class Wizard:

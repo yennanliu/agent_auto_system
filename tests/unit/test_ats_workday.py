@@ -582,6 +582,10 @@ def test_self_identify_signs_today_and_declines():
     ({"action": "tick", "value": "checked"}, "I agree", True),
     ({"action": "date", "value": "06/2025"}, "6/2025", True),
     ({"action": "date", "value": "11/23/2026"}, "", False),
+    # Workday's own re-formatting is not a different answer (Intel, live).
+    ({"action": "fill", "value": "963335868"}, "0963 335 868", True),
+    ({"action": "fill", "value": "Self-employed"}, "Self-Employed", True),
+    ({"action": "fill", "value": "963335868"}, "0912 345 678", False),
 ])
 def test_same_answer_detection(plan, value, same):
     assert wd._same(plan, {"value": value}) is same
