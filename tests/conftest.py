@@ -1,6 +1,8 @@
 import os
 
 os.environ.setdefault("OTEL_ENABLED", "false")
+# Never read the candidate's real saved answers (data/default_answers.txt) in tests.
+os.environ["ATS_DEFAULT_ANSWERS_FILE"] = os.devnull
 
 import json
 

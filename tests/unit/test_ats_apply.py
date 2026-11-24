@@ -145,6 +145,9 @@ def test_start_date_from_notice():
 @pytest.mark.parametrize("label,name", [
     ("First name", "first_name"), ("Last Name*", "last_name"), ("Legal Name", "full_name"),
     ("Email address", "email"), ("Phone Number", "phone"), ("Mobile", "phone"),
+    # Workday in CJK locales (Micron, Taiwan): the Western-script name is the profile's.
+    ("Given Name - Western Script", "first_name"), ("Family Name - Western Script", "last_name"),
+    ("Given Name (Local Script)", None), ("Family Name - Local Script", None),
     ("Linkedin", "linkedin"), ("GitHub profile", "github"), ("Portfolio URL", "website"),
     ("Why us?", None), ("Phone interview availability", None),
     ("Share 2-3 of your open-source contributions with links (GitHub PRs)", None),

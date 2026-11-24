@@ -116,7 +116,7 @@ def interleave(groups: list[list[dict]]) -> list[dict]:
 
 # Every wording of "I'd rather not self-identify" seen on real forms
 # (3M's Workday uses "Not declared").
-_DECLINE_RE = re.compile(r"decline|don.?t wish|do not wish|prefer not|preferred not|not to (say|answer|disclose)|"
+_DECLINE_RE = re.compile(r"decline|don.?t (wish|want)|do not (wish|want)|prefer not|preferred not|not to (say|answer|disclose)|"
                          r"not declared|undeclared|not specified|choose not|rather not", re.I)
 _AGREE_RE = re.compile(r"^(yes|i agree|i acknowledge|i consent|i understand|i confirm|i accept|agree|acknowledge|confirm|accept)", re.I)
 # Most-truthful first: adapters find jobs on the employer's own ATS board.
@@ -359,7 +359,8 @@ def _profile_answer(label: str, profile: dict):
         return progs or None
 
     if re.search(r"notice period|how soon can you (start|join)|when can you (start|join)|"
-                 r"earliest (possible )?(start|joining)|availability to (start|join)", lbl):
+                 r"earliest (possible )?(start|joining)|availability to (start|join)|"
+                 r"when (would|will|could|can) you be available", lbl):
         return profile.get("notice_period") or None
     if re.search(r"reasons? for (leaving|wanting to leave|looking|changing)|"
                  r"why (are you|did you|do you want to) (leave|leaving|looking|change)", lbl):
@@ -378,7 +379,8 @@ def _profile_answer(label: str, profile: dict):
     # "Are you a Singapore Citizen or PR?" / "Residency status in Singapore" /
     # "Work eligibility in Singapore": a country you are not authorized to work
     # in is one you are not a citizen or resident of.
-    if re.search(r"citizen|permanent resident|residency status|resident status|\bpr\b|work eligibility", lbl):
+    if re.search(r"citizen|permanent resident|residency status|resident status|\bpr\b|work eligibility", lbl) \
+            and not re.search(r"sponsor", lbl):  # Intel's sponsorship NOTE names "permanent resident"
         named = countries_in(lbl)
         allowed = profile.get("authorized_countries") or set()
         if named and allowed and not (named <= allowed):
@@ -390,7 +392,10 @@ def _profile_answer(label: str, profile: dict):
         here = countries_in(profile.get("location", "")) | {
             n for n, pat in _CITIES.items() if re.search(pat, profile.get("location", "").lower())}
         return yes_no(countries_in(lbl) <= here)
-    if re.search(r"(currently|last) employed|current (employer|company)|where (do|did) you (currently )?work", lbl):
+    # Not inside a sponsorship NOTE ("…work visas specific to their current
+    # employer…", Intel): that question is a yes/no, not "who employs you".
+    if re.search(r"(currently|last) employed|current (employer|company)|where (do|did) you (currently )?work", lbl) \
+            and not re.search(r"sponsor|visa", lbl):
         return (profile.get("employment") or {}).get("company") or None
     return None
 
@@ -411,6 +416,9 @@ def profile_url_field(label: str) -> str | None:
     field, None for anything else — including questions that mention the site."""
     t = re.sub(r"[*:✱?]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Workday in CJK locales: "Given Name - Western Script" is the romanised
+    # name (the profile's); the "Local Script" one isn't, so it stays unmapped.
+    t = re.sub(r"\s*[-–(]\s*western script\)?$", "", t)
     site = next((name for name, pat in _URL_SITES if re.search(pat, t)), None)
     if site is None or _CONTENT_Q.search(t):
         return None
@@ -423,6 +431,23 @@ _YEARS_Q = re.compile(r"\b(do|does|have|has) you (have|possess|got)\b.{0,25}?\b(
                       r"(\d{1,2}|" + "|".join(_NUM_WORDS) + r")\b\s*(?:\(\s*\d{1,2}\s*\)\s*)?\+?\s*(?:or more\s*)?years?\b")
 
 
+# Words of a "how many years…?" question that don't name a skill.
+_YEARS_GENERIC = set("""how many years year yrs have has had you do does did of experience experienced
+    with in using used the a an and or more at least over than minimum total overall professional
+    relevant work working industry software engineering engineer development developer developing
+    product programming full stack fullstack full-stack backend back-end your plus number possess got
+    what is are career commercial hands-on hands on paid post-graduate post graduation
+    do you have""".split()) | set(_NUM_WORDS)
+
+
+def _skill_specific(lbl: str) -> bool:
+    """True when a years question names a skill, tool or domain ("…with C#",
+    ".NET development", "leading teams") rather than general software work."""
+    words = re.findall(r"[a-z0-9#+.]+(?:-[a-z]+)?", lbl.lower())
+    return any(w.strip(".") not in _YEARS_GENERIC and not w.strip(".").isdigit()
+               for w in words if w.strip("."))
+
+
 def _years_required(lbl: str) -> int | None:
     """N in a yes/no "Do you have N (or more) years of …?" question, else None."""
     m = _YEARS_Q.search(lbl)
@@ -432,7 +457,7 @@ def _years_required(lbl: str) -> int | None:
     return int(n) if n.isdigit() else _NUM_WORDS[n]
 
 
-_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|intern)\s+(?:for|at|by|with)\s+(.{1,60})")
+_PRIOR_AT = re.compile(r"\b(?:worked|employed|employee|contractor|contracted|intern)\s+(?:for|at|by|with|of)\s+(.{1,60})")
 _US_TARGET = re.compile(r"(us|our|this|the company|the organi[sz]ation|here)\b")
 
 
@@ -445,9 +470,9 @@ def _prior_employment(lbl: str, profile: dict):
     which is the question's usual meaning. When the job's company is known
     (``job_company``) and X is someone else ("…employed by Epic Systems",
     "…by a State government") it is a fact about the person: never guessed."""
-    company = _norm(profile.get("job_company") or "")
+    names = company_names(profile)
     m = _PRIOR_AT.search(lbl)
-    if not company or m is None:
+    if not names or m is None:
         return "No"
     target = m.group(1).strip()
     if _US_TARGET.match(target):
@@ -455,10 +480,44 @@ def _prior_employment(lbl: str, profile: dict):
     # The whole name, as its first one to three words ("3M or a subsidiary",
     # "Metropolitan Hospital"): never a prefix, or "a state government" would
     # pass for "acme".
+    # "…employed by any Micron company": a leading determiner isn't the name.
+    target = re.sub(r"^(?:any|a|an|the|one of)\s+(?:of\s+)?", "", target, flags=re.I)
     words = [_norm(re.sub(r"['’]s$", "", w)) for w in target.split()]
-    if any("".join(words[:n]) == company for n in (1, 2, 3)):
-        return "No"
+    for name in names:
+        # "…employed by WD?" at Western Digital: the company's initials.
+        parts = re.findall(r"[a-z0-9]+", name.lower())
+        if len(parts) > 1 and words and words[0] == "".join(w[0] for w in parts):
+            return "No"
+        if any("".join(words[:n]) == _norm(name) for n in (1, 2, 3)):
+            return "No"
     return None
+
+
+_LEGAL_SUFFIX = re.compile(r"[,.]?\s+(ltd|limited|inc|incorporated|llc|corp|corporation|co|company|gmbh|"
+                           r"plc|s\.?a|b\.?v|pte|pty|ag|k\.?k|sdn bhd|bhd)\.?$", re.I)
+
+
+def clean_company_name(name: str) -> str:
+    """A legal entity name as people write the company: "0027 Applied
+    Materials Taiwan, Ltd" → "Applied Materials" (no leading entity code,
+    legal suffix or trailing country)."""
+    t = re.sub(r"^\s*[\d-]+\s+", "", name or "").strip()
+    for _ in range(3):
+        t = _LEGAL_SUFFIX.sub("", t).strip().rstrip(",")
+        words = t.split()
+        if len(words) > 1 and countries_in(words[-1].lower()):
+            t = " ".join(words[:-1])
+    return t.strip()
+
+
+def company_names(profile: dict) -> list[str]:
+    """The hiring company's names: ``job_company`` and its aliases (on Workday
+    the tenant "amat" and the employer "Applied Materials")."""
+    names = [profile.get("job_company") or "", *(profile.get("job_company_aliases") or ())]
+    return [n for n in dict.fromkeys(n.strip() for n in names) if n]
+
+
+_NOTE_RE = re.compile(r"\bnote\s*:|for (the )?purposes? of this question|\bplease note\b")
 
 
 def rule_answer(label: str, profile: dict):
@@ -466,8 +525,19 @@ def rule_answer(label: str, profile: dict):
     caller maps the answer onto a select's options when the field is a select.
     A list means several values (spoken / programming languages)."""
     lbl = label.lower()
+    # A keyword answers the question, not its fine print: "…NOTE: …permanent
+    # resident…" (Intel) or "For purposes of this question … I-140 …"
+    # (Broadcom) once caught keys written for other questions.
+    asked = _NOTE_RE.split(lbl, maxsplit=1)[0]
+    # "Have you applied … with Micron before?" — asked of the hiring company,
+    # the ledger knows the answer; it overrides a saved "No" written before
+    # the first application there (Micron, live 2026-11-24).
+    if re.search(r"\bapplied\b.*\b(previous|before|in the past|prior)\b|previously applied", asked):
+        mine = {_norm(c) for c in profile.get("applied_companies") or ()}
+        if mine and any(_norm(n) in mine for n in company_names(profile)):
+            return "Yes"
     for kw, ans in profile.get("extra_answers") or []:
-        if kw.lower() in lbl:
+        if kw.lower() in asked:
             return ans
     prof = _profile_answer(label, profile)
     if prof:
@@ -479,11 +549,21 @@ def rule_answer(label: str, profile: dict):
         return profile.get("github_url") or None
     if site == "website":
         return profile.get("website_url") or profile.get("github_url") or None
+    # "Are you a citizen / lawful permanent resident of the U.S.…? (if you only
+    # hold a temporary visa, check No)" is about citizenship, not sponsorship:
+    # _profile_answer already said all it can (Western Digital, live).
+    if re.search(r"\bcitizen\b|permanent resident|green card|asylee|refugee", lbl) \
+            and not re.search(r"sponsor", lbl):
+        return None
     # "Will you require a work permit…" is a sponsorship question, not "do you
     # have the right to work" — opposite answers.
     sponsor = re.search(r"sponsor|visa|(require|need)\b.*\bwork permit", lbl)
     auth_q = re.search(r"authori[sz]ed|eligible to work|legally (able|permitted|allowed)|"
                        r"right to work|work permit", lbl)
+    # "Are you party to an agreement that restricts your right to work for us?"
+    # is a non-compete question, not work authorization (Western Digital, live).
+    if re.search(r"restrict|non-?compete|non-?solicit", lbl):
+        sponsor = auth_q = None
     if sponsor or auth_q:
         ok = _authorized_for(lbl, profile)
         if ok is _UNKNOWN:
@@ -498,13 +578,27 @@ def rule_answer(label: str, profile: dict):
             return yes_no(needs)
         if auth_q:
             return yes_no(authorized and not (sponsor and needs))
-        return yes_no(needs)
+        # Mentions a visa but asks neither: "Have you ever been on a J-1 or J-2
+        # exchange visitor visa?" (Intel, live) is a fact about the person.
+        return None
     if re.search(r"(worked|employed) (for|at|by)\b.*\b(before|previously|in the past)|"
-                 r"previously (worked|been employed)|former employee|ever (worked|been employed)", lbl):
+                 r"previously,? (worked|been (directly )?employed)|(former|previous|past) employee|"
+                 r"ever (worked|been employed)", lbl):
         return _prior_employment(lbl, profile)
-    if re.search(r"were you referred|referred by|referral", lbl):
+    # "…are you an existing HP employee?" (HP, Workday): asked about the hiring
+    # company, it's "No" when the profile's current employer is someone else.
+    m = re.search(r"\bare you (?:an? )?(?:existing|current) (.{1,30}?) ?employee", lbl)
+    if m:
+        names = {_norm(n) for n in company_names(profile)}
+        current = _norm((profile.get("employment") or {}).get("company") or "")
+        named = _norm(m.group(1))
+        if names and (named in names or named == "") and current and current not in names:
+            return "No"
+        return None
+    # "Are you referred to this job by a Micron employee?" too (Workday, Micron).
+    if re.search(r"were you referred|are you referred|referred (to [\w ]{1,30} )?by|referral", lbl):
         return "No"
-    if re.search(r"how (did )?you (hear|heard|find|found|learn|learned|came across)|"
+    if re.search(r"how (did )?you (first )?(hear|heard|find|found|learn|learned|came across)|"
                  r"where did you (hear|find|learn|see)", lbl):
         return "__source__"  # we found it on the employer's own job board
     # "Which university are you attending / did you last attend?" — the
@@ -516,11 +610,17 @@ def rule_answer(label: str, profile: dict):
         return (profile.get("education") or {}).get("degree") or None
     # "Do you have seven (7) / 5+ / at least 3 years of …?" is a yes/no about
     # the candidate's experience: compare with the profile's years, truthfully.
+    # The profile knows total years only: for a skill ("…with C#", "…used
+    # SQL") it can truthfully say "No" to "N years?" when the total is less,
+    # and nothing more (Experian, live: "8-12 years" of C# was a guess).
+    years = int(profile.get("years", 0) or 0)
     need = _years_required(lbl)
     if need is not None:
-        return yes_no(int(profile.get("years", 0) or 0) >= need)
+        if _skill_specific(lbl):
+            return "No" if years < need else None
+        return yes_no(years >= need)
     if re.search(r"how many years|years of (professional |relevant |work )?experience", lbl):
-        return str(profile.get("years", 3))
+        return None if _skill_specific(lbl) else str(profile.get("years", 3))
     # "Last drawn / current salary" is a fact about the past, not the expectation.
     if re.search(r"(current|last|previous|present|most recent)( drawn)?( base)? (salary|compensation|pay)|"
                  r"last drawn", lbl) and not re.search(r"expect", lbl):
@@ -544,6 +644,48 @@ def rule_answer(label: str, profile: dict):
     if not factual and re.search(r"consent|acknowledge|agree|privacy|certify|attest|confirm that|terms|"
                                  r"i understand", lbl):
         return "__agree__"
+    return None
+
+
+def company_site_option(options: list[str], profile: dict) -> str | None:
+    """"How did you hear?": the option naming the hiring company's own site
+    ("Cadence.com", "Applied Materials Corporate Website"), which is where the
+    job was found. Never one that merely names the company ("I currently work
+    at/for Applied Materials", "Former Employee")."""
+    for name in company_names(profile):
+        n = re.escape(name.strip())
+        for o in options:
+            if re.search(rf"^\s*{n}\.(com|io|co)\b|\b{n}\b.*\b(web ?site|careers?|site|portal)\b", o, re.I) \
+                    and not re.search(r"\b(work|employee|referr|former)", o, re.I):
+                return o
+    return None
+
+
+def company_source_option(options: list[str], profile: dict) -> str | None:
+    """The company's own site ("Cadence.com", "PayPal Career site") or a
+    generic company career site ("Company Career Site"), nothing broader."""
+    return company_site_option(options, profile) \
+        or next((o for o in options if re.search(_SOURCE_PREFS[0], o, re.I)
+                 and not re.search(r"\b(work|employee|referr|former|recruit)", o, re.I)), None)
+
+
+def source_option(options: list[str], profile: dict) -> str | None:
+    """"How did you hear?", most truthful first (the job was found on the
+    employer's own board): the company's own site ("Cadence.com"), a generic
+    company career site, then a category named after the company that may
+    hold its site ("Adobe Source" > "Adobe.com"); never a recruiter /
+    employee / referral one ("Trend Micro Recruiter")."""
+    hit = company_site_option(options, profile)
+    if hit:
+        return hit
+    hit = next((o for o in options if re.search(_SOURCE_PREFS[0], o, re.I)), None)
+    if hit:
+        return hit
+    for name in company_names(profile):
+        for o in options:
+            if re.match(rf"\s*{re.escape(name.strip())}\b", o, re.I) \
+                    and not re.search(r"\b(work|employee|referr|former|recruit|know)", o, re.I):
+                return o
     return None
 
 
@@ -652,7 +794,8 @@ def answer_question(q: Question, profile: dict,
         picks = to_options(ans, options, label)
         return ans_dict(picks) if picks else None
     if kind in ("select", "multiselect"):
-        pick = to_option(ans, options, label) if ans else None
+        pick = source_option(options, profile) if ans == "__source__" else None
+        pick = pick or (to_option(ans, options, label) if ans else None)
         if pick is None and ans and profile.get("extra_answers"):
             # An extra answer is a keyword match, so one written for
             # another question ("currently reside: Taiwan") can catch
@@ -724,7 +867,8 @@ def plan_questions(questions: list[Question], profile: dict,
     return answers, unanswered
 
 
-def with_job_location(profile: dict, location: str | None, company: str | None = None) -> dict:
+def with_job_location(profile: dict, location: str | None, company: str | None = None,
+                      aliases: tuple[str, ...] = ()) -> dict:
     """The profile with the job's countries attached, so a generic "are you
     authorized to work in the country you applied for?" is judged against the
     job. ``None`` (no location known) leaves the profile as it is. ``company``
@@ -732,6 +876,8 @@ def with_job_location(profile: dict, location: str | None, company: str | None =
     question about another employer."""
     if company:
         profile = {**profile, "job_company": company}
+    if aliases:
+        profile = {**profile, "job_company_aliases": tuple(a for a in aliases if a)}
     if location is None:
         return profile
     return {**profile, "job_countries": job_countries(location)}
@@ -741,6 +887,27 @@ def with_job_location(profile: dict, location: str | None, company: str | None =
 
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July",
            "August", "September", "October", "November", "December")
+
+
+_DEGREE_LEVELS = (("doctor", r"doctor|ph\.?\s?d|d\.?phil"),
+                  ("master", r"master|\bm\.?s\.?c?\b|\bm\.?a\.?\b|\bmba\b|\bm\.?eng\b"),
+                  ("bachelor", r"bachelor|\bb\.?s\.?c?\b|\bb\.?a\.?\b|\bb\.?eng\b"),
+                  ("associate", r"associate"),
+                  ("high school", r"high school|\bged\b|secondary"))
+
+
+def degree_level(text: str) -> str | None:
+    t = (text or "").lower()
+    return next((lvl for lvl, pat in _DEGREE_LEVELS if re.search(pat, t)), None)
+
+
+def degree_option(options: list[str], degree: str) -> str | None:
+    """The one option at the profile degree's level ("Master's Degree" →
+    "Masters (±18 years of education)"). None when no option, or several
+    ("Master of Science" / "Master of Arts"), are at that level: never a guess."""
+    level = degree_level(degree)
+    hits = [o for o in options if level and degree_level(o) == level]
+    return hits[0] if len(hits) == 1 else None
 
 
 def parse_start(text: str) -> dict:
@@ -790,6 +957,24 @@ def parse_extra_answers(text: str) -> list[tuple[str, str]]:
     return out
 
 
+# The candidate's standing answers to personal questions ("bonded: No",
+# "academic ranking: 11%-20%"), in the same ``keyword: answer`` lines as a run's
+# extra_answers, applied to every run after that run's own. Personal data:
+# under data/, which is git-ignored. Lines starting with "#" are comments.
+DEFAULT_ANSWERS_PATH = "data/default_answers.txt"
+
+
+def default_answers(path: str | None = None) -> list[tuple[str, str]]:
+    """The saved default answers; [] when there is no file."""
+    path = path or os.getenv("ATS_DEFAULT_ANSWERS_FILE", DEFAULT_ANSWERS_PATH)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+    return parse_extra_answers("\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#")))
+
+
 def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "",
                   current_location: str = "", linkedin_url: str = "", github_url: str = "",
                   website_url: str = "", years_experience=3, salary_expectation: str = "",
@@ -819,7 +1004,9 @@ def build_profile(*, first_name: str, last_name: str, email: str, phone: str = "
         "authorized_countries": set().union(*(countries_in(c) for c in split_list(authorized_countries))),
         "resume_path": resume_path, "cover_letter_path": cover_letter_path,
         "cover_letter_text": (cover_letter_text or "").strip(),
-        "extra_answers": parse_extra_answers(extra_answers),
+        # The run's own answers first (the first matching keyword wins), then
+        # the candidate's saved defaults.
+        "extra_answers": parse_extra_answers(extra_answers) + default_answers(),
         "current_salary": (current_salary or "").strip(),
         "notice_period": (notice_period or "").strip(),
         "languages": languages or "",
@@ -874,6 +1061,9 @@ def standard_for_label(label: str) -> str | None:
         return site
     t = re.sub(r"[*:✱]", "", (label or "").lower()).strip()
     t = re.sub(r"\s*\((optional|required)\)$", "", t)
+    # Workday in CJK locales: "Given Name - Western Script" is the romanised
+    # name (the profile's); the "Local Script" one isn't, so it stays unmapped.
+    t = re.sub(r"\s*[-–(]\s*western script\)?$", "", t)
     if len(t.split()) > 5:  # contact-field labels are a few words
         return None
     for name, pat in _STANDARD_LABELS:

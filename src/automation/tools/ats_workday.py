@@ -54,12 +54,20 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
 from src.automation.tools.ats_apply_tool import Adapter, entry_for, tick
 from src.automation.tools.ats_common import (
+    _MONTHS,
     Question,
     answer_question,
+    clean_company_name,
+    company_source_option,
+    degree_option,
     match_option,
     noop,
+    rule_answer,
+    split_list,
     standard_for_label,
     standard_value,
     url_path_has,
@@ -145,7 +153,9 @@ class WorkdayAdapter(Adapter):
         base = f"https://{tenant}.{wd}.myworkdayjobs.com/{site}"
         if ref.job_id:
             # One job: search its requisition id ("…_R10225937-1" → "R10225937-1").
-            terms, max_pages = [ref.job_id.rsplit("_", 1)[-1]], 1
+            # "…_R1004419-1": some boards (Capital One) only find "R1004419".
+            req = ref.job_id.rsplit("_", 1)[-1]
+            terms, max_pages = list(dict.fromkeys([req, re.sub(r"-\d+$", "", req)])), 1
         elif search:
             terms, max_pages = search_terms(search), MAX_PAGES_PER_TERM
         else:
@@ -153,6 +163,8 @@ class WorkdayAdapter(Adapter):
         jobs: dict[str, dict] = {}
         first = True
         for term in terms:
+            if ref.job_id and ref.job_id in jobs:
+                break  # the job link's posting is found: no fallback search
             for page in range(max_pages):
                 if not first:
                     self._sleep(PACE_S)
@@ -197,7 +209,8 @@ class WorkdayAdapter(Adapter):
         host, email = host_of(job["token"]), profile.get("email", "")
         password = self.password(host, email)
         apply_url = job["url"].rstrip("/") + "/apply/applyManually"
-        profile = with_job_location(profile, job_country(job.get("location") or ""), job.get("company"))
+        profile = with_job_location(profile, job_country(job.get("location") or "", job.get("url") or ""),
+                                    job.get("company"))
         wiz = Wizard(page, log)
         if not password and self.create_accounts and email:
             created = self._create_account(wiz, apply_url, host, email, log)
@@ -208,9 +221,17 @@ class WorkdayAdapter(Adapter):
             entry.update(status="manual", submitted=False, reason=self.manual_reason_for(job, profile))
             return entry
         elif not wiz.sign_in(apply_url, email, password):
+            errors = wiz.errors()
+            if any(re.search(r"verify your account", e, re.I) for e in errors):
+                # Yahoo: the account exists but its e-mail isn't confirmed yet.
+                mark_account(host, email, "needs_verification")
+                entry.update(status="needs_verification", submitted=False,
+                             reason=f"the Workday account at {host} isn't verified yet: click the link "
+                                    f"Workday e-mailed to {email} (check spam); the next run signs in")
+                return entry
             entry.update(status="failed", submitted=False,
                          reason=f"could not sign in to Workday at {host}: "
-                                + (" | ".join(wiz.errors()) or "check the stored password"))
+                                + (" | ".join(errors) or "check the stored password"))
             return entry
         opened = wiz.open_application(job["url"])
         if opened == "no_apply":
@@ -220,6 +241,9 @@ class WorkdayAdapter(Adapter):
         if opened != "wizard":
             entry.update(status="failed", submitted=False, reason="the application wizard didn't load")
             return entry
+        if wiz.employer:
+            # "Have you ever worked at Applied Materials…?" on tenant "amat".
+            profile = with_job_location(profile, None, job.get("company"), aliases=(wiz.employer,))
         for _ in range(MAX_STEPS):
             step = wiz.step()
             if "Review" in step:
@@ -256,6 +280,13 @@ class WorkdayAdapter(Adapter):
         if outcome == "signed_in":
             mark_account(host, email, "active")
             return True
+        if outcome == "guest":
+            # The tenant takes applications without an account (Adobe): none
+            # was created, so no password is kept for it.
+            forget_account(host, email)
+            self._passwords.pop((host, email.lower()), None)
+            log(f"{host} takes applications without an account: applying as a guest")
+            return True
         if outcome == "verify":
             mark_account(host, email, "needs_verification")
             return {"status": "needs_verification",
@@ -282,12 +313,19 @@ class WorkdayAdapter(Adapter):
         raise NotImplementedError("Workday plans in the browser (apply_live)")
 
 
-def job_country(location: str) -> str:
+def job_country(location: str, url: str = "") -> str:
     """Workday writes locations as ``<Country>-<Region>-<City>`` ("US-Minnesota-
     Maplewood", "Canada-Ontario-London"): the first segment is the country, and
     the city must not add another ("London" is not the UK here). Anything else
     ("2 Locations") is returned as is, so an unknown country stays unknown."""
     from src.automation.tools.ats_common import countries_in
+    if re.fullmatch(r"\s*\d+ Locations\s*", location or "", re.I) and "/job/" in url:
+        # "2 Locations" (PayPal): the URL's path names the primary one,
+        # "…/job/San-Jose-California-United-States-of-America/…".
+        primary = url.split("/job/", 1)[1].split("/", 1)[0].replace("-", " ")
+        found = countries_in(primary.lower())
+        if len(found) == 1:
+            return next(iter(found)).title()
     head = re.split(r"[-,]", location, maxsplit=1)[0].strip()
     if head.upper() in ("US", "USA"):
         return "United States"
@@ -413,8 +451,68 @@ def password_for(host: str, email: str = "") -> str | None:
 MAX_STEPS = 9
 # Workday's own My Information fields the shared rules don't cover.
 SYSTEM_DEFAULTS = ((r"phone device type", "Mobile"),)
-_TICK_RE = re.compile(r"agree|acknowledge|certify|terms|consent|i have read|read and understand", re.I)
+_TICK_RE = re.compile(r"agree|acknowledge|certify|terms|consent|i have read|read and understand|"
+                      r"confirm (the|this) statement", re.I)  # Adobe: its Terms & Conditions box
 _PLACEHOLDER = ("", "select one")
+
+
+def experience_plan(f: dict, profile: dict) -> dict | None | bool:
+    """My Experience's built-in sections, keyed by automation id: the current
+    job (from current_company / current_title / current_start), the highest
+    degree, and the first spoken language with its level ("<language>
+    proficiency" in extra_answers / saved defaults). False when ``f`` isn't
+    one of them; None when it is but the profile has no answer."""
+    fid, kind = f.get("field") or "", f["kind"]
+    options = [o for o in f.get("options") or [] if o.strip().lower() not in _PLACEHOLDER]
+    emp, edu = profile.get("employment") or {}, profile.get("education") or {}
+    fill = lambda v: {"action": "fill", "value": v} if v else None  # noqa: E731
+    if fid == "formField-jobTitle":
+        return fill(emp.get("title"))
+    if fid == "formField-companyName":
+        return fill(emp.get("company"))
+    if fid == "formField-currentlyWorkHere":
+        # The profile's job is the current one (it has a start, never an end).
+        return {"action": "tick", "value": "checked"} if emp.get("start_year") else None
+    if fid == "formField-startDate":
+        month = _MONTHS.index(emp["start_month"]) + 1 if emp.get("start_month") in _MONTHS else 0
+        return {"action": "date", "value": f"{month:02d}/{emp['start_year']}"} \
+            if month and emp.get("start_year") else None
+    if kind == "date" and re.search(r"today'?s date", f["label"], re.I):
+        # "Please enter today's date on your acknowledgement." (PayPal)
+        return {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
+    if fid == "formField-dateSignedOn":
+        # The voluntary self-identification form's signing date: today.
+        return {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
+    if fid == "formField-endDate":
+        return None  # the current job has none: "I currently work here" hides it
+    if fid in ("formField-firstYearAttended", "formField-lastYearAttended"):
+        # Education years: "first year attended: 2011" in extra answers / defaults.
+        from src.automation.tools.ats_common import rule_answer
+        key = "first year attended" if fid.endswith("firstYearAttended") else "last year attended"
+        year = rule_answer(key, {"extra_answers": profile.get("extra_answers") or []})
+        return {"action": "date", "value": str(year)} \
+            if isinstance(year, str) and re.fullmatch(r"(19|20)\d\d", year.strip()) else None
+    if fid == "formField-fieldOfStudy":
+        # A long searchable list: search the profile's discipline, pick only an exact item.
+        return {"action": "search", "value": edu["discipline"]} if edu.get("discipline") else None
+    if fid == "formField-schoolName":
+        return fill(edu.get("school"))
+    if fid == "formField-degree" and kind == "listbox":
+        pick = degree_option(options, edu.get("degree") or "")
+        return {"action": "pick", "value": pick} if pick else None
+    lang = (split_list(profile.get("languages") or "") or [""])[0]
+    if fid == "formField-language" and kind == "listbox":
+        pick = next((o for o in options if lang and o.lower() == lang.lower()), None)
+        return {"action": "pick", "value": pick} if pick else None
+    if kind == "listbox" and re.fullmatch(r"(overall|proficiency|level)( level| proficiency)?", f["label"].strip().lower()):
+        # Every "<language> proficiency" answer in order, the first one this
+        # scale offers: "4 - Fluent" where it exists, "3 - Advanced" on a scale
+        # topped by "4 - Native" (Trend Micro).
+        key = f"{lang} proficiency".lower()
+        levels = [a for kw, a in profile.get("extra_answers") or [] if lang and kw.lower() == key]
+        pick = next((hit for lv in levels if (hit := match_option(options, lv))), None)
+        return {"action": "pick", "value": pick} if pick else None
+    return False
 
 
 def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
@@ -423,26 +521,72 @@ def plan_field(f: dict, profile: dict, answer_fn=None) -> dict | None:
     ``{label, kind, required, options}`` (see ``FIELDS_JS``)."""
     label, kind, required = f["label"], f["kind"], f["required"]
     options = [o for o in f.get("options") or [] if o.strip().lower() not in _PLACEHOLDER]
+    section = experience_plan(f, profile)
+    if section is not False:
+        return section
     for pat, default in SYSTEM_DEFAULTS:
         if re.search(pat, label, re.I) and kind in ("listbox", "radio"):
             pick = match_option(options, default)
             return {"action": "pick", "value": pick} if pick else None
-    if kind in ("listbox", "radio"):
+    if kind in ("listbox", "radio", "selectinput"):
+        if kind == "selectinput" and not options:
+            return None  # a search-as-you-type prompt (skills): nothing to pick
         ans = answer_question(Question(label, label, "select", required, options), profile, answer_fn)
         return {"action": "pick", "value": ans["value"]} if ans else None
     if kind == "checkbox":
         # Only a required acknowledgement / terms box is ticked; nothing else.
         if required and _TICK_RE.search(label + " " + " ".join(options)):
             return {"action": "tick", "value": "checked"}
+        # Voluntary self-identification ("Please check one of the boxes
+        # below:" for disability): only ever the decline box.
+        from src.automation.tools.ats_common import DEMOGRAPHIC_RE, decline_option
+        if re.search(r"disabilit|veteran|gender|race|ethnic", " ".join(options), re.I) \
+                or DEMOGRAPHIC_RE.search(label):
+            pick = decline_option(options)
+            return {"action": "ticks", "value": [pick]} if pick else None
+        # "Choose all cities you would accept": the boxes an answer names
+        # (extra_answers / saved defaults), each matched to its option; nothing
+        # when any named one isn't there.
+        if len(options) > 1:
+            from src.automation.tools.ats_common import rule_answer, to_option
+            ans = rule_answer(label, {"extra_answers": profile.get("extra_answers") or []})
+            names = split_list(ans) if isinstance(ans, str) else []
+            picks = [match_option(options, n) for n in names]
+            if picks and all(picks):
+                return {"action": "ticks", "value": list(dict.fromkeys(picks))}
+            # "Have you ever worked at Adobe in the following capacity:" with
+            # "I have not worked for Adobe in the past.": a rule's "No" ticks
+            # the box that says so (Adobe, live), and nothing else.
+            if rule_answer(label, profile) == "No":
+                none = to_option("No", options)
+                if none and re.search(r"\b(not|never|none)\b", none, re.I):
+                    return {"action": "ticks", "value": [none]}
         return None
     if kind == "text":
         std = standard_for_label(label)
         value = standard_value(std, profile) if std else ""
+        if std == "phone" and f.get("phone_code"):
+            value = national_number(value, f["phone_code"])
         if not value:
             ans = answer_question(Question(label, label, "text", required, []), profile, answer_fn)
             value = ans["value"] if ans else ""
         return {"action": "fill", "value": str(value)} if value else None
     return None  # date widgets, multi-select prompts: left to the user
+
+
+def national_number(phone: str, phone_code: str) -> str:
+    """The number to type next to Workday's Country Phone Code widget, which
+    holds the country code itself ("Taiwan (+886)"): a profile phone of
+    "+886 963335868" becomes "963335868" (Workday rejects the "+886" as "not a
+    valid format"). A phone in another country's code, or with none, is kept
+    as typed, minus the formatting."""
+    code = re.search(r"\+\s*(\d{1,4})", phone_code or "")
+    digits = re.sub(r"\D", "", phone or "")
+    if not phone.strip().startswith("+"):
+        return phone.strip()
+    if code and digits.startswith(code.group(1)):
+        return digits[len(code.group(1)):]
+    return phone.strip()
 
 
 # ── the wizard (browser) ─────────────────────────────────────────────────────
@@ -461,25 +605,78 @@ FIELDS_JS = r"""() => Array.from(document.querySelectorAll('[data-automation-id^
                             return (l ? l.innerText : (i.closest('label') || {}).innerText || i.value || '').trim(); };
     const chip = f.querySelector('[data-automation-id=promptOption], [data-automation-id=selectedItem]');
     let kind = 'other', value = '', options = [];
-    if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
+    const upload = f.querySelector('input[type=file]');
+    if (upload) { kind = 'file'; value = Array.from(f.querySelectorAll('[data-automation-id=file-upload-item]'))
+                    .map(e => e.innerText.trim().split('\n')[0]).filter(Boolean).join(', '); }
+    else if (f.querySelector('[data-automation-id=dateInputWrapper]')) {
+      kind = 'date';
+      const m = f.querySelector('[data-automation-id=dateSectionMonth-input]');
+      const d = f.querySelector('[data-automation-id=dateSectionDay-input]');
+      const y = f.querySelector('[data-automation-id=dateSectionYear-input]');
+      // the sections the widget has (a year-only one has just YYYY)
+      const parts = [m, d, y].filter(Boolean);
+      value = parts.length && parts.every(x => x.value) ? parts.map(x => x.value).join('/') : ''; }
+    else if (f.querySelector('input[data-uxi-widget-type=selectinput]')) { kind = 'selectinput'; value = chip ? chip.innerText.trim() : ''; }
     else if (btn) { kind = 'listbox'; value = btn.innerText.trim(); if (value === 'Select One') value = ''; }
     else if (radios.length) { kind = 'radio'; options = radios.map(optLabel);
                               const c = radios.find(r => r.checked); value = c ? optLabel(c) : ''; }
     else if (checks.length) { kind = 'checkbox'; options = checks.map(optLabel);
-                              value = checks.every(c => c.checked) ? 'checked' : ''; }
+                              // a choose-all group is answered once any box is ticked
+                              value = checks.filter(c => c.checked).map(optLabel).join(', '); }
     else if (text) { kind = 'text'; value = text.value; }
     return {index, field: f.getAttribute('data-automation-id'), label, required, kind, value, options};
   })"""
 _BOXES = "[data-automation-id^='formField']"
 _NEXT = "[data-automation-id='pageFooterNextButton']"
 _SUBMIT = "[data-automation-id='pageFooterSubmitButton']"
-_ERRORS = "[data-automation-id='errorMessage'], [data-automation-id='inputErrorMessage'], [role='alert']"
+_ERRORS = ("[data-automation-id='errorMessage'], [data-automation-id='inputErrorMessage'], "
+           "[data-automation-id='inputAlert'], [role='alert']")
 SUCCESS_TEXTS = ("Application Submitted", "application has been submitted",
                  "Thanks for applying", "Thank you for applying", "successfully submitted")
 
 
+# The job page's schema.org JobPosting names the employer: "0027 Applied
+# Materials Taiwan, Ltd" where the tenant id is "amat".
+EMPLOYER_JS = r"""() => { for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+  try { const d = JSON.parse(s.textContent); if (d.hiringOrganization) return d.hiringOrganization.name || ''; }
+  catch (e) {} } return ''; }"""
+
+
+_EMAIL_GATE = "[data-automation-id='SignInWithEmailButton']"
+_PHONE_CODE_ITEM = re.compile(r"\(\+\d{1,4}\)\s*$")
+# Filled fields of these kinds are re-planned on every pass (stale drafts);
+# a prompt (selectinput) or upload with a value is left as it is.
+RECHECK_KINDS = frozenset({"listbox", "radio", "text", "checkbox", "date"})
+
+
+def next_field(fields: list[dict], tried: set) -> dict | None:
+    """The next field to plan: any empty one, of any kind (a "How did you
+    hear?" prompt is a selectinput), or a filled one of a re-checked kind."""
+    return next((f for f in fields if (f["label"], f["kind"]) not in tried
+                 and (not f["value"] or f["kind"] in RECHECK_KINDS)), None)
+
+
+def _same(plan: dict, f: dict) -> bool:
+    """The field already holds the planned answer."""
+    have = (f.get("value") or "").strip()
+    if plan["action"] == "ticks":
+        return have == ", ".join(plan["value"])
+    if plan["action"] == "tick":
+        return bool(have)
+    if plan["action"] == "date":
+        want = [p.lstrip("0") for p in plan["value"].split("/")]
+        return [p.lstrip("0") for p in have.split("/")] == want
+    want = str(plan["value"]).strip()
+    if re.fullmatch(r"[\d\s()+-]{6,}", want) and re.fullmatch(r"[\d\s()+-]{6,}", have):
+        # A phone Workday re-formats on save ("963335868" → "0963 335 868").
+        return re.sub(r"\D", "", have).lstrip("0") == re.sub(r"\D", "", want).lstrip("0")
+    return have.casefold() == want.casefold()  # "Self-Employed" as re-cased by Workday
+
+
 class Wizard:
     """Drives one tenant's apply wizard on a Playwright page."""
+
+    employer = ""  # from the job page (open_application); "" when it names none
 
     def __init__(self, page, log: Callable = noop):
         self.page, self.log = page, log
@@ -504,15 +701,28 @@ class Wizard:
         except Exception:  # noqa: BLE001
             return False
 
+    def on_wizard(self) -> bool:
+        """The apply wizard is open without signing in (Adobe lets a guest
+        apply): a real step, not the "Create Account/Sign In" one."""
+        p = self.page
+        step = self.step() if p.locator("[data-automation-id='progressBarActiveStep']").count() else ""
+        return bool(step) and not re.search(r"sign in|account", step, re.I) \
+            and not p.locator("input[data-automation-id='password']").count() \
+            and p.locator(_BOXES).count() > 0
+
     def sign_in(self, url: str, email: str, password: str) -> bool:
         p = self.page
         self.email = email
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         pw_box = "input[data-automation-id='password']"
-        if not self._wait(lambda: p.locator(pw_box).count() or self.signed_in(), 25):
+        if not self._wait(lambda: p.locator(pw_box).count() or self.signed_in()
+                          or p.locator(_EMAIL_GATE).count() or self.on_wizard(), 25):
             return False
-        if self.signed_in():
+        if self.signed_in() or self.on_wizard():
             return True
+        self._open_email_form()
+        if not self._wait(lambda: p.locator(pw_box).count(), 10):
+            return False
         if p.locator("input[data-automation-id='verifyPassword']").count():
             # The create-account form: switch to Sign In (accounts are never created here).
             # A click before the form has settled is lost: retry until it switches.
@@ -551,10 +761,20 @@ class Wizard:
         self.email = email
         p.goto(url, wait_until="domcontentloaded", timeout=45000)
         create = "[data-automation-id='createAccountSubmitButton']"
-        if not self._wait(lambda: p.locator(create).count() or self.signed_in(), 25):
+        if not self._wait(lambda: p.locator(create).count() or self.signed_in()
+                          or p.locator(_EMAIL_GATE).count() or self.on_wizard(), 25):
             return "failed"
         if self.signed_in():
             return "signed_in"
+        if self.on_wizard():
+            return "guest"  # no account needed here
+        if self._open_email_form():
+            # The e-mail form opens on Sign In: switch to Create Account.
+            link = p.locator("[data-automation-id='createAccountLink']").first
+            if self._wait(lambda: link.count(), 8):
+                link.click()
+            if not self._wait(lambda: p.locator(create).count(), 10):
+                return "failed"
         p.wait_for_timeout(1500)  # the form re-mounts as it settles, like Sign In
         for sel, value in (("input[data-automation-id='email']", email),
                            ("input[data-automation-id='password']", password),
@@ -585,7 +805,41 @@ class Wizard:
                 return "exists"
             if verify.search(body):
                 return "verify"
+            back_to_sign_in = (p.locator("[data-automation-id='signInSubmitButton']").filter(visible=True).count()
+                               and not p.locator("input[data-automation-id='verifyPassword']").count())
+            if p.locator(_EMAIL_GATE).filter(visible=True).count() or back_to_sign_in:
+                # Yahoo: the new account lands back on the sign-in choices;
+                # Salesforce: on the plain Sign In form.
+                if self.sign_in(url, email, password):
+                    return "signed_in"
+                errors = " ".join(self.errors())
+                if re.search(r"verify your account", errors, re.I):
+                    return "verify"
+                if re.search(r"wrong email|password|locked", errors, re.I):
+                    # NVIDIA: an e-mail that already had an account lands on
+                    # the same choices; the new password then doesn't sign in.
+                    return "exists"
+                return "failed"
         return "failed"
+
+    def _open_email_form(self) -> bool:
+        """Yahoo's tenant first offers Apple / Google / LinkedIn sign-in and
+        hides the e-mail form behind "Sign in with email": open it."""
+        p = self.page
+        gate = p.locator(_EMAIL_GATE).filter(visible=True)
+        if not gate.count():
+            return False
+        # Like Sign In, a click before the page settles is lost: retry until
+        # the e-mail form replaces the gate.
+        for _ in range(4):
+            p.wait_for_timeout(1500)
+            try:
+                gate.first.click(timeout=5000)
+            except Exception:  # noqa: BLE001 — gone already
+                pass
+            if self._wait(lambda: p.locator("input[data-automation-id='email']").count(), 5):
+                break
+        return True
 
     def _click_sign_in(self) -> None:
         p = self.page
@@ -602,6 +856,10 @@ class Wizard:
         sel = "[data-automation-id='continueButton'], [data-automation-id='adventureButton']"
         if not self._wait(lambda: p.locator(sel).count(), 20):
             return "no_apply"
+        try:
+            self.employer = clean_company_name(p.evaluate(EMPLOYER_JS) or "")
+        except Exception:  # noqa: BLE001 — optional: the tenant id still applies
+            self.employer = ""
         # "Apply" renders first; with a saved draft it turns into "Continue
         # Application" a moment later. Clicking Apply → Apply Manually on a job
         # with a draft gives Workday's "Something went wrong".
@@ -660,57 +918,224 @@ class Wizard:
         """Open a listbox button; its options, scoped by ``aria-controls`` (the
         phone-code widget keeps a stray role=option in the page)."""
         p = self.page
-        btn.click()
+        btn.click(timeout=8000)
         p.wait_for_timeout(900)
-        lb = btn.get_attribute("aria-controls")
+        lb = btn.get_attribute("aria-controls", timeout=5000)
         opts = p.locator(f"[id={json.dumps(lb)}] [role='option']") if lb else \
             p.locator("[role='listbox'] >> visible=true").locator("[role='option']")
         return [t.strip() for t in opts.all_inner_texts()], opts
 
     def _act(self, f: dict, profile: dict, answer_fn) -> dict | None:
+        """Plan one field and put the answer in, unless it's already there."""
         box = self.page.locator(_BOXES).nth(f["index"])
         if f["kind"] == "listbox":
             btn = box.locator("button[aria-haspopup=listbox]").first
             texts, opts = self._listbox_options(btn)
             plan = plan_field({**f, "options": texts}, profile, answer_fn)
-            if not plan:
+            if not plan or plan["value"] == f["value"]:
                 self.page.keyboard.press("Escape")
-                return None
+                return plan
+            if f["value"]:
+                self.log(f"correcting '{f['label'][:60]}': {f['value']} → {plan['value']}")
             opts.nth(texts.index(plan["value"])).click()
             self.page.wait_for_timeout(1200)  # dependent fields (state, phone code) re-render
             return plan
+        if f["kind"] == "selectinput":
+            search = experience_plan(f, profile)
+            if search and search["action"] == "search":
+                return self._search_prompt(box, f, search["value"])
+            return self._prompt(box, f, profile, answer_fn)
         plan = plan_field(f, profile, answer_fn)
-        if not plan:
-            return None
+        if not plan or _same(plan, f):
+            return plan
+        if f["value"]:
+            self.log(f"correcting '{f['label'][:60]}': {f['value']} → {plan['value']}")
         if f["kind"] == "radio":
             tick(box.locator("input[type=radio]").nth(f["options"].index(plan["value"])))
         elif f["kind"] == "checkbox":
             boxes = box.locator("input[type=checkbox]")
+            want = ({f["options"].index(v) for v in plan["value"]} if plan["action"] == "ticks"
+                    else set(range(boxes.count())))
             for i in range(boxes.count()):
-                if not boxes.nth(i).is_checked():
-                    tick(boxes.nth(i))
+                if (i in want) != boxes.nth(i).is_checked():
+                    tick(boxes.nth(i))  # tick the wanted, untick a stale one
+        elif plan["action"] == "date":
+            # Workday's MM / YYYY spinbuttons sit under their "MM" / "YYYY"
+            # displays (the inputs themselves take no clicks): click a display,
+            # type that section.
+            parts = plan["value"].split("/")
+            names = {3: ("Month", "Day", "Year"), 2: ("Month", "Year"), 1: ("Year",)}[len(parts)]
+            for part, text in zip(names, parts, strict=True):
+                inp = box.locator(f"[data-automation-id=dateSection{part}-input]")
+                if inp.input_value() != text.lstrip("0") and inp.input_value() != text:
+                    # Focus the spinbutton itself (a year-only widget's display
+                    # takes no clicks), then type that section.
+                    inp.focus()
+                    self.page.keyboard.type(text, delay=80)
+            # Leave the widget so it commits (a year-only one keeps nothing otherwise).
+            self.page.keyboard.press("Tab")
+            self.page.wait_for_timeout(500)
         elif f["kind"] == "text":
             box.locator("textarea, input:not([type=hidden]):not([type=file])").first.fill(plan["value"])
         return plan
 
+    def _prompt_options(self):
+        """The open prompt menu's items. The phone-code prompt keeps its own
+        items in the page ("Taiwan (+886)"): never this menu's."""
+        items = self.page.locator("[data-automation-id=menuItem]").filter(visible=True) \
+            .filter(has_not_text=_PHONE_CODE_ITEM)
+        return [t.strip() for t in items.all_inner_texts()], items
+
+    def _prompt(self, box, f: dict, profile: dict, answer_fn) -> dict | None:
+        """A Workday prompt ("How Did You Hear About Us?"): open it, pick the
+        answer among its items; a category may open a second level, answered
+        the same way. Nothing confident: the menu is closed untouched."""
+        p = self.page
+        inp = box.locator("input[data-uxi-widget-type=selectinput]").first
+        inp.click()
+        p.wait_for_timeout(1200)
+        if rule_answer(f["label"], profile) == "__source__":
+            found = self._find_company_source(box, inp, profile)
+            if found:
+                return found
+        picked = []
+        for _ in range(2):
+            texts, items = self._prompt_options()
+            plan = plan_field({**f, "kind": "selectinput", "options": texts}, profile, answer_fn)
+            if not plan or plan["value"] not in texts:
+                self.log(f"'{f['label'][:40]}': no confident item among {texts[:12]}")
+                break
+            items.nth(texts.index(plan["value"])).click()
+            picked.append(plan["value"])
+            chip = box.locator("[data-automation-id=selectedItem]")
+            # Wait for the pick to land or the next level to replace the
+            # list (Trend Micro: a slow second level was read as the first).
+            self._wait(lambda: chip.count() or self._prompt_options()[0] not in (texts, []), 6)
+            p.wait_for_timeout(400)
+            if chip.count():
+                p.keyboard.press("Escape")
+                return {"action": "pick", "value": " > ".join(picked)}
+        self.log(f"'{f['label'][:40]}': picked {' > '.join(picked) or 'nothing'}, but no selection showed")
+        p.keyboard.press("Escape")
+        return None
+
+    def _find_company_source(self, box, inp, profile: dict) -> dict | None:
+        """"How did you hear?": the company's own site or career site, on the
+        first level or inside any category ("Direct Source Candidates" >
+        "PayPal Career site", PayPal). None leaves the usual order to pick."""
+        p = self.page
+        chip = box.locator("[data-automation-id=selectedItem]")
+        top, items = self._prompt_options()
+        hit = company_source_option(top, profile)
+        if hit:
+            items.nth(top.index(hit)).click()
+            self._wait(lambda: chip.count() or self._prompt_options()[0] not in (top, []), 6)
+            if chip.count():
+                p.keyboard.press("Escape")
+                return {"action": "pick", "value": hit}
+            sub, sub_items = self._prompt_options()   # the site opened a level of its own
+            inner = company_source_option(sub, profile) or (sub[0] if len(sub) == 1 else None)
+            if inner:
+                sub_items.nth(sub.index(inner)).click()
+                if self._wait(lambda: chip.count(), 6):
+                    p.keyboard.press("Escape")
+                    return {"action": "pick", "value": f"{hit} > {inner}"}
+            return None
+        for cat in top:
+            p.keyboard.press("Escape")
+            p.wait_for_timeout(400)
+            inp.click()
+            self._wait(lambda: self._prompt_options()[0] == top, 6)
+            texts, items = self._prompt_options()
+            if cat not in texts:
+                continue
+            items.nth(texts.index(cat)).click()
+            self._wait(lambda: chip.count() or self._prompt_options()[0] not in (top, []), 6)
+            if chip.count():
+                # A leaf, not a category: undo is not possible, so only a
+                # company-site leaf would have been clicked (handled above).
+                continue
+            sub, sub_items = self._prompt_options()
+            hit = company_source_option(sub, profile)
+            if hit:
+                sub_items.nth(sub.index(hit)).click()
+                if self._wait(lambda: chip.count(), 6):
+                    p.keyboard.press("Escape")
+                    return {"action": "pick", "value": f"{cat} > {hit}"}
+        # Back to the first level for the usual order.
+        p.keyboard.press("Escape")
+        p.wait_for_timeout(400)
+        inp.click()
+        self._wait(lambda: self._prompt_options()[0] == top, 6)
+        return None
+
+    def _search_prompt(self, box, f: dict, term: str) -> dict | None:
+        """A searchable prompt (Field of Study): type the term, pick the item
+        that IS it ("Physics", never "Applied Physics")."""
+        p = self.page
+        inp = box.locator("input[data-uxi-widget-type=selectinput]").first
+        inp.click()
+        p.wait_for_timeout(1200)  # the menu opens first; typing before it is lost
+        inp.press_sequentially(term, delay=60)
+        p.keyboard.press("Enter")
+        self._wait(lambda: any(t.casefold() == term.casefold() for t in self._prompt_options()[0]), 6)
+        texts, items = self._prompt_options()
+        hit = next((i for i, t in enumerate(texts) if t.casefold() == term.casefold()), None)
+        if hit is None:
+            self.log(f"'{f['label'][:40]}': no item named {term!r} among {texts[:8]}")
+            p.keyboard.press("Escape")
+            return None
+        items.nth(hit).click()
+        p.wait_for_timeout(800)
+        p.keyboard.press("Escape")
+        return {"action": "pick", "value": texts[hit]}
+
     def answer_step(self, profile: dict, answer_fn=None) -> tuple[list[dict], list[str]]:
-        """Answer every empty field of the current step. A choice (the country)
+        """Answer every field of the current step. A choice (the country)
         re-renders the step, adding fields and shifting positions, so the
         fields are re-read after every action; each label is tried once.
-        Returns (answers, labels of required fields still empty)."""
+
+        A resumed draft keeps what an earlier run chose, possibly from an
+        older profile ("no sponsorship needed") or rule: a filled field is
+        re-planned and corrected when the answer differs, and on a questions
+        step a filled required field with no confident answer now is
+        reported, not trusted. Returns (answers, labels still needing one)."""
         answers: list[dict] = []
+        stale: list[str] = []
         tried: set[tuple[str, str]] = set()
-        for _ in range(60):
-            todo = next((f for f in self.fields()
-                         if not f["value"] and (f["label"], f["kind"]) not in tried), None)
+        questions = "Question" in self.step()
+        for _ in range(80):
+            todo = next_field(self.fields(), tried)
             if todo is None:
                 break
             tried.add((todo["label"], todo["kind"]))
-            plan = self._act(todo, profile, answer_fn)
+            if todo["field"] == "formField-phoneNumber":
+                todo["phone_code"] = next((f["value"] for f in self.fields()
+                                           if f["field"] == "formField-countryPhoneCode"), "")
+            try:
+                plan = self._act(todo, profile, answer_fn)
+            except PlaywrightTimeout:
+                # The step re-rendered under us (a control vanished): skip this
+                # field; a required one still empty is reported below.
+                self.log(f"'{todo['label'][:50]}': the control went away mid-step; skipped")
+                self.page.keyboard.press("Escape")
+                plan = None
             if plan:
                 answers.append({"label": todo["label"][:80], "value": plan["value"]})
+            elif todo["value"] and todo["required"] and questions:
+                stale.append(todo["label"])
+        # A later field can re-render the step and clear an earlier answer
+        # (Intel's Self Identify: committing the Date unticks the disability
+        # box a moment later). Settle, then put back what was cleared, once.
+        answered = {a["label"] for a in answers}
+        self.page.wait_for_timeout(1500)
+        for f in self.fields():
+            if f["required"] and not f["value"] and f["label"][:80] in answered:
+                self.log(f"re-answering '{f['label'][:60]}' (cleared by the form)")
+                self._act(f, profile, answer_fn)
+                self.page.wait_for_timeout(800)
         unanswered = [f["label"] for f in self.fields() if f["required"] and not f["value"]]
-        return answers, unanswered
+        return answers, unanswered + [s for s in stale if s not in unanswered]
 
     def save_and_continue(self) -> bool:
         before = self.step()

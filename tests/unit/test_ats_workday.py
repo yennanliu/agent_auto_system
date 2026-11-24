@@ -429,3 +429,262 @@ def test_runner_passes_the_opt_in_to_the_adapter(live_runner):
     ad = _LiveFake({"status": "prepared"})
     out = live_runner(ad, create_workday_accounts=True)
     assert ad.create_accounts is True and ad.calls and out["manual_count"] == 0
+
+
+# Micron (Taiwan), live 2026-11-21: the Country Phone Code widget holds the
+# "+886", and Workday rejects "+886 963335868" in Phone Number as an invalid format.
+@pytest.mark.parametrize("phone,code,expected", [
+    ("+886 963335868", "Taiwan (+886)", "963335868"),
+    ("+1 415 555 0100", "United States of America (+1)", "4155550100"),
+    ("+1 415 555 0100", "Taiwan (+886)", "+1 415 555 0100"),   # another country's code: as typed
+    ("0963-335-868", "Taiwan (+886)", "0963-335-868"),         # already national
+    ("+886 963335868", "", "+886 963335868"),                  # no widget value: unchanged
+])
+def test_national_number(phone, code, expected):
+    assert wd.national_number(phone, code) == expected
+
+
+def test_phone_number_drops_the_code_the_widget_already_holds():
+    tw = build_profile(first_name="Ada", last_name="Lovelace", email="ada@example.com",
+                       phone="+886 963335868")
+    plan = wd.plan_field({**_f("Phone Number", kind="text"), "phone_code": "Taiwan (+886)"}, tw)
+    assert plan == {"action": "fill", "value": "963335868"}
+    # Without a country-code widget on the step the number is typed in full.
+    assert wd.plan_field(_f("Phone Number", kind="text"), tw)["value"] == "+886 963335868"
+
+
+# HP (Taiwan), live 2026-11-23: My Experience requires a work-experience entry
+# (title, company, From MM/YYYY), the degree and a language with its level.
+HP_DEGREES = ["Graduate Certificate", "High School or GED (±11 years of education)",
+              "Bachelors (±16 years of education)", "Masters (±18 years of education)",
+              "Doctorate (over 19 years of education)", "Other (other type of degree or diploma)"]
+EXP = build_profile(first_name="Ada", last_name="Lovelace", email="ada@example.com",
+                    current_company="Self-employed", current_title="Sr. Backend Engineer",
+                    current_start="2025-06", school="National Taiwan University",
+                    degree="Master's Degree", languages="English, Chinese",
+                    extra_answers="english proficiency: 4 - Fluent")
+
+
+def _sec(field, label="x", kind="text", options=()):
+    return {**_f(label, kind=kind, options=options), "field": field}
+
+
+def test_my_experience_current_job_education_and_language():
+    assert wd.plan_field(_sec("formField-jobTitle"), EXP) == {"action": "fill", "value": "Sr. Backend Engineer"}
+    assert wd.plan_field(_sec("formField-companyName"), EXP) == {"action": "fill", "value": "Self-employed"}
+    assert wd.plan_field(_sec("formField-currentlyWorkHere", kind="checkbox",
+                              options=["I currently work here"]), EXP)["action"] == "tick"
+    assert wd.plan_field(_sec("formField-startDate", kind="date"), EXP) == {"action": "date", "value": "06/2025"}
+    assert wd.plan_field(_sec("formField-endDate", kind="date"), EXP) is None
+    assert wd.plan_field(_sec("formField-schoolName"), EXP)["value"] == "National Taiwan University"
+    assert wd.plan_field(_sec("formField-degree", kind="listbox", options=HP_DEGREES), EXP)["value"] == \
+        "Masters (±18 years of education)"
+    langs = ["Select One", "Chinese, Cantonese", "Chinese, Mandarin", "English"]
+    assert wd.plan_field(_sec("formField-language", kind="listbox", options=langs), EXP)["value"] == "English"
+    levels = ["1 - Beginner", "2 - Intermediate", "3 - Advanced", "4 - Fluent"]
+    assert wd.plan_field(_sec("formField-98cbd30d", label="Overall", kind="listbox", options=levels),
+                         EXP)["value"] == "4 - Fluent"
+
+
+def test_my_experience_never_guesses():
+    bare = build_profile(first_name="A", last_name="B", email="a@b.c", languages="Chinese")
+    for field, kind in (("formField-jobTitle", "text"), ("formField-companyName", "text"),
+                        ("formField-currentlyWorkHere", "checkbox"), ("formField-startDate", "date"),
+                        ("formField-schoolName", "text")):
+        assert wd.plan_field(_sec(field, kind=kind, options=["I currently work here"]), bare) is None, field
+    # "Chinese" is ambiguous on a list with Cantonese and Mandarin; no level without an answer.
+    langs = ["Chinese, Cantonese", "Chinese, Mandarin", "English"]
+    assert wd.plan_field(_sec("formField-language", kind="listbox", options=langs), bare) is None
+    assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=["4 - Fluent"]), bare) is None
+
+
+@pytest.mark.parametrize("degree,options,expected", [
+    ("Master's Degree", HP_DEGREES, "Masters (±18 years of education)"),
+    ("MSc Physics", HP_DEGREES, "Masters (±18 years of education)"),
+    ("Bachelor of Science", HP_DEGREES, "Bachelors (±16 years of education)"),
+    ("PhD", HP_DEGREES, "Doctorate (over 19 years of education)"),
+    # Western Digital (SmartRecruiters): two master's options, so no pick.
+    ("Master's Degree", ["Bachelors of Science", "Master of Science", "Master of Arts"], None),
+    ("", HP_DEGREES, None),
+])
+def test_degree_option_by_level(degree, options, expected):
+    from src.automation.tools.ats_common import degree_option
+    assert degree_option(options, degree) == expected
+
+
+# Applied Materials (Taiwan), live 2026-11-23: the tenant id "amat" doesn't
+# spell "Have you ever worked at Applied Materials…?"; the posting's
+# hiringOrganization does.
+@pytest.mark.parametrize("raw,clean", [
+    ("0027 Applied Materials Taiwan, Ltd", "Applied Materials"), ("HP Inc.", "HP"),
+    ("Micron Technology, Inc.", "Micron Technology"), ("3M Company", "3M"),
+    ("Western Digital Corporation", "Western Digital"), ("NVIDIA", "NVIDIA"), ("", ""),
+])
+def test_clean_company_name(raw, clean):
+    from src.automation.tools.ats_common import clean_company_name
+    assert clean_company_name(raw) == clean
+
+
+def test_prior_employment_by_the_employers_own_name():
+    from src.automation.tools.ats_common import rule_answer, with_job_location
+    p = with_job_location(PROFILE, None, "amat", aliases=("Applied Materials",))
+    assert rule_answer("Have you ever worked at Applied Materials as a regular employee, "
+                       "contingent worker, intern, etc.?", p) == "No"
+    assert rule_answer("Have you ever worked at Applied Signal before?", p) is None
+
+
+def test_a_source_prompt_is_answered_like_a_listbox():
+    """Applied Materials, live: "How Did You Hear About Us?" is a selectinput
+    prompt; its items get the same source answer as a listbox."""
+    from src.automation.tools.ats_common import with_job_location
+    items = ["Applied Materials Corporate Website", "I currently work at/for Applied Materials",
+             "Job Board or Social Media", "Staffing Agency"]
+    p = with_job_location(PROFILE, None, "amat", aliases=("Applied Materials",))
+    f = {**_f("How Did You Hear About Us?", kind="selectinput", options=items)}
+    assert wd.plan_field(f, p) == {"action": "pick", "value": "Applied Materials Corporate Website"}
+    # A search-as-you-type prompt with no items (skills) is left alone.
+    assert wd.plan_field(_f("Type to Add Skills", kind="selectinput", required=False), p) is None
+
+
+def test_a_choose_all_checkbox_group_ticks_only_the_named_boxes():
+    """Applied Materials, live 2026-11-23: "choose all cities that you would accept"."""
+    cities = ["Linkou", "Hsinchu", "Taichung", "Tainan", "Kaohsiung"]
+    q = "Applied Materials Taiwan has offices in 5 cities. Please choose all cities that you would accept."
+    p = build_profile(first_name="A", last_name="B", email="a@b.c",
+                      extra_answers="cities that you would accept: Linkou, Hsinchu")
+    assert wd.plan_field(_f(q, kind="checkbox", options=cities), p) == \
+        {"action": "ticks", "value": ["Linkou", "Hsinchu"]}
+    # No answer, or a city that isn't offered: nothing is ticked.
+    assert wd.plan_field(_f(q, kind="checkbox", options=cities), PROFILE) is None
+    other = build_profile(first_name="A", last_name="B", email="a@b.c",
+                          extra_answers="cities that you would accept: Linkou, Taipei")
+    assert wd.plan_field(_f(q, kind="checkbox", options=cities), other) is None
+
+
+# Intel (US), live 2026-11-23: the Self Identify step (CC-305 disability form).
+def test_self_identify_signs_today_and_declines():
+    from datetime import datetime
+    assert wd.plan_field(_sec("formField-dateSignedOn", label="Date", kind="date"), PROFILE) == \
+        {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
+    boxes = ["Yes, I have a disability, or have had one in the past",
+             "No, I do not have a disability and have not had one in the past", "I do not want to answer"]
+    assert wd.plan_field(_sec("formField-disabilityStatus", label="Please check one of the boxes below:",
+                              kind="checkbox", options=boxes), PROFILE) == \
+        {"action": "ticks", "value": ["I do not want to answer"]}
+
+
+@pytest.mark.parametrize("plan,value,same", [
+    ({"action": "pick", "value": "Yes"}, "No", False),          # a stale draft answer is corrected
+    ({"action": "pick", "value": "Yes"}, "Yes", True),
+    ({"action": "fill", "value": "963335868"}, "963335868", True),
+    ({"action": "ticks", "value": ["Linkou", "Hsinchu"]}, "Linkou, Hsinchu", True),
+    ({"action": "ticks", "value": ["Neither"]}, "Linkou", False),
+    ({"action": "tick", "value": "checked"}, "I agree", True),
+    ({"action": "date", "value": "06/2025"}, "6/2025", True),
+    ({"action": "date", "value": "11/23/2026"}, "", False),
+    # Workday's own re-formatting is not a different answer (Intel, live).
+    ({"action": "fill", "value": "963335868"}, "0963 335 868", True),
+    ({"action": "fill", "value": "Self-employed"}, "Self-Employed", True),
+    ({"action": "fill", "value": "963335868"}, "0912 345 678", False),
+])
+def test_same_answer_detection(plan, value, same):
+    assert wd._same(plan, {"value": value}) is same
+
+
+def test_next_field_includes_empty_prompts_and_rechecks_filled_choices():
+    """Trend Micro, live 2026-11-24: the re-check filter skipped every empty
+    selectinput, so "How Did You Hear About Us?" was never answered."""
+    fields = [
+        {"label": "Phone Code", "kind": "selectinput", "value": "Taiwan (+886)"},   # filled prompt: left alone
+        {"label": "How Did You Hear About Us?", "kind": "selectinput", "value": ""},
+        {"label": "Resume", "kind": "file", "value": "cv.pdf"},
+        {"label": "Sponsorship?", "kind": "listbox", "value": "No"},                # filled choice: re-checked
+    ]
+    tried = set()
+    order = []
+    while (f := wd.next_field(fields, tried)) is not None:
+        tried.add((f["label"], f["kind"]))
+        order.append(f["label"])
+    assert order == ["How Did You Hear About Us?", "Sponsorship?"]
+
+
+def test_education_years_and_field_of_study():
+    """Trend Micro, live 2026-11-24: year-only From/To and a searchable Field of Study."""
+    p = build_profile(first_name="A", last_name="B", email="a@b.c", discipline="Physics",
+                      extra_answers="first year attended: 2011\nlast year attended: 2013")
+    assert wd.plan_field(_sec("formField-firstYearAttended", kind="date"), p) == {"action": "date", "value": "2011"}
+    assert wd.plan_field(_sec("formField-lastYearAttended", kind="date"), p) == {"action": "date", "value": "2013"}
+    assert wd.experience_plan(_sec("formField-fieldOfStudy", kind="selectinput"), p) == \
+        {"action": "search", "value": "Physics"}
+    bare = build_profile(first_name="A", last_name="B", email="a@b.c")
+    assert wd.plan_field(_sec("formField-firstYearAttended", kind="date"), bare) is None
+    assert wd.experience_plan(_sec("formField-fieldOfStudy", kind="selectinput"), bare) is None
+
+
+def test_language_level_takes_the_first_answer_the_scale_offers():
+    p = build_profile(first_name="A", last_name="B", email="a@b.c", languages="English",
+                      extra_answers="english proficiency: 4 - Fluent\nenglish proficiency: 3 - Advanced")
+    hp = ["1 - Beginner", "2 - Intermediate", "3 - Advanced", "4 - Fluent"]
+    trend = ["1 - Beginner", "2 - Intermediate", "3 - Advanced", "4 - Native"]
+    assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=hp), p)["value"] == "4 - Fluent"
+    assert wd.plan_field(_sec("formField-x", label="Overall", kind="listbox", options=trend), p)["value"] == \
+        "3 - Advanced"
+
+
+def test_a_never_worked_here_box_is_ticked_for_the_hiring_company():
+    """Adobe, live 2026-11-24."""
+    from src.automation.tools.ats_common import with_job_location
+    boxes = ["Employee", "Intern", "Temporary Agency or Vendor", "Other", "I have not worked for Adobe in the past."]
+    q = "Have you ever worked at Adobe in the following capacity:"
+    p = with_job_location(PROFILE, None, "adobe")
+    assert wd.plan_field(_f(q, kind="checkbox", options=boxes), p) == \
+        {"action": "ticks", "value": ["I have not worked for Adobe in the past."]}
+    other = with_job_location(PROFILE, None, "acme")
+    assert wd.plan_field(_f(q, kind="checkbox", options=boxes), other) is None   # another company: never guessed
+
+
+def test_a_required_confirm_the_statement_box_is_ticked():
+    """Adobe, live 2026-11-24: the box under its Terms & Conditions."""
+    f = _f("Check this box to confirm the statement above.", kind="checkbox", options=[""])
+    assert wd.plan_field(f, PROFILE) == {"action": "tick", "value": "checked"}
+    assert wd.plan_field({**f, "required": False}, PROFILE) is None
+
+
+def test_job_country_from_the_url_when_the_location_is_a_count():
+    """PayPal, live 2026-11-24: "2 Locations" left sponsorship unanswerable."""
+    url = ("https://paypal.wd1.myworkdayjobs.com/jobs/job/San-Jose-California-United-States-of-America/"
+           "Sr-Staff-Software-Engineer_R0135015-1")
+    assert wd.job_country("2 Locations", url) == "United States"
+    assert wd.job_country("2 Locations") == "2 Locations"           # no URL: still unknown
+    assert wd.job_country("US-Minnesota-Maplewood", url) == "United States"
+
+
+def test_an_acknowledgement_date_is_today():
+    """PayPal, live 2026-11-24."""
+    from datetime import datetime
+    q = ("I understand that a positive declaration does not mean … Please enter today's date on your "
+         "acknowledgement.")
+    assert wd.plan_field(_sec("formField-46c8", label=q, kind="date"), PROFILE) == \
+        {"action": "date", "value": datetime.now().strftime("%m/%d/%Y")}
+
+
+def test_a_job_link_falls_back_to_the_requisition_id_without_its_suffix():
+    """Capital One, live 2026-11-24: "R1004419-1" finds nothing, "R1004419" finds it."""
+    class _Seq:
+        def __init__(self):
+            self.terms = []
+
+        def post(self, url, json):
+            self.terms.append(json["searchText"])
+            postings = [] if json["searchText"].endswith("-1") else [
+                {"title": "Full Stack Engineer 4", "externalPath": "/job/New-York-NY/Full-Stack-Engineer-4_R1004419-1",
+                 "locationsText": "New York, NY"}]
+            return type("R", (), {"status_code": 200, "raise_for_status": lambda self: None,
+                                  "json": lambda self: {"total": len(postings), "jobPostings": postings}})()
+    from src.automation.tools.ats_router import parse_board_ref
+    c = _Seq()
+    ref = parse_board_ref("https://capitalone.wd12.myworkdayjobs.com/Capital_One/job/New-York-NY/"
+                          "Full-Stack-Engineer-4_R1004419-1")
+    jobs = wd.WorkdayAdapter(sleep=lambda _s: None).discover(c, ref)
+    assert c.terms == ["R1004419-1", "R1004419"]
+    assert [j["job_id"] for j in jobs] == ["Full-Stack-Engineer-4_R1004419-1"]

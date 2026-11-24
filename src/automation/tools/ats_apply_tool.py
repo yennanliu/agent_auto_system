@@ -484,6 +484,10 @@ def run_ats_apply(
             current_start=current_start,
         )
         ledger = load_ledger(ledger_path)
+        # "Have you applied to <Company> before?" is a fact the ledger knows.
+        profile["applied_companies"] = {
+            (e.get("company") or "").lower() for e in ledger.values()
+            if isinstance(e, dict) and e.get("status") in ("applied", "pending") and e.get("company")}
 
         applied: list[dict] = []
         skipped: list[dict] = []

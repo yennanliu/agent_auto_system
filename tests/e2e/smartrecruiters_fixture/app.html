@@ -144,6 +144,13 @@ spl-radio, spl-checkbox, spl-select-option { display: block; cursor: pointer; }<
       '<spl-input id="hiring-manager-message-input" label="Message to the Hiring Team" type="textarea"></spl-input>' +
       '<p id="errors"></p><spl-button text="Next" id="next"></spl-button>';
     document.getElementById('spl-form-element_10').options = CITIES;
+    // ?live=1 — two live quirks: a company chat widget floating over the
+    // page (Western Digital's joveo iframe) and a valid Next ignored once
+    // (Experian / ServiceNow: clicked while the page was still settling).
+    let ignoreNext = !!qs.get('live');
+    if (qs.get('live')) document.body.insertAdjacentHTML('beforeend',
+      '<div id="joveo-web-widget-container" style="position:fixed;inset:0;z-index:99">' +
+      '<iframe title="Chatbot" id="joveo-web-widget" style="width:100%;height:100%;border:0"></iframe></div>');
     const val = id => { const h = document.getElementById(id); return h ? h.value : ''; };
     // "Easy apply" parsing rewrites the form (the trap).
     document.getElementById('spl-dropzone-file-input-2').addEventListener('change', () => {
@@ -172,6 +179,7 @@ spl-radio, spl-checkbox, spl-select-option { display: block; cursor: pointer; }<
       if (!CITIES.includes(p.city)) errs.push('City is required.');
       if (!p.resume) errs.push('Resume is required');
       if (errs.length) { document.getElementById('errors').innerHTML = errs.map(x => '<span role="alert">' + x + '</span>').join(''); return; }
+      if (ignoreNext) { ignoreNext = false; return; }
       if (qs.get('noscreening')) return final(false);
       history.pushState({}, '', location.pathname.replace(/\/?$/, '') + '/screening' + location.search);
       screening();

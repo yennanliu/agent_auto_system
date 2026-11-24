@@ -390,10 +390,8 @@ def test_real_consent_boxes_still_agree(label):
 
 @pytest.mark.parametrize("label,years,answer", [
     ("Do you have seven (7) years of full-stack or embedded device software development?", 5, "No"),
-    ("Do you have seven (7) years of full-stack or embedded device software development?", 8, "Yes"),
-    ("Do you have 5+ years of Python experience?", 5, "Yes"),
+    ("Do you have 7 years of professional software development experience?", 8, "Yes"),
     ("Do you have at least 3 years of experience with AWS?", 2, "No"),
-    ("Do you possess ten years or more of experience leading teams?", 12, "Yes"),
 ])
 def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
     """Found in the Workday e2e (3M asks 'seven (7) years'): answered truthfully
@@ -401,6 +399,52 @@ def test_do_you_have_n_years_compares_with_the_profile(label, years, answer):
     assert ac.rule_answer(label, {**PROFILE, "years": years}) == answer
     q = Question("q", label, "select", required=True, options=["Yes", "No"])
     assert ac.answer_question(q, {**PROFILE, "years": years})["value"] == answer
+
+
+@pytest.mark.parametrize("label,years", [
+    # The profile has total years only. Enough of them says nothing about one
+    # skill (Experian, live: "8-12 years" of C# would have been sent).
+    ("Do you have seven (7) years of full-stack or embedded device software development?", 8),
+    ("Do you have 5+ years of Python experience?", 5),
+    ("Do you possess ten years or more of experience leading teams?", 12),
+    ("How many years of experience with C# do you have?", 10),
+    ("How many years have you used SQL?", 10),
+    ("How many years of experience do you have in .NET development, including building REST APIs?", 10),
+])
+def test_years_of_one_skill_are_never_taken_from_the_total(label, years):
+    assert ac.rule_answer(label, {**PROFILE, "years": years}) is None
+
+
+def test_years_of_general_software_work_are_the_total():
+    p = {**PROFILE, "years": 10}
+    assert ac.rule_answer("How many years of Software Engineering/Product Development experience "
+                          "do you have?", p) == "10"
+
+
+def test_citizenship_is_never_read_from_a_visa_remark():
+    """Western Digital, live: the question's "(…temporary U.S. visa, check No)"
+    made the sponsorship rule answer "No"."""
+    p = {**PROFILE, "authorized_countries": {"united states"}, "job_country": "United States"}
+    assert ac.rule_answer("Are you a citizen of the U.S., a lawful permanent resident of the U.S., or a "
+                          "non-U.S. citizen who is in the U.S. as an asylee or a refugee? (if you only hold "
+                          "a temporary work/travel/student U.S. visa, please check No)", p) is None
+
+
+def test_an_agreement_restricting_your_right_to_work_is_not_authorization():
+    """Western Digital, live: "right to work" made it a work-authorization "Yes"."""
+    assert ac.rule_answer("Are you currently party to any employment, consulting or personal services "
+                          "agreement that (i) restricts your right to terminate such agreements or (ii) "
+                          "restricts your right to work for WD immediately upon hire?", PROFILE) is None
+
+
+def test_prior_employment_by_the_companys_initials():
+    wd = {**PROFILE, "job_company": "Western Digital"}
+    assert ac.rule_answer("Have you ever been employed by WD or any of its subsidiaries?", wd) == "No"
+    assert ac.rule_answer("Have you ever been employed by IBM?", wd) is None
+
+
+def test_how_did_you_first_hear():
+    assert ac.rule_answer("How did you first hear about the position you applied for?", PROFILE) == "__source__"
 
 
 def test_how_many_years_still_returns_the_number():
@@ -437,6 +481,11 @@ def test_prior_employment_is_about_the_hiring_company_only():
     assert ac.rule_answer("Have you ever been employed by a State government?", acme) is None
     assert ac.rule_answer("Have you ever worked for Armanino before?", {"job_company": "arm"}) is None
     assert ac.rule_answer("Have you previously worked for Acme's subsidiaries?", acme) == "No"
+    # A leading determiner isn't the name (Micron, Workday, live 2026-11-21).
+    micron = {"job_company": "micron"}
+    assert ac.rule_answer("Have you previously been employed by any Micron company?", micron) == "No"
+    assert ac.rule_answer("Have you ever worked for the Micron group?", micron) == "No"
+    assert ac.rule_answer("Have you previously been employed by any Epic Systems company?", micron) is None
     assert ac.rule_answer("Have you ever worked for Metropolitan Hospital before?",
                           {"job_company": "metropolitan-hospital"}) == "No"
     # Without the job's company (legacy callers) the old answer stands.
@@ -464,3 +513,179 @@ def test_explicit_extra_answers_survive_the_yes_no_guard():
     inferred = {"authorized_countries": {"netherlands"}}
     assert ac.answer_question(ac.Question(
         "k", "If you selected valid work permit, please specify which type", "text", False, []), inferred) is None
+
+
+def test_availability_after_an_offer_is_the_notice_period():
+    """Micron (Workday), live 2026-11-21: the options are "Within 1 month after
+    offer acceptance", …; a notice period that maps onto none stays unanswered."""
+    q = "When would you be available if an offer was accepted?"
+    opts = ["Immediately after offer acceptance", "Within 1 month after offer acceptance",
+            "Within 2 months after offer acceptance", "More than 2 months after offer acceptance"]
+    assert ac.rule_answer(q, {"notice_period": "1 month"}) == "1 month"
+    assert ac.rule_answer(q, {}) is None
+    ans = ac.answer_question(ac.Question(q, q, "select", True, opts), {"notice_period": "1 month"}, None)
+    assert ans["value"] == "Within 1 month after offer acceptance"
+
+
+@pytest.mark.parametrize("label", [
+    "Were you referred by an employee?", "Referral source",
+    "Are you referred to this job by a Micron employee?",   # Micron (Workday), live 2026-11-21
+])
+def test_referral_questions_answer_no(label):
+    assert ac.rule_answer(label, {}) == "No"
+
+
+def test_saved_default_answers_apply_after_the_runs_own(tmp_path, monkeypatch):
+    f = tmp_path / "default_answers.txt"
+    f.write_text("# personal facts\nbonded: No\nacademic ranking: 11%-20%\n\nno colon line\n")
+    monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(f))
+    p = ac.build_profile(first_name="A", last_name="B", email="a@b.c", extra_answers="bonded: Yes, TWD 1")
+    assert p["extra_answers"] == [("bonded", "Yes, TWD 1"), ("bonded", "No"), ("academic ranking", "11%-20%")]
+    assert ac.rule_answer("Are you bonded by your current company/school?", p) == "Yes, TWD 1"
+    q = "Please select your academic ranking:"
+    ans = ac.answer_question(ac.Question(q, q, "select", True, ["Top 10%", "11%-20%", "21%-50%"]), p, None)
+    assert ans["value"] == "11%-20%"
+    monkeypatch.setenv("ATS_DEFAULT_ANSWERS_FILE", str(tmp_path / "missing.txt"))
+    assert ac.default_answers() == []
+
+
+def test_existing_employee_of_the_hiring_company():
+    """HP (Workday), live 2026-11-23."""
+    q = ("To help us understand your preferences related to personal data and uses for future "
+         "recruitment processes, are you an existing HP employee?")
+    me = {**PROFILE, "job_company": "hp", "employment": {"company": "Self-employed"}}
+    assert ac.rule_answer(q, me) == "No"
+    # Without a known current employer, or when it IS the company: never guessed.
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "hp", "employment": {}}) is None
+    assert ac.rule_answer(q, {**me, "employment": {"company": "HP"}}) is None
+
+
+@pytest.mark.parametrize("company,aliases,options,expected", [
+    # Cadence (Workday), live: second level of "Job Board/Social Media Web Site".
+    ("cadence", (), ["104 portal", "51job", "Bizreach", "Cadence.com", "DICE", "Facebook"], "Cadence.com"),
+    ("amat", ("Applied Materials",), ["I currently work at/for Applied Materials",
+                                      "Applied Materials Corporate Website", "Staffing Agency"],
+     "Applied Materials Corporate Website"),
+    ("amat", ("Applied Materials",), ["I currently work at/for Applied Materials", "Staffing Agency"], None),
+    ("cadence", (), ["Agency", "Employee Referral", "Job Fair"], None),
+])
+def test_company_site_option(company, aliases, options, expected):
+    p = ac.with_job_location(PROFILE, None, company, aliases=aliases)
+    assert ac.company_site_option(options, p) == expected
+    q = "How Did You Hear About Us?"
+    if expected:
+        assert ac.answer_question(Question(q, q, "select", True, options), p)["value"] == expected
+
+
+def test_prior_employment_directly_employed_or_contracted():
+    """Intel (Workday), live 2026-11-23."""
+    q = ("Are you currently or have you previously been directly employed, accepted an offer, "
+         "or contracted with Intel or an Intel subsidiary?")
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "intel"}) == "No"
+    assert ac.rule_answer(q.replace("Intel", "Acme"), {**PROFILE, "job_company": "intel"}) is None
+
+
+def test_a_sponsorship_question_with_a_residency_note_is_still_sponsorship():
+    """Intel (Workday), live: its sponsorship question notes student visas and
+    permanent residents; the citizenship guard must not swallow it."""
+    p = {**PROFILE, "authorized_countries": {"united states"}, "job_countries": {"united states"},
+         "needs_sponsorship": True}
+    q = ("Do you now, or in the future, require Intel to sponsor you for a visa to work in the United "
+         "States? NOTE: Individuals with work authorization issued pursuant to their student visa "
+         "(e.g., F-1, J-1, M-1) or currently a lawful permanent resident should answer accordingly.")
+    assert ac.rule_answer(q, p) == "Yes"
+
+
+def test_intel_sponsorship_with_a_permanent_resident_note():
+    """Intel, live 2026-11-23: "…Intel filing employment-based visa and permanent
+    resident applications…" made the citizenship rule answer "No" (no
+    sponsorship needed) for a candidate not authorized in the U.S."""
+    q = ("11)* Do you now, or in the future, require Intel to sponsor you for a visa to work in the "
+         "United States? NOTE: … Intel immigration sponsorship refers to Intel filing employment-based "
+         "visa and permanent resident applications on behalf of the employee in order for the "
+         "individual to have the legal right to work in the U.S.")
+    p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"}}, "United States", "intel")
+    assert ac.rule_answer(q, p) == "Yes"
+    p_us = ac.with_job_location({**PROFILE, "authorized_countries": {"united states"}}, "United States", "intel")
+    assert ac.rule_answer(q, p_us) == "No"
+
+
+def test_sponsorship_note_about_a_current_employer_is_not_the_employer_question():
+    """Intel, live 2026-11-24: "…work visas specific to their current employer…"
+    made the current-employer rule answer "Self-employed"."""
+    q = ("11)* Do you now, or in the future, require Intel to sponsor you for a visa to work in the "
+         "United States? NOTE: Individuals … currently on work visas specific to their current "
+         "employer (e.g., H-1B, O-1, TN, H-1B1, E-3), should answer “Yes”.")
+    p = ac.with_job_location(ac.build_profile(first_name="A", last_name="B", email="a@b.c",
+                                              authorized_countries="Taiwan", current_company="Self-employed"),
+                             "United States", "intel")
+    assert ac.rule_answer(q, p) == "Yes"
+    assert ac.rule_answer("Who is your current employer?", p) == "Self-employed"
+
+
+def test_a_visa_history_question_is_not_sponsorship():
+    """Intel, live 2026-11-24: "Are you now, or have you in the past, been on a
+    J-1 or J-2 exchange visitor visa?" got the sponsorship answer ("Yes")."""
+    p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"}}, "United States", "intel")
+    q = "11a)* Are you now, or have you in the past, been on a J-1 or J-2 exchange visitor visa?"
+    assert ac.rule_answer(q, p) is None
+
+
+@pytest.mark.parametrize("company,options,expected", [
+    # Adobe (Workday), live 2026-11-24: "Adobe Source" opens "Adobe.com".
+    ("adobe", ["Adobe Source", "Contingent Worker-Specific", "Job Board", "Social Media"], "Adobe Source"),
+    ("adobe", ["Adobe.com", "Adobe Career Academy", "Adobe Recruiting Team"], "Adobe.com"),
+    # Trend Micro: the generic career site beats a recruiter category.
+    ("trendmicro", ["Agency", "Company Career Site", "Job Boards", "Trend Micro Recruiter"], "Company Career Site"),
+    ("trend micro", ["Agency", "Job Boards", "Trend Micro Recruiter"], None),
+])
+def test_source_option_order(company, options, expected):
+    p = ac.with_job_location(PROFILE, None, company)
+    assert ac.source_option(options, p) == expected
+
+
+def test_extra_answers_match_the_question_not_its_fine_print():
+    """Broadcom, live 2026-11-24: "…For purposes of this question … I-140
+    portability…" caught a saved "i-140: No" and answered sponsorship "No"."""
+    p = ac.with_job_location({**PROFILE, "authorized_countries": {"taiwan"},
+                              "extra_answers": [("i-140", "No")]}, "United States", "broadcom")
+    q = ("Will you now or in the future require support or sponsorship for an immigration-related "
+         "employment benefit? For purposes of this question “support or sponsorship …” means an H-1B "
+         "visa petition, … (also known as I-140 portability …).")
+    assert ac.rule_answer(q, p) == "Yes"
+    assert ac.rule_answer("Was your I-140 approved more than 180 days ago?", p) == "No"
+
+
+def test_previous_employee_of_the_hiring_company():
+    """PayPal (Workday), live 2026-11-24."""
+    q = "Are you a previous Employee of PayPal or any of its subsidiaries?"
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "paypal"}) == "No"
+    assert ac.rule_answer(q.replace("PayPal", "eBay"), {**PROFILE, "job_company": "paypal"}) is None
+
+
+@pytest.mark.parametrize("company,options,expected", [
+    ("paypal", ["Contract Conversion", "Networking", "PayPal Career site"], "PayPal Career site"),   # PayPal, live
+    ("paypal", ["Direct Source Candidates", "Events", "Job Board", "Social Media"], None),          # categories: explored
+    ("trendmicro", ["Company Career Site"], "Company Career Site"),
+    ("amat", ["I currently work at/for Applied Materials", "Job Fair"], None),
+])
+def test_company_source_option(company, options, expected):
+    assert ac.company_source_option(options, ac.with_job_location(PROFILE, None, company)) == expected
+
+
+def test_prior_employment_with_a_comma():
+    """Capital One (Workday), live 2026-11-24."""
+    q = ("Do you currently, or have you previously, worked at Capital One or a company acquired by "
+         "Capital One as an employee, contractor, consultant, or temp?")
+    assert ac.rule_answer(q, {**PROFILE, "job_company": "capitalone"}) == "No"
+
+
+def test_applied_before_comes_from_the_ledger():
+    """Micron, live 2026-11-24: a saved "applied on any previous occasions: No"
+    was written before the first Micron application; the second one is "Yes"."""
+    q = "Have you applied on any previous occasions for employment in any capacity with Micron?"
+    p = ac.with_job_location({**PROFILE, "extra_answers": [("applied on any previous occasions", "No")],
+                              "applied_companies": {"micron"}}, None, "micron", aliases=("Micron Technology",))
+    assert ac.rule_answer(q, p) == "Yes"
+    other = ac.with_job_location({**p, "applied_companies": {"hp"}}, None, "micron")
+    assert ac.rule_answer(q, other) == "No"                 # never applied there: the saved answer
