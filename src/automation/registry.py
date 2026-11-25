@@ -9,6 +9,8 @@ _LOCK = threading.Lock()
 
 
 def register(run_id: int, task: asyncio.Task) -> None:
+    # A new run may reuse a deleted run's id (SQLite): drop any stale cancel.
+    cancellation.clear(run_id)
     with _LOCK:
         _TASKS[run_id] = task
 

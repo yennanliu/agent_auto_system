@@ -15,7 +15,11 @@ on the run's next log line. ``RunCancelled`` is a ``BaseException`` (like
 browser, and through ``ats_common.ledger_claim`` (a claim that never reached
 Submit is released, a "pending" one is kept).
 
-Run ids are never reused, so a cancelled id simply stays marked.
+The mark is cleared when a run with that id is registered again
+(``registry.register``) — SQLite reuses the id of a deleted highest-id run, and
+a fresh run must not inherit an old cancel. It is deliberately NOT cleared when
+the cancelled task ends: that happens at once, before the worker thread has
+reached its next log line.
 """
 import threading
 
@@ -32,6 +36,12 @@ def request(run_id: int) -> None:
     if run_id:
         with _LOCK:
             _CANCELLED.add(run_id)
+
+
+def clear(run_id: int) -> None:
+    """Forget a cancel for ``run_id`` (a new run with this id is starting)."""
+    with _LOCK:
+        _CANCELLED.discard(run_id)
 
 
 def is_cancelled(run_id: int) -> bool:

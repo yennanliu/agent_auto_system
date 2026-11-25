@@ -78,3 +78,14 @@ async def test_registry_cancel_stops_the_tool_loop_and_closes_its_browser(mocker
 def test_cancel_of_an_unknown_run_marks_nothing():
     assert not registry.cancel(90005)
     assert not cancellation.is_cancelled(90005)
+
+
+async def test_a_new_run_reusing_a_cancelled_id_is_not_cancelled():
+    """SQLite reuses the id of a deleted highest-id run: a fresh run with that
+    id must not inherit the old cancel."""
+    cancellation.request(90006)
+    task = asyncio.create_task(asyncio.sleep(0))
+    registry.register(90006, task)
+    assert not cancellation.is_cancelled(90006)
+    assert _in_thread(lambda: cancellation.check(90006)) == {"value": None}
+    await task
