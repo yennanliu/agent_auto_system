@@ -33,5 +33,6 @@ per_type_default:
 # email_collect, pipeline, custom:<slug>.
 per_type:
   greenhouse_apply: 4
+  tw104_apply: 5        # safe: runs share data/tw104_applied.json claims
 #  linkedin_apply: 1
 #  greenhouse_apply: 2

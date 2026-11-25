@@ -46,9 +46,17 @@ from collections.abc import Callable
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
+from src.automation.tools.ats_common import ledger_claim, ledger_entry_blocks, load_ledger
+
 _BASE = "https://www.104.com.tw"
 _SEARCH = _BASE + "/jobs/search/"
 DEFAULT_STATE_PATH = "data/tw104_state.json"
+# Local apply ledger shared by every tw104_apply run (several may run at once —
+# per_type.tw104_apply in src/config/concurrency.yaml). 104's own 已應徵 flag is
+# read from a listing snapshot, so two concurrent runs with overlapping keywords
+# could both see a job as new; the ledger claim (ats_common.ledger_claim) makes
+# one of them skip it. Override with TW104_LEDGER.
+DEFAULT_LEDGER_PATH = "data/tw104_applied.json"
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -288,10 +296,11 @@ def _fill_cover_letter(popup, cover_letter: str, log: Callable,
 
 
 def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
-                  log: Callable, warnings: list) -> dict:
+                  log: Callable, warnings: list, on_submit: Callable | None = None) -> dict:
     """Drive the apply funnel for a single job. Returns a result entry. The final
     確認送出 is skipped in dry-run. Success is ONLY a confirmed /job/apply/done/
-    URL — a click alone is never trusted."""
+    URL — a click alone is never trusted. ``on_submit`` is called immediately
+    before the 確認送出 click (the ledger marks the job "pending" there)."""
     entry = {"job_id": job["job_id"], "url": job["url"],
              "title": job["title"], "company": job["company"]}
 
@@ -308,6 +317,14 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
     if apply_btn is None:
         entry.update(status="skipped", submitted=False,
                      reason="no 應徵 button found (job closed or layout changed)")
+        return entry
+    # The listing's 已應徵 flag is a snapshot; the job page is current.
+    try:
+        btn_text = apply_btn.inner_text(timeout=2000) or ""
+    except Exception:  # noqa: BLE001
+        btn_text = ""
+    if "已應徵" in btn_text:
+        entry.update(status="skipped", submitted=False, reason="already applied (已應徵)")
         return entry
 
     # Clicking 應徵 usually opens the application in a new tab; handle both a
@@ -336,6 +353,8 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
             entry.update(status="failed", submitted=False,
                          reason="no 確認送出 button found on application page")
             return entry
+        if on_submit:
+            on_submit()
         send.click(timeout=8000)
         # Confirm the site navigated to the done page — the only trusted signal.
         applied = False
@@ -381,6 +400,7 @@ def run_tw104_apply(
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     log: Callable[[str], None] | None = None,
     state_path: str | None = None,
+    ledger_path: str | None = None,
 ) -> dict:
     """Load the saved 104 session and auto-apply to open jobs matching a keyword.
 
@@ -393,6 +413,7 @@ def run_tw104_apply(
     log = log or _noop
     relevance_fn = relevance_fn or (lambda _t, _m: (True, ""))
     state_path = state_path or os.getenv("TW104_STORAGE_STATE", DEFAULT_STATE_PATH)
+    ledger_path = ledger_path or os.getenv("TW104_LEDGER", DEFAULT_LEDGER_PATH)
     max_applications = max(1, min(int(max_applications), 1000))
     max_pages = max(1, min(int(max_pages), 500))
 
@@ -472,6 +493,19 @@ def run_tw104_apply(
                             log(f"↷ {jid}: already applied — next")
                             skipped.append(job)
                             continue
+                        prior = load_ledger(ledger_path).get(jid)
+                        claimed = isinstance(prior, dict) and prior.get("status") == "claimed"
+                        # A "claimed" entry is left to ledger_claim below (live → skip,
+                        # stale → re-take); applied / pending are skipped here.
+                        if prior is not None and not claimed and ledger_entry_blocks(prior):
+                            pending = isinstance(prior, dict) and prior.get("status") == "pending"
+                            job.update(status="skipped", reason=(
+                                "submitted on an earlier run but never confirmed (ledger) — check "
+                                "104 → 應徵紀錄; remove it from the ledger to retry") if pending
+                                else "already applied (ledger)")
+                            log(f"↷ {jid}: {'earlier submission unconfirmed' if pending else 'already applied'} — next")
+                            skipped.append(job)
+                            continue
 
                         # Second gate: LLM relevance. Fail open — a raising judge
                         # must never silently drop a good job.
@@ -489,12 +523,27 @@ def run_tw104_apply(
                             filtered += 1
                             continue
 
-                        entry = _apply_to_job(ctx, page, job, cover_letter,
-                                              dry_run, log, warnings)
-                        if entry.get("status") in ("prepared", "submitted"):
-                            applied.append(entry)
-                        else:
-                            skipped.append(entry)
+                        # Reserve the job in the ledger file so a concurrent
+                        # run never applies to it too. "pending" is written right
+                        # before 確認送出, so an unconfirmed submit, an exception
+                        # or a crash after the click is never resent.
+                        with ledger_claim(ledger_path, jid, job) as claim:
+                            if not claim:
+                                job.update(status="skipped",
+                                           reason="already applied (ledger, another run)")
+                                log(f"↷ {jid}: applied / being applied by another run — next")
+                                skipped.append(job)
+                                continue
+                            entry = _apply_to_job(ctx, page, job, cover_letter, dry_run, log,
+                                                  warnings, None if dry_run else claim.submitting)
+                            if entry.get("status") in ("prepared", "submitted"):
+                                applied.append(entry)
+                                if entry.get("submitted"):
+                                    claim.confirmed()
+                            else:
+                                if not dry_run and entry.get("status") == "unconfirmed":
+                                    claim.submitting()  # 確認送出 was clicked
+                                skipped.append(entry)
                     except Exception as exc:  # noqa: BLE001 — one bad job never stops the run
                         job.update(status="failed",
                                    reason=f"{type(exc).__name__}: {exc}")

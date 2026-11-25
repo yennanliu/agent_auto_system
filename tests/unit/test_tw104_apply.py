@@ -336,3 +336,98 @@ def test_flow_wires_relevance_gate_when_task_filter_set(mocker):
         "keyword": "python", "task_filter": "只要後端職缺",
     })
     assert callable(captured["relevance_fn"])
+
+
+# ── concurrent runs share the apply ledger (per_type.tw104_apply > 1) ─────────
+
+def _run_with_jobs(mocker, tmp_path, jobs, apply, ledger, dry_run=False):
+    """run_tw104_apply with Playwright and the listing scraper stubbed out."""
+    import src.automation.tools.tw104_apply_tool as T
+
+    state = tmp_path / "state.json"
+    state.write_text("{}")
+    mocker.patch("playwright.sync_api.sync_playwright")
+    mocker.patch.object(T, "_looks_logged_out", return_value=False)
+    pages = iter([jobs, []])
+    mocker.patch.object(T, "_collect_page_jobs", side_effect=lambda *a, **k: next(pages))
+    mocker.patch.object(T, "_apply_to_job", side_effect=apply)
+    return T.run_tw104_apply(keyword="後端", max_applications=10, dry_run=dry_run,
+                             state_path=str(state), ledger_path=ledger)
+
+
+def _job104(jid, applied=False):
+    return {"job_id": jid, "url": f"https://www.104.com.tw/job/{jid}",
+            "title": f"Backend {jid}", "company": "Acme", "applied": applied}
+
+
+def test_tw104_skips_a_job_claimed_or_ledgered_by_another_run(mocker, tmp_path):
+    from src.automation.tools import ats_common as ac
+
+    ledger = str(tmp_path / "l.json")
+    ac.record_applied(ledger, "j2", {})                       # applied by an earlier run
+    calls = []
+
+    def apply(_ctx, _page, job, *_a):
+        calls.append(job["job_id"])
+        return {**job, "status": "submitted", "submitted": True}
+
+    with ac.ledger_claim(ledger, "j3"):                        # another run is applying now
+        out = _run_with_jobs(mocker, tmp_path, [_job104("j1"), _job104("j2"), _job104("j3")],
+                             apply, ledger)
+    assert calls == ["j1"]
+    assert [e["job_id"] for e in out["applied"]] == ["j1"]
+    reasons = {s["job_id"]: s["reason"] for s in out["skipped"]}
+    assert reasons == {"j2": "already applied (ledger)",
+                       "j3": "already applied (ledger, another run)"}
+    assert ac.load_ledger(ledger)["j1"]["status"] == "applied"
+
+
+def test_tw104_exception_after_submit_click_is_pending_and_never_resent(mocker, tmp_path):
+    from src.automation.tools import ats_common as ac
+
+    ledger = str(tmp_path / "l.json")
+
+    def apply(_ctx, _page, job, _cl, _dry, _log, _warn, on_submit=None):
+        if job["job_id"] == "j1":
+            on_submit()
+            raise RuntimeError("Target closed")                 # after 確認送出
+        if job["job_id"] == "j2":
+            on_submit()
+            return {**job, "status": "unconfirmed", "submitted": False}
+        raise RuntimeError("page.goto timeout")                 # j3: before 確認送出
+
+    _run_with_jobs(mocker, tmp_path, [_job104("j1"), _job104("j2"), _job104("j3")], apply, ledger)
+    assert {k: v["status"] for k, v in ac.load_ledger(ledger).items()} == {"j1": "pending", "j2": "pending"}
+
+    retried = []
+    out = _run_with_jobs(mocker, tmp_path, [_job104("j1"), _job104("j2"), _job104("j3")],
+                         lambda _c, _p, job, *_a: retried.append(job["job_id"]) or
+                         {**job, "status": "failed"}, ledger)
+    assert retried == ["j3"]                                    # only the pre-Submit failure
+    reasons = {s["job_id"]: s.get("reason", "") for s in out["skipped"]}
+    assert reasons["j1"].startswith("submitted on an earlier run but never confirmed")
+
+
+def test_tw104_dry_run_leaves_no_ledger_entry(mocker, tmp_path):
+    from src.automation.tools import ats_common as ac
+
+    ledger = str(tmp_path / "l.json")
+    _run_with_jobs(mocker, tmp_path, [_job104("j1")],
+                   lambda _c, _p, job, *_a: {**job, "status": "prepared", "submitted": False},
+                   ledger, dry_run=True)
+    assert ac.load_ledger(ledger) == {}
+
+
+def test_tw104_job_page_already_applied_button_is_skipped(mocker):
+    import src.automation.tools.tw104_apply_tool as T
+
+    btn = mocker.Mock()
+    btn.inner_text.return_value = "已應徵"
+    mocker.patch.object(T, "_first_visible", return_value=btn)
+    page = mocker.Mock()
+    on_submit = mocker.Mock()
+    entry = T._apply_to_job(mocker.Mock(), page, _job104("j1"), "", False, lambda _m: None, [],
+                            on_submit)
+    assert entry["status"] == "skipped" and entry["reason"] == "already applied (已應徵)"
+    btn.click.assert_not_called()
+    on_submit.assert_not_called()
