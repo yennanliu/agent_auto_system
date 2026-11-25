@@ -853,7 +853,8 @@ def test_run_skips_a_job_another_run_applied_to_after_this_run_started(tmp_path,
     with gh.ledger_claim(ledger, "a/3"):       # another run is applying to job 3 now
         out = gh.run_greenhouse_apply(boards="a", keywords="backend", resume_path=str(resume),
                                       client=FakeClient(routes), ledger_path=ledger,
-                                      relevance_fn=relevance, max_applications=10, **_ARGS)
+                                      relevance_fn=relevance, max_applications=10,
+                                      dry_run=False, **_ARGS)
     assert [e["job_id"] for e in out["applied"]] == ["1"]
     assert {s["job_id"]: s["reason"] for s in out["skipped"]} == {
         "2": "already applied (ledger, another run)", "3": "already applied (ledger, another run)"}

@@ -353,8 +353,12 @@ def _apply_to_job(context, page, job: dict, cover_letter: str, dry_run: bool,
             entry.update(status="failed", submitted=False,
                          reason="no 確認送出 button found on application page")
             return entry
-        if on_submit:
-            on_submit()
+        if on_submit is not None and on_submit() is False:
+            # Our ledger claim went stale and another run took the job.
+            entry.update(status="skipped", submitted=False,
+                         reason="claim lost to another run before Submit — not sent")
+            log(f"↷ {job['job_id']}: claim lost before Submit — not sending")
+            return entry
         send.click(timeout=8000)
         # Confirm the site navigated to the done page — the only trusted signal.
         applied = False
@@ -456,6 +460,9 @@ def run_tw104_apply(
                 )}
             log("✓ Authenticated with 104.com.tw")
 
+            # Snapshot for the cheap pre-check; ledger_claim re-reads the file
+            # under the lock right before applying, so concurrent runs are seen.
+            ledger = load_ledger(ledger_path)
             applied: list[dict] = []
             skipped: list[dict] = []
             seen: set[str] = set()
@@ -493,7 +500,7 @@ def run_tw104_apply(
                             log(f"↷ {jid}: already applied — next")
                             skipped.append(job)
                             continue
-                        prior = load_ledger(ledger_path).get(jid)
+                        prior = ledger.get(jid)
                         claimed = isinstance(prior, dict) and prior.get("status") == "claimed"
                         # A "claimed" entry is left to ledger_claim below (live → skip,
                         # stale → re-take); applied / pending are skipped here.
@@ -527,7 +534,7 @@ def run_tw104_apply(
                         # run never applies to it too. "pending" is written right
                         # before 確認送出, so an unconfirmed submit, an exception
                         # or a crash after the click is never resent.
-                        with ledger_claim(ledger_path, jid, job) as claim:
+                        with ledger_claim(ledger_path, jid, job, dry_run=dry_run) as claim:
                             if not claim:
                                 job.update(status="skipped",
                                            reason="already applied (ledger, another run)")
@@ -540,9 +547,11 @@ def run_tw104_apply(
                                 applied.append(entry)
                                 if entry.get("submitted"):
                                     claim.confirmed()
+                                    ledger[jid] = {"status": "applied"}
                             else:
                                 if not dry_run and entry.get("status") == "unconfirmed":
                                     claim.submitting()  # 確認送出 was clicked
+                                    ledger[jid] = {"status": "pending"}
                                 skipped.append(entry)
                     except Exception as exc:  # noqa: BLE001 — one bad job never stops the run
                         job.update(status="failed",

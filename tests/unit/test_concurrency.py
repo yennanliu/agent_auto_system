@@ -45,7 +45,8 @@ def test_limits_default_and_env_override(monkeypatch):
 
 def test_type_limits_default_and_env_override(monkeypatch):
     for var in ("MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE", "MAX_CONCURRENT_LLM_RUNS_PER_TYPE",
-                "MAX_CONCURRENT_RUNS_LINKEDIN_APPLY", "MAX_CONCURRENT_RUNS_CUSTOM_MY_BOT"):
+                "MAX_CONCURRENT_RUNS_LINKEDIN_APPLY", "MAX_CONCURRENT_RUNS_CUSTOM_MY_BOT",
+                "MAX_CONCURRENT_RUNS_TASKER_APPLY"):
         monkeypatch.delenv(var, raising=False)
     B, L = concurrency.BROWSER, concurrency.LLM
     assert concurrency.type_limit_for("linkedin_apply", B) == 1
@@ -220,6 +221,9 @@ async def test_each_automation_has_its_own_queue(run_env, monkeypatch):
     """A backlog of one automation (e.g. LinkedIn) must not hold up another (Tasker)."""
     monkeypatch.setenv("MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE", "1")
     monkeypatch.setenv("MAX_CONCURRENT_BROWSER_RUNS", "4")
+    for var in ("MAX_CONCURRENT_RUNS_LINKEDIN_APPLY", "MAX_CONCURRENT_RUNS_TASKER_APPLY",
+                "MAX_CONCURRENT_RUNS_GREENHOUSE_APPLY"):
+        monkeypatch.delenv(var, raising=False)
     li = [launcher.launch_run(run_env["job_id"], "linkedin_apply", {}, None) for _ in range(3)]
     tw = [launcher.launch_run(run_env["job_id"], "tasker_apply", {}, None) for _ in range(2)]
     gh = launcher.launch_run(run_env["job_id"], "greenhouse_apply", {}, None)

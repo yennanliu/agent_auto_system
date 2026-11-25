@@ -431,3 +431,44 @@ def test_tw104_job_page_already_applied_button_is_skipped(mocker):
     assert entry["status"] == "skipped" and entry["reason"] == "already applied (已應徵)"
     btn.click.assert_not_called()
     on_submit.assert_not_called()
+
+
+def test_tw104_dry_run_does_not_block_a_concurrent_real_run(mocker, tmp_path):
+    from src.automation.tools import ats_common as ac
+
+    ledger = str(tmp_path / "l.json")
+    seen = []
+
+    def apply(_c, _p, job, *_a):
+        with ac.ledger_claim(ledger, job["job_id"]) as real:     # a real run, mid dry-run
+            seen.append(bool(real))
+        return {**job, "status": "prepared", "submitted": False}
+
+    _run_with_jobs(mocker, tmp_path, [_job104("j1")], apply, ledger, dry_run=True)
+    assert seen == [True]
+
+
+def test_tw104_lost_claim_never_clicks_confirm_send(mocker):
+    import src.automation.tools.tw104_apply_tool as T
+
+    btn, send, popup = mocker.Mock(), mocker.Mock(), mocker.Mock()
+    btn.inner_text.return_value = "應徵"
+    mocker.patch.object(T, "_first_visible", side_effect=[btn, send])
+    mocker.patch.object(T, "_fill_cover_letter")
+    ctx = mocker.Mock()
+    ctx.expect_page.return_value.__enter__ = lambda s: mocker.Mock(value=popup)
+    ctx.expect_page.return_value.__exit__ = lambda s, *a: False
+    entry = T._apply_to_job(ctx, mocker.Mock(), _job104("j1"), "", False, lambda _m: None, [],
+                            lambda: False)
+    assert entry["status"] == "skipped" and "claim lost" in entry["reason"]
+    send.click.assert_not_called()
+
+
+def test_tw104_reads_the_ledger_once_per_run(mocker, tmp_path):
+    import src.automation.tools.tw104_apply_tool as T
+
+    spy = mocker.spy(T, "load_ledger")
+    _run_with_jobs(mocker, tmp_path, [_job104(f"j{i}") for i in range(5)],
+                   lambda _c, _p, job, *_a: {**job, "status": "failed"},
+                   str(tmp_path / "l.json"))
+    assert spy.call_count == 1

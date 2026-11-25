@@ -787,3 +787,32 @@ def test_ledger_entry_blocks():
     assert ac.ledger_entry_blocks(True)                                    # legacy entry
     assert ac.ledger_entry_blocks({"status": "claimed", "claimed_at": ac._now()})
     assert not ac.ledger_entry_blocks({"status": "claimed", "claimed_at": "2020-01-01T00:00:00+00:00"})
+
+
+def test_dry_run_claim_never_touches_the_ledger(tmp_path):
+    path = str(tmp_path / "ledger.json")
+    with ac.ledger_claim(path, "acme/1", {}, dry_run=True) as claim:
+        assert claim and claim.submitting()
+        with ac.ledger_claim(path, "acme/1") as real:           # a concurrent real run
+            assert real                                          # is not blocked
+    assert not (tmp_path / "ledger.json").exists() or "acme/1" not in ac.load_ledger(path)
+
+
+def test_submitting_refuses_after_the_claim_went_stale_and_was_retaken(tmp_path):
+    path = str(tmp_path / "ledger.json")
+    with ac.ledger_claim(path, "acme/1") as stalled:
+        led = ac.load_ledger(path)                               # 30+ min pass…
+        led["acme/1"]["claimed_at"] = "2020-01-01T00:00:00+00:00"
+        ac._write_ledger(path, led)
+        with ac.ledger_claim(path, "acme/1") as other:          # …another run takes it
+            assert other and other.submitting()
+            assert stalled.submitting() is False                 # we must not click Submit
+        assert ac.load_ledger(path)["acme/1"]["token"] == other.token
+    assert ac.load_ledger(path)["acme/1"]["status"] == "pending"  # other's entry survives
+
+
+def test_submitting_twice_keeps_ownership(tmp_path):
+    path = str(tmp_path / "ledger.json")
+    with ac.ledger_claim(path, "acme/1") as claim:
+        assert claim.submitting() and claim.submitting()        # re-assert after unconfirmed
+    assert ac.load_ledger(path)["acme/1"]["status"] == "pending"
