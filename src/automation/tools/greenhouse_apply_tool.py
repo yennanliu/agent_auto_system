@@ -357,11 +357,14 @@ def record_applied(path: str, job: dict, status: str = "applied") -> None:
 
 
 def _ledger_status(ledger: dict, job: dict) -> str | None:
-    """"applied", "pending" or None (older entries have no status → applied)."""
+    """"applied", "pending" or None (older entries have no status → applied).
+    A "claimed" entry (another run is filling the form) reads as None here —
+    ``ledger_claim`` decides right before applying whether it is still live."""
     entry = ledger.get(_ledger_key(job))
     if entry is None:
         return None
-    return entry.get("status", "applied") if isinstance(entry, dict) else "applied"
+    status = entry.get("status", "applied") if isinstance(entry, dict) else "applied"
+    return None if status == "claimed" else status
 
 
 # ── apply funnel (DOM) ────────────────────────────────────────────────────────
@@ -546,9 +549,11 @@ def _open_form(page, job: dict) -> bool:
 
 
 def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
-                  log: Callable) -> dict:
+                  log: Callable, on_submit: Callable | None = None) -> dict:
     """Fill and (unless dry-run) submit one application. Success is ONLY the
-    confirmation page — a Submit click alone is never trusted."""
+    confirmation page — a Submit click alone is never trusted. ``on_submit`` is
+    called immediately before the Submit click (the ledger marks the job
+    "pending" there, so nothing after the click can lead to a resend)."""
     entry = {k: job[k] for k in ("token", "job_id", "title", "company", "location", "url")}
     entry["answers"] = [{"label": a["label"][:80],
                          "value": os.path.basename(a["value"]) if a["kind"] == "file" else a["value"]}
@@ -574,6 +579,8 @@ def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
         log(f"✓ {job['token']}/{job['job_id']}: application prepared (dry-run, NOT sent)")
         return entry
 
+    if on_submit:
+        on_submit()
     submit.click(timeout=8000)
     for _ in range(30):
         page.wait_for_timeout(500)
@@ -784,32 +791,34 @@ def run_greenhouse_apply(
                             page = browser.new_context(
                                 locale="en-US", viewport={"width": 1366, "height": 900},
                             ).new_page()
-                        # Re-check under a claim: another greenhouse_apply run may
-                        # have applied to (or be applying to) this job since our
-                        # ledger snapshot was loaded.
-                        with ledger_claim(ledger_path, _ledger_key(job)) as claimed:
-                            if not claimed:
+                        # Reserve the job in the ledger FILE: another run (any
+                        # process) may have applied to — or be applying to — it
+                        # since our snapshot was loaded. The claim turns
+                        # "pending" right before the Submit click, so an
+                        # unconfirmed submit, an exception or a crash after the
+                        # click is never resent; a pre-Submit failure releases it.
+                        with ledger_claim(ledger_path, _ledger_key(job), job) as claim:
+                            if not claim:
                                 job.update(status="skipped",
                                            reason="already applied (ledger, another run)")
                                 log(f"↷ {jid}: applied / being applied by another run — next")
                                 skipped.append(job)
                                 continue
-                            entry = _apply_to_job(page, job, answers, dry_run, log)
+                            entry = _apply_to_job(page, job, answers, dry_run, log,
+                                                  None if dry_run else claim.submitting)
                             if entry.get("status") in ("prepared", "submitted"):
                                 applied.append(entry)
                                 per_board[job["token"]] = per_board.get(job["token"], 0) + 1
                                 if entry.get("submitted"):
-                                    record_applied(ledger_path, job)
+                                    claim.confirmed()
                                     ledger[_ledger_key(job)] = {"status": "applied"}
-                            elif not dry_run and entry.get("status") in (
-                                    "unconfirmed", "needs_verification"):
-                                # Submit was clicked: the employer may have it. Block
-                                # a resend (by this or any run) until the user
-                                # reconciles; not counted as applied.
-                                record_applied(ledger_path, job, status="pending")
-                                ledger[_ledger_key(job)] = {"status": "pending"}
-                                skipped.append(entry)
                             else:
+                                if not dry_run and entry.get("status") in (
+                                        "unconfirmed", "needs_verification"):
+                                    # Submit was clicked: the employer may have it.
+                                    # Already "pending" via on_submit; re-assert it.
+                                    claim.submitting()
+                                    ledger[_ledger_key(job)] = {"status": "pending"}
                                 skipped.append(entry)
                         page.wait_for_timeout(2000)  # human-like pause between jobs
                     except Exception as exc:  # noqa: BLE001 — one bad job never stops the run

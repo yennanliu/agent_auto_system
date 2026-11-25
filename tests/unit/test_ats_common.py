@@ -155,6 +155,69 @@ def test_ledger_claim_blocks_a_second_run_and_sees_new_disk_entries(tmp_path):
         assert not late
 
 
+_CLAIM_IN_SUBPROCESS = """
+import sys, time
+from src.automation.tools import ats_common as ac
+with ac.ledger_claim(sys.argv[1], "acme/1") as claim:
+    print("got" if claim else "taken", flush=True)
+    time.sleep(1.5)            # hold the claim while the other processes try
+"""
+
+
+def test_ledger_claim_is_exclusive_across_processes(tmp_path):
+    """The claim lives in the ledger file under an flock, so separate processes
+    sharing a ledger (scripts, extra workers) cannot both apply to one job."""
+    import subprocess
+    import sys
+    path = str(tmp_path / "ledger.json")
+    procs = [subprocess.Popen([sys.executable, "-c", _CLAIM_IN_SUBPROCESS, path],
+                              stdout=subprocess.PIPE, text=True) for _ in range(4)]
+    results = sorted(p.communicate(timeout=30)[0].strip() for p in procs)
+    assert results == ["got", "taken", "taken", "taken"]
+    assert ac.load_ledger(path) == {}          # released: Submit was never reached
+
+
+def test_ledger_claim_lifecycle_on_disk(tmp_path):
+    path = str(tmp_path / "ledger.json")
+    job = {"title": "Eng", "company": "Acme"}
+    with ac.ledger_claim(path, "acme/1", job) as claim:
+        assert ac.load_ledger(path)["acme/1"]["status"] == "claimed"
+        claim.submitting()
+        assert ac.load_ledger(path)["acme/1"]["status"] == "pending"
+        claim.confirmed()
+    entry = ac.load_ledger(path)["acme/1"]
+    assert entry["status"] == "applied" and entry["company"] == "Acme"
+    with ac.ledger_claim(path, "acme/1") as again:
+        assert not again
+
+
+def test_exception_after_submit_leaves_pending_before_submit_releases(tmp_path):
+    path = str(tmp_path / "ledger.json")
+    with pytest.raises(RuntimeError):
+        with ac.ledger_claim(path, "acme/1") as claim:
+            claim.submitting()
+            raise RuntimeError("browser died after the click")
+    assert ac.load_ledger(path)["acme/1"]["status"] == "pending"
+    with pytest.raises(RuntimeError):
+        with ac.ledger_claim(path, "acme/2"):
+            raise RuntimeError("upload failed before Submit")
+    assert "acme/2" not in ac.load_ledger(path)
+
+
+def test_stale_claim_from_a_crashed_run_is_reclaimable(tmp_path, monkeypatch):
+    path = str(tmp_path / "ledger.json")
+    ac.record_applied(path, "acme/1", {})                       # make the file exist
+    led = ac.load_ledger(path)
+    led["acme/2"] = {"status": "claimed", "claimed_at": "2020-01-01T00:00:00+00:00", "token": "dead"}
+    led["acme/3"] = {"status": "claimed", "claimed_at": ac._now(), "token": "live"}
+    ac._write_ledger(path, led)
+    with ac.ledger_claim(path, "acme/2") as stale:
+        assert stale
+    with ac.ledger_claim(path, "acme/3") as live:
+        assert not live
+    assert ac.load_ledger(path)["acme/3"]["token"] == "live"      # never touched another's claim
+
+
 def test_corrupt_ledger_reads_as_empty(tmp_path):
     path = tmp_path / "ledger.json"
     path.write_text(json.dumps(["not", "a", "dict"]))
@@ -716,3 +779,11 @@ def test_applied_before_comes_from_the_ledger():
     assert ac.rule_answer(q, p) == "Yes"
     other = ac.with_job_location({**p, "applied_companies": {"hp"}}, None, "micron")
     assert ac.rule_answer(q, other) == "No"                 # never applied there: the saved answer
+
+
+def test_ledger_entry_blocks():
+    assert ac.ledger_entry_blocks({"status": "applied"})
+    assert ac.ledger_entry_blocks({"status": "pending"})
+    assert ac.ledger_entry_blocks(True)                                    # legacy entry
+    assert ac.ledger_entry_blocks({"status": "claimed", "claimed_at": ac._now()})
+    assert not ac.ledger_entry_blocks({"status": "claimed", "claimed_at": "2020-01-01T00:00:00+00:00"})

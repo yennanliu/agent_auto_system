@@ -26,6 +26,7 @@ import json
 import os
 import re
 import threading
+import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -1112,13 +1113,18 @@ def load_ledger(path: str) -> dict:
         return {}
 
 
-# Several runs of one automation may execute at once (per-type queue > 1 in
-# src/config/concurrency.yaml), all in this process, sharing one ledger file.
-# Every read-modify-write of a ledger happens under _LEDGER_LOCK (threads) plus
-# an flock on "<ledger>.lock" (other processes, e.g. scripts), and keys being
-# applied right now are held in _IN_FLIGHT so two runs never submit the same job.
+# Several runs may apply at once — runs of one automation (per-type queue > 1 in
+# src/config/concurrency.yaml), other automations sharing a ledger, or other
+# processes (scripts, extra workers). Every read-modify-write happens under
+# _LEDGER_LOCK (threads) plus an flock on "<ledger>.lock" (processes), and the
+# file is replaced atomically. Claims live IN the ledger file, so every process
+# sees them:
+#   "claimed" — a run is filling this job's form (not yet Submitted)
+#   "pending" — Submit is about to be / was clicked, never confirmed: the
+#               employer may have it, so it is never resent automatically
+#   "applied" — confirmed
 _LEDGER_LOCK = threading.RLock()
-_IN_FLIGHT: set[tuple[str, str]] = set()
+CLAIM_TTL_SECS = 30 * 60  # a "claimed" entry older than this was left by a crashed run
 
 
 @contextlib.contextmanager
@@ -1136,43 +1142,106 @@ def _locked(path: str):
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
+def _write_ledger(path: str, ledger: dict) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(ledger, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
 def record_applied(path: str, key: str, job: dict, status: str = "applied") -> None:
     """Add ``key`` (the adapter's canonical job id) to the ledger at ``path``.
     ``status`` is "applied" (confirmed) or "pending" (Submit was clicked but no
     confirmation was seen — the employer may have it, so it must not be sent
-    again automatically). Safe against concurrent runs: the file is re-read
-    under the lock and replaced atomically, so no other run's entry is lost."""
+    again automatically). The file is re-read under the lock and replaced
+    atomically, so no concurrent run's entry is lost."""
     with _locked(path):
         ledger = load_ledger(path)
         ledger[key] = {
             "title": job.get("title", ""), "company": job.get("company", ""),
-            "applied_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "status": status,
+            "applied_at": _now(), "status": status,
         }
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(ledger, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, path)
+        _write_ledger(path, ledger)
+
+
+def _claim_is_live(entry) -> bool:
+    try:
+        at = datetime.fromisoformat(entry["claimed_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (datetime.now(UTC) - at).total_seconds() < CLAIM_TTL_SECS
+
+
+def ledger_entry_blocks(entry) -> bool:
+    """Does a ledger entry stop another apply attempt? Anything but a stale claim."""
+    if not isinstance(entry, dict) or entry.get("status") != "claimed":
+        return True  # applied / pending / legacy (non-dict) entries
+    return _claim_is_live(entry)
+
+
+class LedgerClaim:
+    """A reservation of one job in the ledger file (see ``ledger_claim``).
+    Falsy when the job was already taken."""
+
+    def __init__(self, path: str, key: str, job: dict, token: str | None):
+        self.path, self.key, self.job, self.token = path, key, job, token
+
+    def __bool__(self) -> bool:
+        return self.token is not None
+
+    def _set(self, status: str) -> None:
+        record_applied(self.path, self.key, self.job, status)
+
+    def submitting(self) -> None:
+        """Call immediately BEFORE clicking Submit: from here on the job is
+        "pending" on disk, so an exception, a killed server or a crash after
+        the click can never lead to an automatic resend."""
+        self._set("pending")
+
+    def confirmed(self) -> None:
+        self._set("applied")
+
+    def _release(self) -> None:
+        """Drop our claim if Submit was never reached (status still "claimed")."""
+        with _locked(self.path):
+            ledger = load_ledger(self.path)
+            entry = ledger.get(self.key)
+            if isinstance(entry, dict) and entry.get("status") == "claimed" \
+                    and entry.get("token") == self.token:
+                del ledger[self.key]
+                _write_ledger(self.path, ledger)
 
 
 @contextlib.contextmanager
-def ledger_claim(path: str, key: str):
-    """Claim ``key`` for the duration of one apply attempt. Yields False when
-    the job is already in the ledger on disk (another run applied since this
-    run loaded it) or another run is applying to it right now — skip it then.
-    The claim is released on exit; record_applied makes it permanent."""
-    slot = (os.path.abspath(path), key)
+def ledger_claim(path: str, key: str, job: dict | None = None):
+    """Reserve ``key`` in the ledger file for one apply attempt. Yields a falsy
+    claim when the job is applied, pending, or claimed by another live run (in
+    any process) — skip it then. Call ``claim.submitting()`` right before the
+    Submit click and ``claim.confirmed()`` on confirmation; on exit a claim that
+    never reached Submit is removed (the job may be retried), while a
+    "pending" one stays — even when the body raised."""
+    job = job or {}
     with _locked(path):
-        taken = slot in _IN_FLIGHT or key in load_ledger(path)
-        if not taken:
-            _IN_FLIGHT.add(slot)
+        ledger = load_ledger(path)
+        if key in ledger and ledger_entry_blocks(ledger[key]):
+            token = None
+        else:
+            token = uuid.uuid4().hex
+            ledger[key] = {"title": job.get("title", ""), "company": job.get("company", ""),
+                           "status": "claimed", "claimed_at": _now(),
+                           "token": token, "pid": os.getpid()}
+            _write_ledger(path, ledger)
+    claim = LedgerClaim(path, key, job, token)
     try:
-        yield not taken
+        yield claim
     finally:
-        if not taken:
-            with _LEDGER_LOCK:
-                _IN_FLIGHT.discard(slot)
+        if claim:
+            claim._release()
 
 
 def url_path_has(url: str, segments: tuple[str, ...]) -> bool:

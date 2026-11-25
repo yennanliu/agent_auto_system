@@ -899,3 +899,35 @@ def test_dry_run_unconfirmed_is_not_ledgered_pending(tmp_path, mocker):
     gh.run_greenhouse_apply(boards="a", keywords="backend", resume_path=str(resume),
                             client=FakeClient(routes), ledger_path=ledger, dry_run=True, **args)
     assert gh.load_ledger(ledger) == {}
+
+
+def test_exception_after_submit_click_is_ledgered_pending(tmp_path, mocker):
+    """A crash between the Submit click and the confirmation must not let a later
+    run resend: the job is "pending" on disk before the click happens."""
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    ledger = str(tmp_path / "l.json")
+    routes = {"/a/jobs": {"jobs": [_job("Backend A", jid=1), _job("Backend B", jid=2)]}}
+    for jid in (1, 2):
+        routes[f"/jobs/{jid}"] = {"questions": []}
+
+    def apply(_page, job, _answers, _dry, _log, on_submit=None):
+        if job["job_id"] == "1":
+            on_submit()                                  # clicked…
+            raise RuntimeError("Target closed")          # …then the browser died
+        raise RuntimeError("upload failed")              # job 2: before Submit
+
+    mocker.patch.object(gh, "_launch_browser")
+    mocker.patch.object(gh, "_apply_to_job", side_effect=apply)
+    args = {k: v for k, v in _ARGS.items() if k != "dry_run"}
+    kw = dict(boards="a", keywords="backend", resume_path=str(resume), ledger_path=ledger,
+              max_applications=10, dry_run=False)
+    gh.run_greenhouse_apply(client=FakeClient(routes), **kw, **args)
+    assert {k: v["status"] for k, v in gh.load_ledger(ledger).items()} == {"a/1": "pending"}
+
+    retry = mocker.patch.object(gh, "_apply_to_job",
+                                side_effect=lambda _p, job, *_a: {**job, "status": "failed"})
+    again = gh.run_greenhouse_apply(client=FakeClient(routes), **kw, **args)
+    reasons = {s["job_id"]: s.get("reason", "") for s in again["skipped"]}
+    assert reasons["1"].startswith("submitted on an earlier run but never confirmed")
+    assert [c.args[1]["job_id"] for c in retry.call_args_list] == ["2"]   # only job 2 retried
