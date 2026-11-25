@@ -9,7 +9,7 @@ import os
 
 from src.automation.tools import greenhouse_apply_tool as gh
 from src.automation.tools.ats_apply_tool import Adapter
-from src.automation.tools.ats_common import load_ledger
+from src.automation.tools.ats_common import ledger_entry_blocks, load_ledger
 from src.automation.tools.ats_router import BoardRef
 
 _API = "https://boards-api.greenhouse.io/v1/boards"
@@ -56,7 +56,13 @@ class GreenhouseAdapter(Adapter):
 
     def ledger_status(self, job, ledger) -> str | None:
         return (super().ledger_status(job, ledger)
-                or ("applied" if gh._ledger_key(job) in load_ledger(self._gh_ledger_path()) else None))
+                or ("applied" if self._gh_entry_blocks(job) else None))
+
+    def _gh_entry_blocks(self, job) -> bool:
+        # A live "claimed" entry (greenhouse_apply is filling this form now)
+        # blocks too; a stale claim left by a crashed run does not.
+        entry = load_ledger(self._gh_ledger_path()).get(gh._ledger_key(job))
+        return entry is not None and ledger_entry_blocks(entry)
 
     def record(self, ledger_path, job, status: str = "applied") -> None:
         super().record(ledger_path, job, status)

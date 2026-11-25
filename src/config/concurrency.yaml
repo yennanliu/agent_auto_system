@@ -8,7 +8,9 @@
 # "browser" = automations that drive Playwright/Chromium (AutomationSpec.browser;
 # a pipeline counts as browser if any step does). "llm" = everything else.
 #
-# Precedence for every value: environment variable > this file > built-in default.
+# This file is the ONLY place the limits are defined (no numbers in code).
+# Precedence for every value: environment variable > this file. A value missing
+# here (or a missing/broken file) falls back to 1 and logs a warning.
 #   global.browser         ← MAX_CONCURRENT_BROWSER_RUNS
 #   global.llm             ← MAX_CONCURRENT_LLM_RUNS
 #   per_type_default.*     ← MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE / MAX_CONCURRENT_LLM_RUNS_PER_TYPE
@@ -19,7 +21,7 @@
 # Current effective values: Admin → Concurrency in the UI.
 
 global:
-  browser: 4   # at most 4 Chromium-driving runs at once, across all automations
+  browser: 20  # at most 20 Chromium-driving runs at once, across all automations
   llm: 8
 
 per_type_default:
@@ -29,6 +31,7 @@ per_type_default:
 # Per-automation overrides (job type → limit). Keys are job types, e.g.
 # linkedin_apply, tw104_apply, greenhouse_apply, ats_apply, tasker_apply,
 # email_collect, pipeline, custom:<slug>.
-per_type: {}
+per_type:
+  greenhouse_apply: 4
 #  linkedin_apply: 1
 #  greenhouse_apply: 2

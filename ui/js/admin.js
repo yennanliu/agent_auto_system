@@ -275,13 +275,13 @@ async function renderAdminConcurrency() {
       <td>${usageCell(r)}</td>
       <td>${sourceCell(r.source)}</td>
       <td><code>${escHtml(r.env)}</code></td></tr>`).join('');
-  const missing = data.config_exists ? '' : ' <span class="badge badge-off">file not found — using defaults</span>';
+  const missing = data.config_exists ? '' : ' <span class="badge badge-off">file not found — every limit falls back to 1</span>';
   el.innerHTML = `
     <div class="admin-card">
       <div class="muted" style="margin-bottom:0.6rem">Each automation has its <strong>own queue</strong>, so a backlog
         of one never blocks another; a run then also needs a slot under its class's <strong>global ceiling</strong>.
-        Limits come from an environment variable, else <code>${escHtml(data.config_path)}</code>${missing}, else the
-        built-in default. Edit the file and <strong>restart the server</strong> to change them.</div>
+        Limits come from an environment variable, else <code>${escHtml(data.config_path)}</code>${missing} (the only place
+        limits are defined; a value missing there falls back to 1). Edit the file and <strong>restart the server</strong> to change them.</div>
       <div class="admin-bar"><div class="muted">Global ceilings</div>
         <button class="btn btn-ghost btn-sm" id="admin-conc-refresh">Refresh</button></div>
       <div style="overflow-x:auto"><table class="admin-table" style="margin-bottom:1rem">
