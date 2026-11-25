@@ -23,7 +23,7 @@ A run passes two gates, in this order:
 
    - ``browser`` — the automation drives Playwright (``AutomationSpec.browser``,
      the single source of truth; a pipeline counts as browser if any step does).
-     Limit: ``MAX_CONCURRENT_BROWSER_RUNS`` (default 4).
+     Limit: ``MAX_CONCURRENT_BROWSER_RUNS`` (default 20).
    - ``llm`` — everything else (LLM/API-only flows, custom no-tools automations).
      Limit: ``MAX_CONCURRENT_LLM_RUNS`` (default 8).
 
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 BROWSER = "browser"
 LLM = "llm"
 
-_DEFAULTS = {BROWSER: 4, LLM: 8}
+_DEFAULTS = {BROWSER: 20, LLM: 8}
 _ENV = {BROWSER: "MAX_CONCURRENT_BROWSER_RUNS", LLM: "MAX_CONCURRENT_LLM_RUNS"}
 
 # Built-in fallbacks when neither the env nor the config file sets a value.

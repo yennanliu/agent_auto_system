@@ -33,7 +33,7 @@ def test_pipeline_is_browser_class_when_any_step_is():
 def test_limits_default_and_env_override(monkeypatch):
     monkeypatch.delenv("MAX_CONCURRENT_BROWSER_RUNS", raising=False)
     monkeypatch.delenv("MAX_CONCURRENT_LLM_RUNS", raising=False)
-    assert concurrency.limit_for(concurrency.BROWSER) == 4
+    assert concurrency.limit_for(concurrency.BROWSER) == 20
     assert concurrency.limit_for(concurrency.LLM) == 8
     monkeypatch.setenv("MAX_CONCURRENT_BROWSER_RUNS", "5")
     assert concurrency.limit_for(concurrency.BROWSER) == 5
@@ -302,7 +302,7 @@ def test_shipped_config_file_parses_and_matches_builtin_defaults(monkeypatch):
     assert concurrency.config_path() == concurrency.CONFIG_PATH
     assert concurrency.CONFIG_PATH.is_file()
     cfg = concurrency.load_config()
-    assert cfg["global"] == {"browser": 4, "llm": 8}
+    assert cfg["global"] == {"browser": 20, "llm": 8}
     assert cfg["per_type_default"] == {"browser": 1, "llm": 4}
     for name, sec in (("global", concurrency._DEFAULTS), ("per_type_default", concurrency._TYPE_DEFAULTS)):
         assert cfg[name] == sec, f"{name} in concurrency.yaml drifted from the built-in fallback"
@@ -333,11 +333,11 @@ def test_env_beats_config_file(cfg_file, monkeypatch):
 
 def test_missing_or_broken_config_falls_back_to_defaults(cfg_file):
     B = concurrency.BROWSER
-    assert concurrency.limit_for(B) == 4                       # file missing
+    assert concurrency.limit_for(B) == 20                      # file missing
     cfg_file.write_text("global: [this is: not: valid")
-    assert concurrency.limit_for(B) == 4                       # unparsable
+    assert concurrency.limit_for(B) == 20                      # unparsable
     cfg_file.write_text("global: {browser: lots, llm: 0}\nper_type: nope\n")
-    assert concurrency.limit_for(B) == 4                       # bad value → default
+    assert concurrency.limit_for(B) == 20                      # bad value → default
     assert concurrency.limit_for(concurrency.LLM) == 1         # 0 → floor of 1
     assert concurrency.type_limit_for("linkedin_apply", B) == 1
 

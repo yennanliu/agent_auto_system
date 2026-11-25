@@ -19,7 +19,7 @@
 # Current effective values: Admin → Concurrency in the UI.
 
 global:
-  browser: 4   # at most 4 Chromium-driving runs at once, across all automations
+  browser: 20  # at most 20 Chromium-driving runs at once, across all automations
   llm: 8
 
 per_type_default:
@@ -29,6 +29,7 @@ per_type_default:
 # Per-automation overrides (job type → limit). Keys are job types, e.g.
 # linkedin_apply, tw104_apply, greenhouse_apply, ats_apply, tasker_apply,
 # email_collect, pipeline, custom:<slug>.
-per_type: {}
+per_type:
+  greenhouse_apply: 4
 #  linkedin_apply: 1
 #  greenhouse_apply: 2
