@@ -54,7 +54,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Flows | `src/automation/flows/*_flow.py` | `crewai.Flow[StateModel]`; each calls `harness.provider.resolve()` at a job-specific `temperature` |
 | Crews | `src/automation/crews/*/crew.py` | Plain Python classes — **no `@CrewBase`** (see below) |
 | Pipeline | `src/automation/pipeline.py` | Chains steps; later steps read earlier output via `{{steps.N.result}}` |
-| Registry | `src/automation/registry.py` | asyncio task dict for run cancellation |
+| Registry | `src/automation/registry.py`, `src/automation/cancellation.py` | asyncio task dict for run cancellation; `cancel()` also marks the run so its worker thread raises `RunCancelled` (a `BaseException`) at its next `append_log` — unwinding the tool and closing its browser |
 | Auth / RBAC | `src/auth.py`, `src/settings_store.py` | login, per-user `allowed_automations`, global `ALL_AUTOMATIONS`/enabled set, Fernet-encrypted API keys, eval-judge choice |
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
