@@ -858,3 +858,44 @@ def test_run_skips_a_job_another_run_applied_to_after_this_run_started(tmp_path,
     assert {s["job_id"]: s["reason"] for s in out["skipped"]} == {
         "2": "already applied (ledger, another run)", "3": "already applied (ledger, another run)"}
     assert apply.call_count == 1
+
+
+def test_unconfirmed_submit_is_ledgered_pending_and_never_resent(tmp_path, mocker):
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    ledger = str(tmp_path / "l.json")
+    routes = {"/a/jobs": {"jobs": [_job("Backend A", jid=1), _job("Backend B", jid=2),
+                                   _job("Backend C", jid=3)]}}
+    for jid in (1, 2, 3):
+        routes[f"/jobs/{jid}"] = {"questions": []}
+    outcome = {"1": "unconfirmed", "2": "needs_verification", "3": "failed"}  # 3: never clicked
+    mocker.patch.object(gh, "_launch_browser")
+    mocker.patch.object(gh, "_apply_to_job", side_effect=lambda _p, job, *_a: {
+        **job, "status": outcome[job["job_id"]], "submitted": False})
+    kw = dict(boards="a", keywords="backend", resume_path=str(resume), ledger_path=ledger,
+              max_applications=10, dry_run=False)
+    args = {k: v for k, v in _ARGS.items() if k != "dry_run"}
+    out = gh.run_greenhouse_apply(client=FakeClient(routes), **kw, **args)
+    assert out["applied"] == []
+    led = gh.load_ledger(ledger)
+    assert {k: v["status"] for k, v in led.items()} == {"a/1": "pending", "a/2": "pending"}
+
+    again = gh.run_greenhouse_apply(client=FakeClient(routes), **kw, **args)
+    reasons = {s["job_id"]: s.get("reason", "") for s in again["skipped"]}
+    assert reasons["1"].startswith("submitted on an earlier run but never confirmed")
+    assert reasons["2"].startswith("submitted on an earlier run but never confirmed")
+    assert "3" not in gh.load_ledger(ledger) and not reasons["3"].startswith("submitted")  # may retry
+
+
+def test_dry_run_unconfirmed_is_not_ledgered_pending(tmp_path, mocker):
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    ledger = str(tmp_path / "l.json")
+    routes = {"/a/jobs": {"jobs": [_job("Backend A", jid=1)]}, "/jobs/1": {"questions": []}}
+    mocker.patch.object(gh, "_launch_browser")
+    mocker.patch.object(gh, "_apply_to_job", side_effect=lambda _p, job, *_a: {
+        **job, "status": "unconfirmed", "submitted": False})
+    args = {k: v for k, v in _ARGS.items() if k != "dry_run"}
+    gh.run_greenhouse_apply(boards="a", keywords="backend", resume_path=str(resume),
+                            client=FakeClient(routes), ledger_path=ledger, dry_run=True, **args)
+    assert gh.load_ledger(ledger) == {}

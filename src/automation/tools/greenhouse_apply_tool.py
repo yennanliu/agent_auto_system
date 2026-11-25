@@ -24,6 +24,8 @@ funnel unusually deterministic:
      never redirects to the employer's own careers site), fill each planned
      field by its id (the DOM ids equal the API field names), upload the resume,
      and Submit. Only Greenhouse's confirmation page counts as applied.
+     A Submit with no confirmation is ledgered as "pending": not counted as
+     applied, but never resent automatically (the employer may have it).
   6. ``dry_run`` (default) fills the whole form but never clicks Submit, and
      returns the planned answers so you can review exactly what would be sent.
 
@@ -348,8 +350,18 @@ def _ledger_key(job: dict) -> str:
     return f"{job['token']}/{job['job_id']}"
 
 
-def record_applied(path: str, job: dict) -> None:
-    _record_applied(path, _ledger_key(job), job)
+def record_applied(path: str, job: dict, status: str = "applied") -> None:
+    """``status`` "pending" = Submit was clicked but never confirmed: the employer
+    may have it, so it blocks an automatic resend just like "applied"."""
+    _record_applied(path, _ledger_key(job), job, status)
+
+
+def _ledger_status(ledger: dict, job: dict) -> str | None:
+    """"applied", "pending" or None (older entries have no status → applied)."""
+    entry = ledger.get(_ledger_key(job))
+    if entry is None:
+        return None
+    return entry.get("status", "applied") if isinstance(entry, dict) else "applied"
 
 
 # ── apply funnel (DOM) ────────────────────────────────────────────────────────
@@ -717,7 +729,15 @@ def run_greenhouse_apply(
                     log(f"[{len(applied)}/{max_applications} applied | scan #{scanned}] "
                         f"{jid} — {job['title'][:60]}")
                     try:
-                        if _ledger_key(job) in ledger:
+                        seen = _ledger_status(ledger, job)
+                        if seen == "pending":
+                            job.update(status="skipped", reason=(
+                                "submitted on an earlier run but never confirmed (ledger) — check "
+                                "your e-mail / the employer's portal; remove it from the ledger to retry"))
+                            log(f"↷ {jid}: earlier submission unconfirmed — not resending")
+                            skipped.append(job)
+                            continue
+                        if seen:
                             job.update(status="skipped", reason="already applied (ledger)")
                             log(f"↷ {jid}: already applied — next")
                             skipped.append(job)
@@ -780,7 +800,15 @@ def run_greenhouse_apply(
                                 per_board[job["token"]] = per_board.get(job["token"], 0) + 1
                                 if entry.get("submitted"):
                                     record_applied(ledger_path, job)
-                                    ledger[_ledger_key(job)] = True
+                                    ledger[_ledger_key(job)] = {"status": "applied"}
+                            elif not dry_run and entry.get("status") in (
+                                    "unconfirmed", "needs_verification"):
+                                # Submit was clicked: the employer may have it. Block
+                                # a resend (by this or any run) until the user
+                                # reconciles; not counted as applied.
+                                record_applied(ledger_path, job, status="pending")
+                                ledger[_ledger_key(job)] = {"status": "pending"}
+                                skipped.append(entry)
                             else:
                                 skipped.append(entry)
                         page.wait_for_timeout(2000)  # human-like pause between jobs
