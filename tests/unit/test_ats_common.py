@@ -128,6 +128,33 @@ def test_ledger_round_trip_with_adapter_key(tmp_path):
     assert "applied_at" in led["lever:acme/abc-123"]
 
 
+def test_concurrent_record_applied_loses_no_entries(tmp_path):
+    """Several runs of one automation share the ledger (per-type queue > 1):
+    parallel writes must not overwrite each other's entries."""
+    from concurrent.futures import ThreadPoolExecutor
+    path = str(tmp_path / "ledger.json")
+    keys = [f"acme/{i}" for i in range(40)]
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda k: ac.record_applied(path, k, {"title": k}), keys))
+    assert set(ac.load_ledger(path)) == set(keys)
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_ledger_claim_blocks_a_second_run_and_sees_new_disk_entries(tmp_path):
+    path = str(tmp_path / "ledger.json")
+    with ac.ledger_claim(path, "acme/1") as first:
+        assert first
+        with ac.ledger_claim(path, "acme/1") as second:     # another run, same job
+            assert not second
+        with ac.ledger_claim(path, "acme/2") as other:      # a different job is fine
+            assert other
+    with ac.ledger_claim(path, "acme/1") as again:          # released after the attempt
+        assert again
+    ac.record_applied(path, "acme/3", {"title": "x"})       # applied by another run
+    with ac.ledger_claim(path, "acme/3") as late:
+        assert not late
+
+
 def test_corrupt_ledger_reads_as_empty(tmp_path):
     path = tmp_path / "ledger.json"
     path.write_text(json.dumps(["not", "a", "dict"]))

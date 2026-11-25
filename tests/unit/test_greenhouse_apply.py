@@ -829,3 +829,32 @@ def test_optional_answer_that_cannot_be_filled_does_not_fail_the_form(mocker):
         {"field": "question_2", "kind": "select", "value": "Yes", "label": "Required Q"},
     ], log=lambda _m: None)
     assert failed == ["Required Q"]
+
+
+def test_run_skips_a_job_another_run_applied_to_after_this_run_started(tmp_path, mocker):
+    """With greenhouse_apply's queue > 1, the ledger snapshot loaded at start can
+    be stale: a job in flight in another run, or ledgered since, is not re-sent."""
+    resume = tmp_path / "cv.pdf"
+    resume.write_bytes(b"%PDF")
+    ledger = str(tmp_path / "l.json")
+    routes = {"/a/jobs": {"jobs": [_job("Backend A", jid=1), _job("Backend B", jid=2),
+                                   _job("Backend C", jid=3)]}}
+    for jid in (1, 2, 3):
+        routes[f"/jobs/{jid}"] = {"questions": []}
+
+    def relevance(title, _meta):
+        if title == "Backend A":              # another run confirms job 2 meanwhile
+            gh.record_applied(ledger, {"token": "a", "job_id": "2"})
+        return True, ""
+
+    apply = mocker.patch.object(gh, "_apply_to_job",
+                                side_effect=lambda _p, job, *_a: {**job, "status": "prepared"})
+    mocker.patch.object(gh, "_launch_browser")
+    with gh.ledger_claim(ledger, "a/3"):       # another run is applying to job 3 now
+        out = gh.run_greenhouse_apply(boards="a", keywords="backend", resume_path=str(resume),
+                                      client=FakeClient(routes), ledger_path=ledger,
+                                      relevance_fn=relevance, max_applications=10, **_ARGS)
+    assert [e["job_id"] for e in out["applied"]] == ["1"]
+    assert {s["job_id"]: s["reason"] for s in out["skipped"]} == {
+        "2": "already applied (ledger, another run)", "3": "already applied (ledger, another run)"}
+    assert apply.call_count == 1

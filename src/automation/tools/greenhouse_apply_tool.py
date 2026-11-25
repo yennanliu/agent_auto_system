@@ -60,6 +60,7 @@ from src.automation.tools.ats_common import (
     interleave,
     job_countries,  # noqa: F401 — re-exported for callers / tests
     launch_browser,
+    ledger_claim,
     load_ledger,
     match_option,
     match_title,
@@ -763,15 +764,25 @@ def run_greenhouse_apply(
                             page = browser.new_context(
                                 locale="en-US", viewport={"width": 1366, "height": 900},
                             ).new_page()
-                        entry = _apply_to_job(page, job, answers, dry_run, log)
-                        if entry.get("status") in ("prepared", "submitted"):
-                            applied.append(entry)
-                            per_board[job["token"]] = per_board.get(job["token"], 0) + 1
-                            if entry.get("submitted"):
-                                record_applied(ledger_path, job)
-                                ledger[_ledger_key(job)] = True
-                        else:
-                            skipped.append(entry)
+                        # Re-check under a claim: another greenhouse_apply run may
+                        # have applied to (or be applying to) this job since our
+                        # ledger snapshot was loaded.
+                        with ledger_claim(ledger_path, _ledger_key(job)) as claimed:
+                            if not claimed:
+                                job.update(status="skipped",
+                                           reason="already applied (ledger, another run)")
+                                log(f"↷ {jid}: applied / being applied by another run — next")
+                                skipped.append(job)
+                                continue
+                            entry = _apply_to_job(page, job, answers, dry_run, log)
+                            if entry.get("status") in ("prepared", "submitted"):
+                                applied.append(entry)
+                                per_board[job["token"]] = per_board.get(job["token"], 0) + 1
+                                if entry.get("submitted"):
+                                    record_applied(ledger_path, job)
+                                    ledger[_ledger_key(job)] = True
+                            else:
+                                skipped.append(entry)
                         page.wait_for_timeout(2000)  # human-like pause between jobs
                     except Exception as exc:  # noqa: BLE001 — one bad job never stops the run
                         job.update(status="failed", reason=f"{type(exc).__name__}: {exc}")

@@ -20,15 +20,22 @@ parsing and the stealth browser helpers.
 The answer-planning half is pure (no I/O) and unit-tested.
 """
 import asyncio
+import contextlib
 import contextvars
 import json
 import os
 import re
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
+
+try:  # POSIX advisory file lock; the ledger is still thread-safe without it
+    import fcntl
+except ImportError:  # pragma: no cover — Windows
+    fcntl = None
 
 
 def noop(_msg: str) -> None:
@@ -1105,20 +1112,67 @@ def load_ledger(path: str) -> dict:
         return {}
 
 
+# Several runs of one automation may execute at once (per-type queue > 1 in
+# src/config/concurrency.yaml), all in this process, sharing one ledger file.
+# Every read-modify-write of a ledger happens under _LEDGER_LOCK (threads) plus
+# an flock on "<ledger>.lock" (other processes, e.g. scripts), and keys being
+# applied right now are held in _IN_FLIGHT so two runs never submit the same job.
+_LEDGER_LOCK = threading.RLock()
+_IN_FLIGHT: set[tuple[str, str]] = set()
+
+
+@contextlib.contextmanager
+def _locked(path: str):
+    with _LEDGER_LOCK:
+        if fcntl is None:
+            yield
+            return
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path + ".lock", "a") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def record_applied(path: str, key: str, job: dict, status: str = "applied") -> None:
     """Add ``key`` (the adapter's canonical job id) to the ledger at ``path``.
     ``status`` is "applied" (confirmed) or "pending" (Submit was clicked but no
     confirmation was seen — the employer may have it, so it must not be sent
-    again automatically)."""
-    ledger = load_ledger(path)
-    ledger[key] = {
-        "title": job.get("title", ""), "company": job.get("company", ""),
-        "applied_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "status": status,
-    }
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(ledger, f, ensure_ascii=False, indent=1)
+    again automatically). Safe against concurrent runs: the file is re-read
+    under the lock and replaced atomically, so no other run's entry is lost."""
+    with _locked(path):
+        ledger = load_ledger(path)
+        ledger[key] = {
+            "title": job.get("title", ""), "company": job.get("company", ""),
+            "applied_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "status": status,
+        }
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(ledger, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def ledger_claim(path: str, key: str):
+    """Claim ``key`` for the duration of one apply attempt. Yields False when
+    the job is already in the ledger on disk (another run applied since this
+    run loaded it) or another run is applying to it right now — skip it then.
+    The claim is released on exit; record_applied makes it permanent."""
+    slot = (os.path.abspath(path), key)
+    with _locked(path):
+        taken = slot in _IN_FLIGHT or key in load_ledger(path)
+        if not taken:
+            _IN_FLIGHT.add(slot)
+    try:
+        yield not taken
+    finally:
+        if not taken:
+            with _LEDGER_LOCK:
+                _IN_FLIGHT.discard(slot)
 
 
 def url_path_has(url: str, segments: tuple[str, ...]) -> bool:
