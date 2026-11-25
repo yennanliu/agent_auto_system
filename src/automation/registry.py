@@ -2,6 +2,8 @@
 import asyncio
 import threading
 
+from src.automation import cancellation
+
 _TASKS: dict[int, asyncio.Task] = {}
 _LOCK = threading.Lock()
 
@@ -18,6 +20,9 @@ def cancel(run_id: int) -> bool:
     if task is None or task.done():
         return False
     task.cancel()
+    # The flow runs in a worker thread task.cancel() can't reach; this stops it
+    # (and closes its browser) at its next log line — see cancellation.py.
+    cancellation.request(run_id)
     return True
 
 
