@@ -4,8 +4,11 @@ Every run executes in this one process, so an unbounded ``asyncio.create_task``
 lets a burst of triggers (several schedules firing together, a user clicking
 "Run" ten times) start ten Chromium instances plus their LLM calls at once.
 
-Limits live in ``src/config/concurrency.yaml`` (path override: ``CONCURRENCY_CONFIG``);
-an environment variable beats the file, the file beats the built-in default.
+Limits live **only** in ``src/config/concurrency.yaml`` (path override:
+``CONCURRENCY_CONFIG``); an environment variable beats the file. There are no
+built-in numbers here: if the file is missing, unparsable, or lacks a value, that
+limit falls back to ``FALLBACK_LIMIT`` (1 — slow but never a deadlock) and a
+warning is logged.
 ``snapshot()`` reports the effective values and where each came from (Admin →
 Concurrency). Limits are read when a queue's semaphore is first created, so a
 change takes effect on server restart.
@@ -16,16 +19,16 @@ A run passes two gates, in this order:
    ``job_104_apply``, ``greenhouse_apply``, ``pipeline``, ``custom:<slug>`` …), so a
    backlog of one automation never holds up another. Limit: ``MAX_CONCURRENT_RUNS_<TYPE>``
    (type upper-cased, non-alphanumerics → ``_``, e.g. ``MAX_CONCURRENT_RUNS_LINKEDIN_APPLY``),
-   else the class default ``MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE`` (default 1 — one
-   Chromium per site/login session) / ``MAX_CONCURRENT_LLM_RUNS_PER_TYPE`` (default 4).
+   else the class default ``MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE`` /
+   ``MAX_CONCURRENT_LLM_RUNS_PER_TYPE`` (yaml ``per_type_default``).
 2. **The global class ceiling** — a machine-wide safety net on top of the
    per-type queues:
 
    - ``browser`` — the automation drives Playwright (``AutomationSpec.browser``,
      the single source of truth; a pipeline counts as browser if any step does).
-     Limit: ``MAX_CONCURRENT_BROWSER_RUNS`` (default 20).
+     Limit: ``MAX_CONCURRENT_BROWSER_RUNS`` (yaml ``global.browser``).
    - ``llm`` — everything else (LLM/API-only flows, custom no-tools automations).
-     Limit: ``MAX_CONCURRENT_LLM_RUNS`` (default 8).
+     Limit: ``MAX_CONCURRENT_LLM_RUNS`` (yaml ``global.llm``).
 
 The per-type queue is taken first, so a run waiting behind its own siblings does
 not sit on a global slot another automation could use.
@@ -50,12 +53,13 @@ logger = logging.getLogger(__name__)
 BROWSER = "browser"
 LLM = "llm"
 
-_DEFAULTS = {BROWSER: 20, LLM: 8}
+# Used only when the yaml (and env) give no usable value for a limit. The real
+# defaults are in src/config/concurrency.yaml — do not add numbers here.
+FALLBACK_LIMIT = 1
+
 _ENV = {BROWSER: "MAX_CONCURRENT_BROWSER_RUNS", LLM: "MAX_CONCURRENT_LLM_RUNS"}
 
-# Built-in fallbacks when neither the env nor the config file sets a value.
 # Per-automation queue defaults, by class (overridable per type, see type_limit_for).
-_TYPE_DEFAULTS = {BROWSER: 1, LLM: 4}
 _TYPE_ENV = {
     BROWSER: "MAX_CONCURRENT_BROWSER_RUNS_PER_TYPE",
     LLM: "MAX_CONCURRENT_LLM_RUNS_PER_TYPE",
@@ -85,9 +89,10 @@ def load_config() -> dict:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except FileNotFoundError:
+        logger.warning("Concurrency config %s not found — every limit falls back to %d", path, FALLBACK_LIMIT)
         return {}
     except Exception:  # noqa: BLE001 — a bad file must not stop runs; fall back to defaults
-        logger.exception("Invalid concurrency config %s — using defaults", path)
+        logger.exception("Invalid concurrency config %s — every limit falls back to %d", path, FALLBACK_LIMIT)
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -102,15 +107,16 @@ def _positive(value) -> int | None:
         return None
 
 
-def _resolve(env: str, file_value, default: int) -> tuple[int, str]:
-    """(limit, source) — env beats the config file beats the built-in default."""
+def _resolve(env: str, file_value, what: str) -> tuple[int, str]:
+    """(limit, source) — env beats the config file; neither → ``FALLBACK_LIMIT``."""
     v = _positive(os.getenv(env, "").strip() or None)
     if v is not None:
         return v, f"env {env}"
     v = _positive(file_value)
     if v is not None:
         return v, "config"
-    return default, "default"
+    logger.warning("No usable concurrency limit for %s in config/env — using %d", what, FALLBACK_LIMIT)
+    return FALLBACK_LIMIT, "fallback (missing from config)"
 
 
 def _section(cfg: dict, name: str) -> dict:
@@ -119,12 +125,12 @@ def _section(cfg: dict, name: str) -> dict:
 
 
 def _global_limit(run_class: str, cfg: dict) -> tuple[int, str]:
-    return _resolve(_ENV[run_class], _section(cfg, "global").get(run_class), _DEFAULTS[run_class])
+    return _resolve(_ENV[run_class], _section(cfg, "global").get(run_class), f"global.{run_class}")
 
 
 def _type_default(run_class: str, cfg: dict) -> tuple[int, str]:
     return _resolve(
-        _TYPE_ENV[run_class], _section(cfg, "per_type_default").get(run_class), _TYPE_DEFAULTS[run_class]
+        _TYPE_ENV[run_class], _section(cfg, "per_type_default").get(run_class), f"per_type_default.{run_class}"
     )
 
 

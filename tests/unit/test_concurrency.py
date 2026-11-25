@@ -297,15 +297,18 @@ def cfg_file(tmp_path, monkeypatch):
     return path
 
 
-def test_shipped_config_file_parses_and_matches_builtin_defaults(monkeypatch):
+def test_shipped_config_file_defines_every_class_limit(monkeypatch):
+    """The yaml is the only source of the limits, so it must set all of them —
+    a missing one would silently drop to FALLBACK_LIMIT."""
     monkeypatch.delenv("CONCURRENCY_CONFIG", raising=False)
     assert concurrency.config_path() == concurrency.CONFIG_PATH
     assert concurrency.CONFIG_PATH.is_file()
     cfg = concurrency.load_config()
+    for section in ("global", "per_type_default"):
+        for rc in (concurrency.BROWSER, concurrency.LLM):
+            assert concurrency._positive(cfg[section].get(rc)) is not None, f"{section}.{rc} missing"
     assert cfg["global"] == {"browser": 20, "llm": 8}
     assert cfg["per_type_default"] == {"browser": 1, "llm": 4}
-    for name, sec in (("global", concurrency._DEFAULTS), ("per_type_default", concurrency._TYPE_DEFAULTS)):
-        assert cfg[name] == sec, f"{name} in concurrency.yaml drifted from the built-in fallback"
 
 
 def test_config_file_values_are_used(cfg_file):
@@ -331,13 +334,14 @@ def test_env_beats_config_file(cfg_file, monkeypatch):
     assert concurrency.type_limit_for("linkedin_apply", concurrency.BROWSER) == 5
 
 
-def test_missing_or_broken_config_falls_back_to_defaults(cfg_file):
+def test_missing_or_broken_config_falls_back_to_one(cfg_file):
     B = concurrency.BROWSER
-    assert concurrency.limit_for(B) == 20                      # file missing
+    assert concurrency.FALLBACK_LIMIT == 1
+    assert concurrency.limit_for(B) == 1                       # file missing
     cfg_file.write_text("global: [this is: not: valid")
-    assert concurrency.limit_for(B) == 20                      # unparsable
+    assert concurrency.limit_for(B) == 1                       # unparsable
     cfg_file.write_text("global: {browser: lots, llm: 0}\nper_type: nope\n")
-    assert concurrency.limit_for(B) == 20                      # bad value → default
+    assert concurrency.limit_for(B) == 1                       # bad value → fallback
     assert concurrency.limit_for(concurrency.LLM) == 1         # 0 → floor of 1
     assert concurrency.type_limit_for("linkedin_apply", B) == 1
 
@@ -350,7 +354,7 @@ def test_snapshot_reports_limits_sources_and_live_counts(cfg_file, monkeypatch):
     assert snap["config_path"] == str(cfg_file) and snap["config_exists"]
     g = {r["run_class"]: r for r in snap["global"]}
     assert (g["browser"]["limit"], g["browser"]["source"]) == (3, "config")
-    assert (g["llm"]["limit"], g["llm"]["source"]) == (8, "default")
+    assert (g["llm"]["limit"], g["llm"]["source"]) == (1, "fallback (missing from config)")
     assert (g["browser"]["running"], g["browser"]["queued"]) == (3, 3)
     q = {r["job_type"]: r for r in snap["queues"]}
     assert set(spec.REGISTRY) <= set(q)
