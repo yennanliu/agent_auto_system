@@ -1194,17 +1194,32 @@ class LedgerClaim:
     def __bool__(self) -> bool:
         return self.token is not None
 
-    def _set(self, status: str) -> None:
-        record_applied(self.path, self.key, self.job, status)
+    def _entry(self, status: str) -> dict:
+        return {"title": self.job.get("title", ""), "company": self.job.get("company", ""),
+                "applied_at": _now(), "status": status, "token": self.token}
 
-    def submitting(self) -> None:
-        """Call immediately BEFORE clicking Submit: from here on the job is
-        "pending" on disk, so an exception, a killed server or a crash after
-        the click can never lead to an automatic resend."""
-        self._set("pending")
+    def submitting(self) -> bool:
+        """Call immediately BEFORE clicking Submit. Returns True (and marks the
+        job "pending" on disk, so an exception, a killed server or a crash after
+        the click can never lead to an automatic resend) only while this claim
+        still owns the job — a run stalled past ``CLAIM_TTL_SECS`` may have lost
+        it to another run. On False the caller must NOT click Submit."""
+        with _locked(self.path):
+            ledger = load_ledger(self.path)
+            entry = ledger.get(self.key)
+            if not (isinstance(entry, dict) and entry.get("token") == self.token
+                    and entry.get("status") in ("claimed", "pending")):
+                return False
+            ledger[self.key] = self._entry("pending")
+            _write_ledger(self.path, ledger)
+            return True
 
     def confirmed(self) -> None:
-        self._set("applied")
+        """The site confirmed the application — record it as "applied"."""
+        with _locked(self.path):
+            ledger = load_ledger(self.path)
+            ledger[self.key] = self._entry("applied")
+            _write_ledger(self.path, ledger)
 
     def _release(self) -> None:
         """Drop our claim if Submit was never reached (status still "claimed")."""
@@ -1217,14 +1232,32 @@ class LedgerClaim:
                 _write_ledger(self.path, ledger)
 
 
+class _DryRunClaim:
+    """Stand-in claim for a dry run: nothing is submitted, so nothing is
+    reserved — a dry run must never make a concurrent real run skip a job."""
+
+    def __bool__(self) -> bool:
+        return True
+
+    def submitting(self) -> bool:
+        return True
+
+    def confirmed(self) -> None:
+        pass
+
+
 @contextlib.contextmanager
-def ledger_claim(path: str, key: str, job: dict | None = None):
+def ledger_claim(path: str, key: str, job: dict | None = None, dry_run: bool = False):
     """Reserve ``key`` in the ledger file for one apply attempt. Yields a falsy
     claim when the job is applied, pending, or claimed by another live run (in
     any process) — skip it then. Call ``claim.submitting()`` right before the
     Submit click and ``claim.confirmed()`` on confirmation; on exit a claim that
     never reached Submit is removed (the job may be retried), while a
-    "pending" one stays — even when the body raised."""
+    "pending" one stays — even when the body raised. With ``dry_run`` the
+    ledger is not touched at all (a truthy no-op claim is yielded)."""
+    if dry_run:
+        yield _DryRunClaim()
+        return
     job = job or {}
     with _locked(path):
         ledger = load_ledger(path)

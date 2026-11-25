@@ -579,8 +579,12 @@ def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
         log(f"✓ {job['token']}/{job['job_id']}: application prepared (dry-run, NOT sent)")
         return entry
 
-    if on_submit:
-        on_submit()
+    if on_submit is not None and on_submit() is False:
+        # Our ledger claim went stale and another run took the job.
+        entry.update(status="skipped", submitted=False,
+                     reason="claim lost to another run before Submit — not sent")
+        log(f"↷ {job['job_id']}: claim lost before Submit — not sending")
+        return entry
     submit.click(timeout=8000)
     for _ in range(30):
         page.wait_for_timeout(500)
@@ -797,7 +801,8 @@ def run_greenhouse_apply(
                         # "pending" right before the Submit click, so an
                         # unconfirmed submit, an exception or a crash after the
                         # click is never resent; a pre-Submit failure releases it.
-                        with ledger_claim(ledger_path, _ledger_key(job), job) as claim:
+                        with ledger_claim(ledger_path, _ledger_key(job), job,
+                                          dry_run=dry_run) as claim:
                             if not claim:
                                 job.update(status="skipped",
                                            reason="already applied (ledger, another run)")
