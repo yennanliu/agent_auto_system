@@ -472,3 +472,67 @@ def test_tw104_reads_the_ledger_once_per_run(mocker, tmp_path):
                    lambda _c, _p, job, *_a: {**job, "status": "failed"},
                    str(tmp_path / "l.json"))
     assert spy.call_count == 1
+
+
+# ── an empty result page is not always the end of the listing ────────────────
+
+def _run_with_pages(mocker, tmp_path, pages):
+    """run_tw104_apply over a scripted sequence of result pages; returns
+    (result, log lines, the waits asked of the page in ms)."""
+    import src.automation.tools.tw104_apply_tool as T
+
+    state = tmp_path / "state.json"
+    state.write_text("{}")
+    pw = mocker.patch("playwright.sync_api.sync_playwright")
+    page = (pw.return_value.__enter__.return_value.chromium.launch.return_value
+            .new_context.return_value.new_page.return_value)
+    mocker.patch.object(T, "_looks_logged_out", return_value=False)
+    feed = iter(pages)
+    mocker.patch.object(T, "_collect_page_jobs", side_effect=lambda *a, **k: next(feed))
+    mocker.patch.object(T, "_apply_to_job", side_effect=lambda _c, _p, job, *_a: {
+        **job, "status": "prepared", "submitted": False})
+    logs = []
+    out = T.run_tw104_apply(keyword="後端", max_applications=500, dry_run=True, log=logs.append,
+                            state_path=str(state), ledger_path=str(tmp_path / "l.json"))
+    waits = [c.args[0] for c in page.wait_for_timeout.call_args_list if c.args[0] >= 20_000]
+    return out, logs, waits
+
+
+def _full_page(prefix):
+    return [_job104(f"{prefix}{i}") for i in range(22)]
+
+
+def test_tw104_empty_first_page_is_retried_then_read(mocker, tmp_path):
+    out, logs, waits = _run_with_pages(mocker, tmp_path, [[], [], [_job104("a1")], []])
+    assert waits == [20_000, 60_000]
+    assert out["jobs_found"] == 1 and out["incomplete"] is False and out["warnings"] == []
+    assert sum("rate-limiting; retrying" in m for m in logs) == 2
+
+
+def test_tw104_empty_first_page_that_stays_empty_is_flagged_not_a_clean_zero(mocker, tmp_path):
+    out, _logs, waits = _run_with_pages(mocker, tmp_path, [[], [], []])
+    assert waits == [20_000, 60_000]
+    assert out["jobs_found"] == 0 and out["incomplete"] is True
+    assert "rate-limiting" in out["summary"] and "No open jobs found" not in out["summary"]
+    assert out["warnings"] and "page 1: no job cards after 3 tries" in out["warnings"][0]
+
+
+def test_tw104_empty_page_after_a_full_one_is_retried_and_the_run_carries_on(mocker, tmp_path):
+    out, _logs, waits = _run_with_pages(
+        mocker, tmp_path, [_full_page("a"), [], _full_page("b"), [_job104("c1")], []])
+    assert waits == [20_000]                       # recovered on the first re-read
+    assert out["jobs_found"] == 45 and out["pages_scanned"] == 3 and out["incomplete"] is False
+
+
+def test_tw104_truncated_listing_is_reported(mocker, tmp_path):
+    out, logs, _waits = _run_with_pages(mocker, tmp_path, [_full_page("a"), [], [], []])
+    assert out["jobs_found"] == 22 and out["incomplete"] is True
+    assert "Listing incomplete: stopped at page 2" in out["summary"]
+    assert "right after a full page" in out["warnings"][-1]
+    assert not any("reached the end" in m for m in logs)
+
+
+def test_tw104_empty_page_after_a_short_one_is_the_real_end(mocker, tmp_path):
+    out, logs, waits = _run_with_pages(mocker, tmp_path, [_full_page("a"), [_job104("b1")], []])
+    assert waits == [] and out["incomplete"] is False and out["warnings"] == []
+    assert out["jobs_found"] == 23 and any("reached the end" in m for m in logs)

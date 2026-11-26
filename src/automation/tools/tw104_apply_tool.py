@@ -254,6 +254,34 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     return jobs
 
 
+# A full 104 result page carries 20+ cards, so an empty page right after a full
+# one (or an empty first page) is not how a listing ends: under load 104 answers
+# search requests with an empty list for a few minutes. Re-read such a page after
+# these waits before believing it.
+_FULL_PAGE = 20
+_EMPTY_PAGE_WAITS_MS = (20_000, 60_000)
+
+
+def _empty_page_is_suspect(page_num: int, last_page_size: int) -> bool:
+    return page_num == 1 or last_page_size >= _FULL_PAGE
+
+
+def _reread_empty_page(page, keyword: str, area: str, order: str, page_num: int,
+                       log: Callable, warnings: list, remote: bool = False,
+                       part_time: bool = False) -> list[dict]:
+    """Re-read a suspiciously empty result page with a growing wait. Returns its
+    jobs, or [] when it is still empty after every try."""
+    for wait_ms in _EMPTY_PAGE_WAITS_MS:
+        log(f"⚠ Page {page_num}: no job cards — 104 may be rate-limiting; "
+            f"retrying in {wait_ms // 1000}s")
+        page.wait_for_timeout(wait_ms)
+        jobs = _collect_page_jobs(page, keyword, area, order, page_num, log, warnings,
+                                  remote, part_time)
+        if jobs:
+            return jobs
+    return []
+
+
 # ── apply funnel (DOM) ────────────────────────────────────────────────────────
 
 def _first_visible(scope, selectors: list[str]):
@@ -470,6 +498,8 @@ def run_tw104_apply(
             filtered = 0
             pages_scanned = 0
             page_num = 1
+            last_page_size = 0
+            incomplete = ""
 
             while len(applied) < max_applications and page_num <= max_pages:
                 jobs = _collect_page_jobs(page, keyword, area, order, page_num,
@@ -479,6 +509,22 @@ def run_tw104_apply(
                     # than treating it as end-of-results and aborting the run.
                     page_num += 1
                     continue
+                if not jobs and _empty_page_is_suspect(page_num, last_page_size):
+                    # Not an end-of-listing: stopping here would report a
+                    # throttled run as a finished one.
+                    jobs = _reread_empty_page(page, keyword, area, order, page_num,
+                                              log, warnings, remote, part_time)
+                    if not jobs:
+                        tries = len(_EMPTY_PAGE_WAITS_MS) + 1
+                        incomplete = (
+                            f"page {page_num}: no job cards after {tries} tries"
+                            + (" right after a full page" if page_num > 1 else "")
+                            + " — 104 was probably rate-limiting; the listing was not "
+                              "read to its end, re-run later")
+                        warnings.append(incomplete)
+                        log(f"⚠ {incomplete}")
+                        break
+                last_page_size = len(jobs)
                 new_jobs = [j for j in jobs if j["job_id"] and j["job_id"] not in seen]
                 if not new_jobs:
                     log(f"No new jobs on page {page_num}; reached the end.")
@@ -564,7 +610,11 @@ def run_tw104_apply(
             warnings_out = warnings[:50]
             if scanned == 0:
                 return {**base, "jobs_found": 0, "warnings": warnings_out,
-                        "summary": f"No open jobs found for keyword '{keyword}'."}
+                        "incomplete": bool(incomplete),
+                        "summary": (f"No job cards returned for keyword '{keyword}' — "
+                                    f"104 was probably rate-limiting; re-run later."
+                                    if incomplete else
+                                    f"No open jobs found for keyword '{keyword}'.")}
 
             submitted_n = sum(1 for e in applied if e.get("submitted"))
             verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
@@ -574,6 +624,9 @@ def run_tw104_apply(
                 f"{len(skipped)} skipped"
             )
             summary += f" ({filtered} filtered by task_filter)." if filtered else "."
+            if incomplete:
+                summary += (f" Listing incomplete: stopped at page {page_num} on an empty "
+                            f"response (104 probably rate-limiting) — re-run later.")
             return {
                 **base,
                 "jobs_found": scanned,
@@ -585,6 +638,7 @@ def run_tw104_apply(
                 "skipped_count": len(skipped),
                 "filtered_count": filtered,
                 "warnings": warnings_out,
+                "incomplete": bool(incomplete),
                 "summary": summary,
             }
         finally:
