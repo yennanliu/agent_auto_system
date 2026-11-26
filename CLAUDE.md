@@ -29,6 +29,7 @@ uv run python scripts/greenhouse_country_boards.py scan            # cache live 
 uv run python scripts/greenhouse_country_boards.py report spain    # per-country board list for greenhouse_apply
 uv run python scripts/ats_country_boards.py scan                   # same for Lever / Ashby / Workable / Workday (ats_apply)
 uv run python scripts/ats_country_boards.py report taiwan           # per-country `platform:token` board list for ats_apply
+uv run python scripts/ats_region_report.py europe                   # region-wide SWE board report from that cache (europe / asia; --create-issue)
 ```
 
 ## Architecture
