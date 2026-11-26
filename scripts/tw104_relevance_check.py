@@ -60,7 +60,8 @@ def main() -> int:
 
     with ThreadPoolExecutor(8) as pool:
         out = list(pool.map(judge, CASES))
-    bad = [o for o in out if bool(o[3]) != o[2]]
+    # A verdict that could not be parsed (None) is a failure, never a "correct rejection".
+    bad = [o for o in out if not isinstance(o[3], bool) or o[3] != o[2]]
     print(f"{model}: {len(out) - len(bad)}/{len(out)} as expected")
     for name, title, want, got, why in bad:
         print(f"  ✗ [{name}] want={want} got={got} | {title[:44]} | {why[:60]}")
