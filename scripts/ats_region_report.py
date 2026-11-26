@@ -9,8 +9,9 @@ per country listing every board with its `platform:token` ref for `ats_apply`.
     uv run python scripts/ats_region_report.py europe --platform workday
     uv run python scripts/ats_region_report.py asia --create-issue --repo owner/name
 
-A GitHub issue body is capped at 65,536 characters, so a long report is cut on country
-boundaries: the first part is the issue body, the rest are posted as comments.
+A GitHub issue body is capped at 65,536 characters, so a long report is cut into parts:
+the first is the issue body, the rest are posted as comments. A cut falls between table
+rows; a country that straddles it carries on under a "<Country> (continued)" header.
 """
 from __future__ import annotations
 
@@ -56,8 +57,20 @@ def is_swe(title: str) -> bool:
 #   eu_dc   city names shared with North America (Cambridge, Birmingham ...): counted only
 #           on a board in Workday's EU datacenter (`<tenant>.wd3`)
 #   reject  vetoes the location (same-named places elsewhere)
-_US = (r"\bUSA?\b|united states|, ?(?:A[LKZR]|C[AOT]|DE|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]"
-       r"|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY]|ON|NS|BC|QC|AB)\b")
+_STATES = ("AL AK AZ AR CA CO CT DE FL GA HI IA ID IL IN KS KY LA MA MD ME MI MN MO MS MT "
+           "NC ND NE NH NJ NM NV NY OH OK OR PA RI SC SD TN TX UT VA VT WA WI WV WY "
+           "ON NS BC QC AB").split()          # US states + the Canadian provinces seen in ATS data
+
+
+def _us(keep: str = "") -> str:
+    """Reject pattern for US / Canadian locations ("Austin, TX"). `keep` names the one
+    postal code that is also this country's own alpha-2 code, so "Berlin, DE" and
+    "Bengaluru, IN" are not thrown out as Delaware and Indiana."""
+    codes = "|".join(s for s in _STATES if s != keep)
+    return rf"\bUSA?\b|united states|, ?(?:{codes})\b"
+
+
+_US = _us()
 
 
 def _c(name, words, iso3="", iso2="", lead="", eu_dc="", reject=""):
@@ -88,7 +101,7 @@ EUROPE = [
        r"|eschborn|garching|bielefeld|münster|paderborn|kassel|rostock|magdeburg"
        r"|braunschweig|leverkusen|bochum|duisburg|wuppertal|mönchengladbach",
        iso3="DEU", lead="DE",
-       reject=_US + r"|delaware|wilmington|newark|dover|work from home|south africa"),
+       reject=_us("DE") + r"|delaware|wilmington|newark|dover|work from home|south africa"),
     _c("France",
        r"france|paris|lyon\b|toulouse|marseille|nantes|bordeaux|lille\b|grenoble"
        r"|sophia antipolis|rennes|strasbourg|montpellier|nice\b|courbevoie|la d[ée]fense"
@@ -201,7 +214,7 @@ ASIA = [
        r"|gurgaon|gurugram|new delhi|delhi|kolkata|ahmedabad|kochi|trivandrum"
        r"|thiruvananthapuram|coimbatore|indore|jaipur|chandigarh|nagpur|vadodara|baroda"
        r"|karnataka|telangana|maharashtra|tamil nadu|haryana",
-       iso3="IND", lead="IN", reject=_US + r"|indianapolis|indiana\b"),
+       iso3="IND", lead="IN", reject=_us("IN") + r"|indianapolis|indiana\b"),
     _c("Malaysia", r"malaysia|kuala lumpur|penang|johor|cyberjaya|petaling jaya|selangor",
        iso3="MYS", iso2="MY"),
     _c("Vietnam", r"vietnam|viet nam|ho chi minh|hanoi|ha noi|da nang", iso3="VNM", iso2="VN"),

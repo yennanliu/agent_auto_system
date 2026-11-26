@@ -46,6 +46,7 @@ def test_non_swe_titles_are_dropped(title):
     ("Dublin, IE", ["Ireland"]),                         # ... or the last
     ("POL > Wrocław > Swobodna 1", ["Poland"]),
     ("DE - Glinde", ["Germany"]),
+    ("Berlin, DE", ["Germany"]),                         # not Delaware
     ("Braşov", ["Romania"]),
     ("Belfast, Northern Ireland", ["United Kingdom"]),   # not the Republic
     ("United Kingdom; Denmark", ["United Kingdom", "Denmark"]),
@@ -55,7 +56,7 @@ def test_european_locations(text, expected):
 
 
 @pytest.mark.parametrize("text", [
-    "Wilmington DE", "Wilmington, DE", "DE - Work from home",   # Delaware
+    "Wilmington DE", "Wilmington, DE", "Newark, DE", "DE - Work from home",   # Delaware
     "Indianapolis, IN", "Annapolis Junction, MD",              # ...napoli...
     "Immenstaad am Bodensee",                                  # ...odense...
     "Gateway Manufacturing Php",                               # ...turin...
@@ -81,6 +82,8 @@ def test_shared_city_names_need_the_eu_datacenter():
     ("Taipei, Taipei City, Taiwan Region", ["Taiwan"]),
     ("IND - Chennai, Neville Towers", ["India"]),
     ("IN - Bengaluru - Office", ["India"]),
+    ("Bengaluru, IN", ["India"]),                        # not Indiana
+    ("Pune, IN", ["India"]),
     ("Indianapolis, IN", []),
     ("Carmel, IN", []),
     ("Singapore-CapitaSky", ["Singapore"]),
