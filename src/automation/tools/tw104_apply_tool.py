@@ -254,32 +254,43 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     return jobs
 
 
-# A full 104 result page carries 20+ cards, so an empty page right after a full
-# one (or an empty first page) is not how a listing ends: under load 104 answers
-# search requests with an empty list for a few minutes. Re-read such a page after
-# these waits before believing it.
-_FULL_PAGE = 20
-_EMPTY_PAGE_WAITS_MS = (20_000, 60_000)
+# 104 sits behind a bot-protection service. Under load it answers a search
+# request with an interstitial ("此網站使用安全服務抵禦惡意機器人 …") instead of the
+# listing: a page with no job cards, which is not the end of the listing. The
+# interstitial is the one positive signal that tells the two apart, so an empty
+# page *without* it is still trusted as the real end (or a keyword with no
+# results) and costs no extra wait.
+_BOT_CHALLENGE_MARKERS = ("抵禦惡意機器人", "確認您不是機器人")
+_CHALLENGE_WAITS_MS = (20_000, 60_000)
 
 
-def _empty_page_is_suspect(page_num: int, last_page_size: int) -> bool:
-    return page_num == 1 or last_page_size >= _FULL_PAGE
+def _bot_challenged(page) -> bool:
+    """True when the page is 104's bot-protection interstitial, not a listing."""
+    try:
+        text = page.evaluate("() => (document.body && document.body.innerText) || ''")
+    except Exception:  # noqa: BLE001
+        return False
+    return isinstance(text, str) and any(m in text for m in _BOT_CHALLENGE_MARKERS)
 
 
-def _reread_empty_page(page, keyword: str, area: str, order: str, page_num: int,
-                       log: Callable, warnings: list, remote: bool = False,
-                       part_time: bool = False) -> list[dict]:
-    """Re-read a suspiciously empty result page with a growing wait. Returns its
-    jobs, or [] when it is still empty after every try."""
-    for wait_ms in _EMPTY_PAGE_WAITS_MS:
-        log(f"⚠ Page {page_num}: no job cards — 104 may be rate-limiting; "
+def _reread_challenged_page(page, keyword: str, area: str, order: str, page_num: int,
+                            log: Callable, warnings: list, remote: bool = False,
+                            part_time: bool = False) -> tuple[list[dict] | None, bool]:
+    """Re-read a result page that came back as the bot challenge, with a growing
+    wait. Returns (jobs, still_challenged): jobs is the last read — None when it
+    failed to load — and still_challenged says the interstitial never cleared."""
+    jobs: list[dict] | None = []
+    for wait_ms in _CHALLENGE_WAITS_MS:
+        log(f"⚠ Page {page_num}: 104 answered with its bot check, not the listing; "
             f"retrying in {wait_ms // 1000}s")
         page.wait_for_timeout(wait_ms)
         jobs = _collect_page_jobs(page, keyword, area, order, page_num, log, warnings,
                                   remote, part_time)
         if jobs:
-            return jobs
-    return []
+            return jobs, False
+        if jobs is not None and not _bot_challenged(page):
+            return jobs, False            # the listing loaded and really is empty
+    return jobs, jobs is not None
 
 
 # ── apply funnel (DOM) ────────────────────────────────────────────────────────
@@ -498,7 +509,6 @@ def run_tw104_apply(
             filtered = 0
             pages_scanned = 0
             page_num = 1
-            last_page_size = 0
             incomplete = ""
 
             while len(applied) < max_applications and page_num <= max_pages:
@@ -509,22 +519,23 @@ def run_tw104_apply(
                     # than treating it as end-of-results and aborting the run.
                     page_num += 1
                     continue
-                if not jobs and _empty_page_is_suspect(page_num, last_page_size):
+                if not jobs and _bot_challenged(page):
                     # Not an end-of-listing: stopping here would report a
-                    # throttled run as a finished one.
-                    jobs = _reread_empty_page(page, keyword, area, order, page_num,
-                                              log, warnings, remote, part_time)
-                    if not jobs:
-                        tries = len(_EMPTY_PAGE_WAITS_MS) + 1
+                    # blocked run as a finished one.
+                    jobs, challenged = _reread_challenged_page(
+                        page, keyword, area, order, page_num, log, warnings, remote, part_time)
+                    if challenged:
+                        tries = len(_CHALLENGE_WAITS_MS) + 1
                         incomplete = (
-                            f"page {page_num}: no job cards after {tries} tries"
-                            + (" right after a full page" if page_num > 1 else "")
-                            + " — 104 was probably rate-limiting; the listing was not "
-                              "read to its end, re-run later")
+                            f"page {page_num}: 104 answered with its bot check {tries} times "
+                            f"— the listing was not read to its end; re-run later, with "
+                            f"fewer runs at once")
                         warnings.append(incomplete)
                         log(f"⚠ {incomplete}")
                         break
-                last_page_size = len(jobs)
+                    if jobs is None:      # the re-read failed to load: same as above
+                        page_num += 1
+                        continue
                 new_jobs = [j for j in jobs if j["job_id"] and j["job_id"] not in seen]
                 if not new_jobs:
                     log(f"No new jobs on page {page_num}; reached the end.")
@@ -611,8 +622,8 @@ def run_tw104_apply(
             if scanned == 0:
                 return {**base, "jobs_found": 0, "warnings": warnings_out,
                         "incomplete": bool(incomplete),
-                        "summary": (f"No job cards returned for keyword '{keyword}' — "
-                                    f"104 was probably rate-limiting; re-run later."
+                        "summary": (f"No jobs read for keyword '{keyword}': 104 answered "
+                                    f"with its bot check instead of the listing; re-run later."
                                     if incomplete else
                                     f"No open jobs found for keyword '{keyword}'.")}
 
@@ -625,8 +636,8 @@ def run_tw104_apply(
             )
             summary += f" ({filtered} filtered by task_filter)." if filtered else "."
             if incomplete:
-                summary += (f" Listing incomplete: stopped at page {page_num} on an empty "
-                            f"response (104 probably rate-limiting) — re-run later.")
+                summary += (f" Listing incomplete: stopped at page {page_num}, where 104 "
+                            f"answered with its bot check — re-run later.")
             return {
                 **base,
                 "jobs_found": scanned,
