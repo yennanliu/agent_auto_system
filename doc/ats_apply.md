@@ -333,6 +333,8 @@ uv run python scripts/ats_country_boards.py scan                  # all four pla
 uv run python scripts/ats_country_boards.py scan --platform workday   # paced: 2 workers, 2 s, searches "engineer"
 uv run python scripts/ats_country_boards.py scan --platform workable --limit 50
 uv run python scripts/ats_country_boards.py report taiwan uk      # data/ats_reports/<country>_<date>.md
+uv run python scripts/ats_region_report.py europe                # one report for a whole region (europe / asia), no network
+uv run python scripts/ats_region_report.py asia --create-issue   # body + comments when over GitHub's 65k limit
 ```
 
 - **Where candidates come from:** the job-board-aggregator Lever and Ashby lists, plus
