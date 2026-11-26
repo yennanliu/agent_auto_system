@@ -586,3 +586,19 @@ def test_tw104_reread_that_fails_to_load_moves_on_to_the_next_page(mocker, tmp_p
         [True, False])
     assert waits == [20_000, 60_000]
     assert out["jobs_found"] == 23 and out["incomplete"] is False
+
+
+# ── relevance judge prompt (task_filter second gate) ─────────────────────────
+
+def test_relevance_prompt_interpolates_and_judges_the_core_work():
+    """The judge must look at what the job does, not at words in its title — an
+    "AI" filter used to pass every title containing "AI" (video editors, sales)."""
+    from src.automation.crews.tw104_relevance_crew.crew import _AGENTS, _TASKS
+
+    task = _TASKS["judge_relevance_task"]
+    text = task["description"].format(task_filter="AI", job_title="AI 影音剪輯師", job_meta="公司：X")
+    assert "AI 影音剪輯師" in text and "公司：X" in text
+    assert task["expected_output"].format().startswith("一個嚴格的 JSON 物件")
+    for rule in ("核心工作", "嚴格條件", "符合任一項即可", "永遠優先"):
+        assert rule in text, rule
+    assert "核心工作" in _AGENTS["relevance_judge"]["backstory"]
