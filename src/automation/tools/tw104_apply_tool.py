@@ -254,6 +254,45 @@ def _collect_page_jobs(page, keyword: str, area: str, order: str, page_num: int,
     return jobs
 
 
+# 104 sits behind a bot-protection service. Under load it answers a search
+# request with an interstitial ("此網站使用安全服務抵禦惡意機器人 …") instead of the
+# listing: a page with no job cards, which is not the end of the listing. The
+# interstitial is the one positive signal that tells the two apart, so an empty
+# page *without* it is still trusted as the real end (or a keyword with no
+# results) and costs no extra wait.
+_BOT_CHALLENGE_MARKERS = ("抵禦惡意機器人", "確認您不是機器人")
+_CHALLENGE_WAITS_MS = (20_000, 60_000)
+
+
+def _bot_challenged(page) -> bool:
+    """True when the page is 104's bot-protection interstitial, not a listing."""
+    try:
+        text = page.evaluate("() => (document.body && document.body.innerText) || ''")
+    except Exception:  # noqa: BLE001
+        return False
+    return isinstance(text, str) and any(m in text for m in _BOT_CHALLENGE_MARKERS)
+
+
+def _reread_challenged_page(page, keyword: str, area: str, order: str, page_num: int,
+                            log: Callable, warnings: list, remote: bool = False,
+                            part_time: bool = False) -> tuple[list[dict] | None, bool]:
+    """Re-read a result page that came back as the bot challenge, with a growing
+    wait. Returns (jobs, still_challenged): jobs is the last read — None when it
+    failed to load — and still_challenged says the interstitial never cleared."""
+    jobs: list[dict] | None = []
+    for wait_ms in _CHALLENGE_WAITS_MS:
+        log(f"⚠ Page {page_num}: 104 answered with its bot check, not the listing; "
+            f"retrying in {wait_ms // 1000}s")
+        page.wait_for_timeout(wait_ms)
+        jobs = _collect_page_jobs(page, keyword, area, order, page_num, log, warnings,
+                                  remote, part_time)
+        if jobs:
+            return jobs, False
+        if jobs is not None and not _bot_challenged(page):
+            return jobs, False            # the listing loaded and really is empty
+    return jobs, jobs is not None
+
+
 # ── apply funnel (DOM) ────────────────────────────────────────────────────────
 
 def _first_visible(scope, selectors: list[str]):
@@ -470,6 +509,7 @@ def run_tw104_apply(
             filtered = 0
             pages_scanned = 0
             page_num = 1
+            incomplete = ""
 
             while len(applied) < max_applications and page_num <= max_pages:
                 jobs = _collect_page_jobs(page, keyword, area, order, page_num,
@@ -479,6 +519,23 @@ def run_tw104_apply(
                     # than treating it as end-of-results and aborting the run.
                     page_num += 1
                     continue
+                if not jobs and _bot_challenged(page):
+                    # Not an end-of-listing: stopping here would report a
+                    # blocked run as a finished one.
+                    jobs, challenged = _reread_challenged_page(
+                        page, keyword, area, order, page_num, log, warnings, remote, part_time)
+                    if challenged:
+                        tries = len(_CHALLENGE_WAITS_MS) + 1
+                        incomplete = (
+                            f"page {page_num}: 104 answered with its bot check {tries} times "
+                            f"— the listing was not read to its end; re-run later, with "
+                            f"fewer runs at once")
+                        warnings.append(incomplete)
+                        log(f"⚠ {incomplete}")
+                        break
+                    if jobs is None:      # the re-read failed to load: same as above
+                        page_num += 1
+                        continue
                 new_jobs = [j for j in jobs if j["job_id"] and j["job_id"] not in seen]
                 if not new_jobs:
                     log(f"No new jobs on page {page_num}; reached the end.")
@@ -564,7 +621,11 @@ def run_tw104_apply(
             warnings_out = warnings[:50]
             if scanned == 0:
                 return {**base, "jobs_found": 0, "warnings": warnings_out,
-                        "summary": f"No open jobs found for keyword '{keyword}'."}
+                        "incomplete": bool(incomplete),
+                        "summary": (f"No jobs read for keyword '{keyword}': 104 answered "
+                                    f"with its bot check instead of the listing; re-run later."
+                                    if incomplete else
+                                    f"No open jobs found for keyword '{keyword}'.")}
 
             submitted_n = sum(1 for e in applied if e.get("submitted"))
             verb = "prepared (dry-run)" if dry_run else "submitted & confirmed"
@@ -574,6 +635,9 @@ def run_tw104_apply(
                 f"{len(skipped)} skipped"
             )
             summary += f" ({filtered} filtered by task_filter)." if filtered else "."
+            if incomplete:
+                summary += (f" Listing incomplete: stopped at page {page_num}, where 104 "
+                            f"answered with its bot check — re-run later.")
             return {
                 **base,
                 "jobs_found": scanned,
@@ -585,6 +649,7 @@ def run_tw104_apply(
                 "skipped_count": len(skipped),
                 "filtered_count": filtered,
                 "warnings": warnings_out,
+                "incomplete": bool(incomplete),
                 "summary": summary,
             }
         finally:

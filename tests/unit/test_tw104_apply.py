@@ -472,3 +472,117 @@ def test_tw104_reads_the_ledger_once_per_run(mocker, tmp_path):
                    lambda _c, _p, job, *_a: {**job, "status": "failed"},
                    str(tmp_path / "l.json"))
     assert spy.call_count == 1
+
+
+# ── an empty result page is not always the end of the listing ────────────────
+
+class _BodyPage:
+    def __init__(self, text):
+        self._text = text
+
+    def evaluate(self, _js):
+        if isinstance(self._text, Exception):
+            raise self._text
+        return self._text
+
+
+def test_bot_challenged_reads_the_interstitial():
+    import src.automation.tools.tw104_apply_tool as T
+
+    assert T._bot_challenged(_BodyPage("此網站使用安全服務抵禦惡意機器人。當網站驗證並確認您不是機器人時，便會顯示此頁面。"))
+    assert not T._bot_challenged(_BodyPage("共 1000+ 筆 第 1 頁"))
+    assert not T._bot_challenged(_BodyPage(""))
+    assert not T._bot_challenged(_BodyPage(RuntimeError("page closed")))
+
+
+def _run_with_pages(mocker, tmp_path, pages, challenged):
+    """run_tw104_apply over a scripted sequence of result pages (None = failed to
+    load); `challenged` scripts _bot_challenged for each empty read. Returns
+    (result, log lines, the waits asked of the page in ms)."""
+    import src.automation.tools.tw104_apply_tool as T
+
+    state = tmp_path / "state.json"
+    state.write_text("{}")
+    pw = mocker.patch("playwright.sync_api.sync_playwright")
+    page = (pw.return_value.__enter__.return_value.chromium.launch.return_value
+            .new_context.return_value.new_page.return_value)
+    mocker.patch.object(T, "_looks_logged_out", return_value=False)
+    feed, flags = iter(pages), iter(challenged)
+    mocker.patch.object(T, "_collect_page_jobs", side_effect=lambda *a, **k: next(feed))
+    mocker.patch.object(T, "_bot_challenged", side_effect=lambda _p: next(flags))
+    mocker.patch.object(T, "_apply_to_job", side_effect=lambda _c, _p, job, *_a: {
+        **job, "status": "prepared", "submitted": False})
+    logs = []
+    out = T.run_tw104_apply(keyword="後端", max_applications=500, dry_run=True, log=logs.append,
+                            state_path=str(state), ledger_path=str(tmp_path / "l.json"))
+    waits = [c.args[0] for c in page.wait_for_timeout.call_args_list if c.args[0] >= 20_000]
+    assert next(flags, None) is None, "unused _bot_challenged answers"
+    return out, logs, waits
+
+
+def _full_page(prefix):
+    return [_job104(f"{prefix}{i}") for i in range(22)]
+
+
+def test_tw104_challenged_first_page_is_retried_then_read(mocker, tmp_path):
+    out, logs, waits = _run_with_pages(mocker, tmp_path, [[], [], [_job104("a1")], []],
+                                       [True, True, False])
+    assert waits == [20_000, 60_000]
+    assert out["jobs_found"] == 1 and out["incomplete"] is False and out["warnings"] == []
+    assert sum("bot check, not the listing; retrying" in m for m in logs) == 2
+
+
+def test_tw104_first_page_still_challenged_is_flagged_not_a_clean_zero(mocker, tmp_path):
+    out, _logs, waits = _run_with_pages(mocker, tmp_path, [[], [], []], [True, True, True])
+    assert waits == [20_000, 60_000]
+    assert out["jobs_found"] == 0 and out["incomplete"] is True
+    assert "bot check" in out["summary"] and "No open jobs found" not in out["summary"]
+    assert "page 1: 104 answered with its bot check 3 times" in out["warnings"][0]
+
+
+def test_tw104_keyword_with_no_results_is_a_clean_zero_with_no_wait(mocker, tmp_path):
+    out, _logs, waits = _run_with_pages(mocker, tmp_path, [[]], [False])
+    assert waits == [] and out["jobs_found"] == 0 and out["incomplete"] is False
+    assert out["summary"] == "No open jobs found for keyword '後端'." and out["warnings"] == []
+
+
+def test_tw104_challenge_mid_listing_is_retried_and_the_run_carries_on(mocker, tmp_path):
+    out, _logs, waits = _run_with_pages(
+        mocker, tmp_path, [_full_page("a"), [], _full_page("b"), [_job104("c1")], []],
+        [True, False])
+    assert waits == [20_000]                       # recovered on the first re-read
+    assert out["jobs_found"] == 45 and out["pages_scanned"] == 3 and out["incomplete"] is False
+
+
+def test_tw104_truncated_listing_is_reported(mocker, tmp_path):
+    out, logs, _waits = _run_with_pages(mocker, tmp_path, [_full_page("a"), [], [], []],
+                                        [True, True, True])
+    assert out["jobs_found"] == 22 and out["incomplete"] is True
+    assert "Listing incomplete: stopped at page 2" in out["summary"]
+    assert "page 2: 104 answered with its bot check" in out["warnings"][-1]
+    assert not any("reached the end" in m for m in logs)
+
+
+def test_tw104_listing_that_ends_on_a_full_page_is_the_real_end(mocker, tmp_path):
+    """An empty page after a full one, with no bot check on it, is how a listing
+    whose last page happens to be full ends: no wait, not incomplete."""
+    out, logs, waits = _run_with_pages(mocker, tmp_path, [_full_page("a"), []], [False])
+    assert waits == [] and out["incomplete"] is False and out["warnings"] == []
+    assert out["jobs_found"] == 22 and any("reached the end" in m for m in logs)
+
+
+def test_tw104_challenge_that_clears_onto_an_empty_listing_ends_normally(mocker, tmp_path):
+    out, logs, waits = _run_with_pages(mocker, tmp_path, [_full_page("a"), [], []],
+                                       [True, False])
+    assert waits == [20_000] and out["incomplete"] is False
+    assert out["jobs_found"] == 22 and any("reached the end" in m for m in logs)
+
+
+def test_tw104_reread_that_fails_to_load_moves_on_to_the_next_page(mocker, tmp_path):
+    """A re-read returning None (page failed to load) is not "still challenged":
+    the run skips that page, as it does for any failed load, and carries on."""
+    out, _logs, waits = _run_with_pages(
+        mocker, tmp_path, [_full_page("a"), [], None, None, [_job104("c1")], []],
+        [True, False])
+    assert waits == [20_000, 60_000]
+    assert out["jobs_found"] == 23 and out["incomplete"] is False
