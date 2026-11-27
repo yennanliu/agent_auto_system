@@ -1,0 +1,41 @@
+Adobe | Senior Forward Deployed Engineer, Adobe Workfront | Yerevan | https://adobe.wd5.myworkdayjobs.com/external_experienced/job/Yerevan/Senior-Forward-Deployed-Engineer--Adobe-Workfront_R173679
+Adobe | Software Development Engineer 3 | Noida | https://adobe.wd5.myworkdayjobs.com/external_experienced/job/Noida/Software-Development-Engineer-3_R173715
+Amazon | Embedded Software Engineer, Amazon Leo Government, ALG Software | Redmond, WA, US | https://www.amazon.jobs/en/jobs/10610906/embedded-software-engineer-amazon-leo-government-alg-software
+Amazon | Senior SDE, FinAuto - Receivables Tech | Hyderabad, TS, IN | https://www.amazon.jobs/en/jobs/10613950/senior-sde-finauto-receivables-tech
+Amazon | Senior Software Development Engineer, AWS Security, AWS Secinformatics | Courbevoie, FR | https://www.amazon.jobs/en/jobs/10615388/senior-software-development-engineer-aws-security-aws-secinformatics
+Amazon | Software Developer - Kernel Engineer, SSG | Bengaluru, KA, IN | https://www.amazon.jobs/en/jobs/10615389/software-developer-kernel-engineer-ssg
+Amazon | Sr. Software Development Engineer, Annapurna Labs - LibNVMe | Cupertino, CA, US | https://www.amazon.jobs/en/jobs/10615061/sr-software-development-engineer-annapurna-labs-libnvme
+Micron | Sr Full Stack AI Engineer | Fab 10A, Singapore | https://micron.wd1.myworkdayjobs.com/External/job/Fab-10A-Singapore/Sr-Full-Stack-AI-Engineer_JR118783
+Microsoft | Principal Software Engineer and Cloud Architect | Cambridge, England, GB; London, England, GB; Amsterdam, NH, NL (+1 more) | https://apply.careers.microsoft.com/careers/job/1970393557074874
+Microsoft | Senior Software Engineer | Bengaluru, KA, IN | https://apply.careers.microsoft.com/careers/job/1970393556979403
+Microsoft | Senior Software Engineer | Hyderabad, TS, IN; Noida, UP, IN | https://apply.careers.microsoft.com/careers/job/1970393557090816
+Microsoft | Senior Software Engineer - Backend/ Infra | Hyderabad, TS, IN; Noida, UP, IN | https://apply.careers.microsoft.com/careers/job/1970393557051177
+Microsoft | Software Engineer 2 - Frontend | Hyderabad, TS, IN | https://apply.careers.microsoft.com/careers/job/1970393557045186
+MongoDB | Staff Forward Deployed AI Engineer | Bengaluru | https://www.mongodb.com/careers/job/?gh_jid=8304154
+Netflix | Senior Software Engineer (L5), Device Capabilities – Partner Enablement Applications | Hsinchu, Taiwan; Xinyi District, Taipei City, Taiwan | https://explore.jobs.netflix.net/careers/job/790319739225
+NVIDIA | AI Infrastructure Engineer - NVIS | 6 Locations | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-TX-Remote/AI-Infrastructure-Engineer---NVIS_JR2030522
+NVIDIA | Senior DevOps & Software Engineer | Israel, Yokneam | https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/Israel-Yokneam/Senior-DevOps-Engineer_JR2029070
+Salesforce | Forward Deployed Engineer | Austria - Vienna | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Austria---Vienna/Forward-Deployed-Engineer_JR369314
+Salesforce | Forward Deployed Engineer | 5 Locations | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Germany---Munich/Forward-Deployed-Engineer--Technical-Builder-_JR349383
+Salesforce | Forward Deployed Engineer (Multiple Levels) | Korea, Republic of - Seoul | https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/Korea-Republic-of---Seoul/Lead-Forward-Deployed-Engineer_JR365544-1
+SpaceX | Principal Security Software Engineer (Starlink) | Hawthorne, CA | https://boards.greenhouse.io/spacex/jobs/8962601002?gh_jid=8962601002
+SpaceX | Principal Security Software Engineer (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962594002?gh_jid=8962594002
+SpaceX | Principal Security Software Engineer (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962524002?gh_jid=8962524002
+SpaceX | Principal Security Software Engineer (Starlink) | Bastrop, TX | https://boards.greenhouse.io/spacex/jobs/8962585002?gh_jid=8962585002
+SpaceX | Software Engineer, Beam Planning (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962728002?gh_jid=8962728002
+SpaceX | Software Engineer, Beam Planning (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962750002?gh_jid=8962750002
+SpaceX | Software Engineer, C++ (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8938571002?gh_jid=8938571002
+SpaceX | Software Engineer, C++ (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8938572002?gh_jid=8938572002
+SpaceX | Software Engineer, High Performance Computing (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962752002?gh_jid=8962752002
+SpaceX | Software Engineer, High Performance Computing (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962753002?gh_jid=8962753002
+SpaceX | Software Engineer, Low Latency Computing (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962756002?gh_jid=8962756002
+SpaceX | Software Engineer, Low Latency Computing (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962757002?gh_jid=8962757002
+SpaceX | Software Engineer, Starlink Network | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8938556002?gh_jid=8938556002
+SpaceX | Software Engineer, Starlink Network | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8938574002?gh_jid=8938574002
+SpaceX | Sr. Security Software Engineer (Starlink) | Bastrop, TX | https://boards.greenhouse.io/spacex/jobs/8962761002?gh_jid=8962761002
+SpaceX | Sr. Software Engineer, Beam Planning (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962773002?gh_jid=8962773002
+SpaceX | Sr. Software Engineer, Beam Planning (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962790002?gh_jid=8962790002
+SpaceX | Sr. Software Engineer, High Performance Computing (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962788002?gh_jid=8962788002
+SpaceX | Sr. Software Engineer, High Performance Computing (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962786002?gh_jid=8962786002
+SpaceX | Sr. Software Engineer, Low Latency Computing (Starlink) | Palo Alto, CA | https://boards.greenhouse.io/spacex/jobs/8962800002?gh_jid=8962800002
+SpaceX | Sr. Software Engineer, Low Latency Computing (Starlink) | Redmond, WA | https://boards.greenhouse.io/spacex/jobs/8962799002?gh_jid=8962799002
