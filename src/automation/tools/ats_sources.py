@@ -28,7 +28,8 @@ What each source can actually give (verified live, Nov 2026):
 
   * ``seek_au`` / ``seek_nz`` / ``jobstreet_sg|my|ph|id`` — Seek's platform
     search API (one per market). Applying is Seek's own logged-in Quick Apply
-    and job pages sit behind a challenge, so every match is a manual lead.
+    and job pages sit behind a challenge, so here every match is a manual lead;
+    the ``seek_apply`` job type (``seek_apply_tool.py``) applies to them.
 
 Not implemented (see doc/ats_apply.md): Built In (apply link only for signed-in
 users), Google Jobs (needs a paid SerpAPI key), JobsDB HK / TH (HTTP 403).
@@ -340,16 +341,31 @@ def parse_seek_jobs(data: dict, base: str, country: str) -> list[dict]:
         labels = [loc.get("label") for loc in j.get("locations") or [] if loc.get("label")]
         where = "; ".join(labels)
         jobs.append({
+            "job_id": jid,
             "title": (j.get("title") or "").strip(),
             "company": (j.get("companyName") or (j.get("advertiser") or {}).get("description") or "").strip(),
             "location": f"{where}, {country}" if where and country.lower() not in where.lower() else (where or country),
             "url": f"{base}/job/{jid}", "html": "",
+            "teaser": (j.get("teaser") or "").strip(),
         })
     return jobs
 
 
+def seek_search(client, name: str, keyword: str, where: str = "", page: int = 1,
+                page_size: int = _SEEK_PAGE_SIZE) -> list[dict]:
+    """One page of Seek's platform search on market ``name`` (a SEEK_SITES
+    key), parsed by ``parse_seek_jobs``. Raises on an HTTP error."""
+    base, site_key, _label, country = SEEK_SITES[name]
+    params = {"siteKey": site_key, "keywords": keyword, "page": page, "pageSize": page_size}
+    if where:
+        params["where"] = where
+    resp = client.get(f"{base}/api/jobsearch/v5/search", params=params)
+    resp.raise_for_status()
+    return parse_seek_jobs(resp.json(), base, country)
+
+
 def _seek_source(name: str) -> Callable:
-    base, site_key, label, country = SEEK_SITES[name]
+    label = SEEK_SITES[name][2]
 
     def source(client, keywords, locations, log: Callable = noop) -> dict:
         # One search per keyword (the API takes one), the first location as
@@ -358,18 +374,13 @@ def _seek_source(name: str) -> Callable:
         jobs: list[dict] = []
         seen: set[str] = set()
         for kw in queries:
-            params = {"siteKey": site_key, "keywords": kw, "page": 1, "pageSize": _SEEK_PAGE_SIZE}
-            if locations:
-                params["where"] = locations[0]
-            resp = client.get(f"{base}/api/jobsearch/v5/search", params=params)
-            resp.raise_for_status()
-            for j in parse_seek_jobs(resp.json(), base, country):
+            for j in seek_search(client, name, kw, locations[0] if locations else ""):
                 if j["url"] not in seen:
                     seen.add(j["url"])
                     jobs.append(j)
         out = _board_jobs(name, label, jobs, keywords, locations, log,
-                          reason=f"via {label} — apply on {label.split()[0]} with your own account "
-                                 "(its Quick Apply isn't automated); open url")
+                          reason=f"via {label} — apply on {label.split()[0]} with your own account, "
+                                 "or run the Seek Quick Apply automation (seek_apply); open url")
         if len(keywords) > _SEEK_MAX_SEARCHES:
             out["warnings"] = [f"{name}: searched only the first {_SEEK_MAX_SEARCHES} keywords"]
         return out

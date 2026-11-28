@@ -1,6 +1,6 @@
 """Browser-login session management for the storage-state automations.
 
-Several automations (tasker.com.tw, 104.com.tw, Shopee) authenticate against
+Several automations (tasker.com.tw, 104.com.tw, Shopee, LinkedIn, Seek / JobStreet) authenticate against
 JS-rendered SPAs guarded by captcha / SMS-OTP, so we can't log in headlessly.
 The established pattern is: log in ONCE in a real (headed) browser and persist
 the Playwright ``storage_state`` (cookies) to a JSON file; every subsequent run
@@ -99,6 +99,26 @@ def _linkedin_logged_in(page) -> bool:
     return not _looks_logged_out(page)
 
 
+def _seek_logged_in(page) -> bool:
+    """Seek / JobStreet: off the sign-in pages, past the Cloudflare check, on
+    the site's own host, and no visible "Sign in" link (the logged-in header
+    shows the account menu instead). UNVERIFIED against a live account — see
+    doc/seek_apply.md; ``scripts/seek_login.py`` asks before saving when unsure."""
+    from src.automation.tools.seek_apply_tool import _CHALLENGE_MARKERS, looks_logged_out
+    try:
+        url = page.url or ""
+        host = url.split("/")[2] if "://" in url else ""
+        if not host.endswith(("seek.com", "jobstreet.com")) or host.startswith("login."):
+            return False
+        if any(m in (page.title() or "") for m in _CHALLENGE_MARKERS):
+            return False
+        if page.locator("header").count() == 0:
+            return False  # still rendering
+    except Exception:  # noqa: BLE001 — page may be mid-navigation
+        return False
+    return not looks_logged_out(page)
+
+
 def _url_left_login(login_marker: str) -> Callable[[object], bool]:
     """Generic check: authenticated once the page has navigated away from the
     login route. Good enough for sites that redirect to a dashboard on success."""
@@ -142,6 +162,26 @@ _SPECS: dict[str, SessionSpec] = {
         default_state_path="data/linkedin_state.json",
         login_url="https://www.linkedin.com/login",
         is_logged_in=_linkedin_logged_in,
+    ),
+    # Seek AU / NZ and JobStreet are one platform but separate logins (cookie
+    # domains), so seek_apply keeps one session per family. The headed login
+    # opens the AU / SG home page: click "Sign in" there. For NZ / MY / PH / ID
+    # use `scripts/seek_login.py --site <code>` (same profile, same state file).
+    "seek": SessionSpec(
+        name="seek",
+        label="Seek (AU / NZ)",
+        state_env="SEEK_STORAGE_STATE",
+        default_state_path="data/seek_state.json",
+        login_url="https://au.seek.com/oauth/login?returnUrl=%2F",
+        is_logged_in=_seek_logged_in,
+    ),
+    "jobstreet": SessionSpec(
+        name="jobstreet",
+        label="JobStreet (SG / MY / PH / ID)",
+        state_env="JOBSTREET_STORAGE_STATE",
+        default_state_path="data/jobstreet_state.json",
+        login_url="https://sg.jobstreet.com/oauth/login?returnUrl=%2F",
+        is_logged_in=_seek_logged_in,
     ),
 }
 

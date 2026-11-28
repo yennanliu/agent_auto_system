@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><title>Answer employer questions | SEEK</title></head>
+<body><main>
+<h1>Answer employer questions</h1>
+<form id="role-requirements">
+  <div>
+    <label for="q-years">How many years' experience do you have as a software engineer?</label>
+    <select id="q-years" name="q-years">
+      <option value="">Select an option</option>
+      <option value="0">No experience</option>
+      <option value="1">Less than 1 year</option>
+      <option value="2">1 year</option>
+      <option value="3">2 years</option>
+      <option value="4">3 years</option>
+      <option value="5">4 years</option>
+      <option value="6">5 years</option>
+      <option value="7">More than 5 years</option>
+    </select>
+  </div>
+  <div role="radiogroup" aria-labelledby="q-rtw-label">
+    <strong id="q-rtw-label">Which of the following statements best describes your right to work in Australia?</strong>
+    <input type="radio" id="rtw-1" name="q-rtw" value="1"><label for="rtw-1">I'm an Australian citizen</label>
+    <input type="radio" id="rtw-2" name="q-rtw" value="2"><label for="rtw-2">I'm a permanent resident and/or NZ citizen</label>
+    <input type="radio" id="rtw-3" name="q-rtw" value="3"><label for="rtw-3">I have a family/partner visa with no restrictions</label>
+    <input type="radio" id="rtw-4" name="q-rtw" value="4"><label for="rtw-4">I have a temporary visa with restrictions on the industry</label>
+    <input type="radio" id="rtw-5" name="q-rtw" value="5"><label for="rtw-5">I require sponsorship to work for a new employer (e.g. 482, 457)</label>
+  </div>
+  <fieldset>
+    <legend>Which of the following programming languages are you experienced in?</legend>
+    <label><input type="checkbox" name="q-lang" value="cs"> C#</label>
+    <label><input type="checkbox" name="q-lang" value="py"> Python</label>
+    <label><input type="checkbox" name="q-lang" value="java"> Java</label>
+    <label><input type="checkbox" name="q-lang" value="go"> Go</label>
+  </fieldset>
+  <div>
+    <label for="q-salary">What's your expected annual base salary?</label>
+    <select id="q-salary" name="q-salary">
+      <option value="">Select an option</option>
+      <option value="80">$80k</option>
+      <option value="100">$100k</option>
+      <option value="120">$120k</option>
+      <option value="140">$140k+</option>
+    </select>
+  </div>
+  <div>
+    <label for="q-notice">How much notice are you required to give your current employer?</label>
+    <select id="q-notice" name="q-notice">
+      <option value="">Select an option</option>
+      <option value="0">None, I'm ready to go now</option>
+      <option value="1">Less than 2 weeks</option>
+      <option value="2">2 weeks</option>
+      <option value="3">1 month</option>
+      <option value="4">2 months</option>
+    </select>
+  </div>
+  <div>
+    <label for="q-proud">Tell us about a project you are proud of (optional)</label>
+    <textarea id="q-proud" name="q-proud"></textarea>
+  </div>
+  <input type="hidden" name="csrf" value="x">
+  <button type="button" data-testid="continue-button">Continue</button>
+</form>
+</main></body></html>

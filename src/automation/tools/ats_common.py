@@ -185,6 +185,9 @@ _COUNTRIES = {
     "taiwan": r"taiwan", "hong kong": r"hong kong", "brazil": r"brazil",
     "mexico": r"mexico", "south korea": r"korea", "thailand": r"thailand",
     "slovenia": r"slovenia", "switzerland": r"switzerland", "sweden": r"sweden",
+    # Seek / JobStreet markets.
+    "new zealand": r"new zealand|aotearoa", "malaysia": r"malaysia",
+    "philippines": r"philippines", "indonesia": r"indonesia",
 }
 # Job locations often give only a city ("Toronto", "San Francisco, CA").
 _CITIES = {
@@ -194,8 +197,11 @@ _CITIES = {
                      r"austin|dallas|houston",
     "canada": r"toronto|vancouver|montreal", "ireland": r"dublin",
     "united kingdom": r"london|manchester|edinburgh", "thailand": r"bangkok",
+    "new zealand": r"auckland|wellington|christchurch", "malaysia": r"kuala lumpur",
+    "philippines": r"manila|makati|cebu", "indonesia": r"jakarta",
     "india": r"gurugram|gurgaon|bengaluru|bangalore|hyderabad|pune|mumbai",
-    "slovenia": r"ljubljana", "japan": r"tokyo|osaka", "australia": r"sydney|melbourne",
+    "slovenia": r"ljubljana", "japan": r"tokyo|osaka",
+    "australia": r"sydney|melbourne|brisbane|perth|adelaide|canberra",
     "germany": r"berlin|munich", "netherlands": r"amsterdam", "france": r"paris",
     "israel": r"tel aviv", "brazil": r"s[aã]o paulo", "taiwan": r"taipei|hsinchu|taichung",
     "south korea": r"seoul", "spain": r"madrid|barcelona", "poland": r"warsaw|krak[oó]w",

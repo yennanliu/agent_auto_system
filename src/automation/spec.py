@@ -26,6 +26,7 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -758,6 +759,97 @@ register(AutomationSpec(
         "questions are read before a browser opens. Opens a visible Chrome window to fill "
         "forms (captchas reject headless). Jobs with a required question we can't answer "
         "are skipped and listed so you can add them to <b>Extra Answers</b>."
+    ),
+))
+
+# Seek's GraphQL answers a plain GET without login or Cloudflare; the canary asks
+# it about a live job taken from the public search API (both read-only).
+_SEEK_CANARY_QUERY = quote(
+    '{ jobDetails(id: "SEED") { job { id isLinkOut isExpired products { questionnaire { questions } } } } }',
+    safe="").replace("SEED", "{seed}")
+
+register(AutomationSpec(
+    job_type="seek_apply", desc="Quick Apply to Seek (AU/NZ) and JobStreet (SG/MY/PH/ID) jobs",
+    name="Seek Quick Apply", icon="🦘",
+    flow_module="src.automation.flows.seek_apply_flow", flow_class="SeekApplyFlow",
+    start_log="Loading Seek session", temperature=0.2, browser=True,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Search", "Loading Seek session"), ("Apply", "run complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("applied"), list) and r.get("jobs_found") is not None,
+        "no jobs processed",
+    ),
+    rubric=("Matching Seek / JobStreet jobs were found and an accurate applied[] list reflects real "
+            "Quick Apply submissions (a submission counts only when Seek showed its success page; "
+            "in a dry run, prepared entries stopped at the review step). Jobs skipped as "
+            "already-applied, expired, 'filtered out', for an employer question that couldn't be "
+            "answered truthfully, or for an unrecognised wizard page, and link-out jobs listed "
+            "under manual[] or routed to ATS Apply, are correct behavior, not failures."),
+    canary=Canary(
+        kind="http",
+        seed_url="https://au.seek.com/api/jobsearch/v5/search?siteKey=AU-Main&keywords=software%20engineer"
+                 "&page=1&pageSize=1",
+        seed_path="data.0.id",
+        url=f"https://au.seek.com/graphql?query={_SEEK_CANARY_QUERY}",
+        expect=('"isLinkOut"', '"questionnaire"'),
+        source="src.automation.tools.seek_apply_tool",
+    ),
+    name_template="Seek ({site}): {keywords}",
+    fields=(
+        Field("keywords", "text", "Search Keywords", required=True, placeholder="software engineer, python developer",
+              help="Comma-separated; one Seek search per phrase (max 5). A job is kept when its title contains "
+                   "every word of a phrase (SWE / BE / SRE … shorthand is expanded)."),
+        Field("site", "select", "Market", default="au",
+              options=(("au", "Seek Australia"), ("nz", "Seek New Zealand"), ("sg", "JobStreet Singapore"),
+                       ("my", "JobStreet Malaysia"), ("ph", "JobStreet Philippines"),
+                       ("id", "JobStreet Indonesia"))),
+        Field("location", "text", "Where", placeholder="Sydney NSW",
+              help="Seek's own location search ('where'). Blank = the whole market."),
+        Field("max_applications", "number", "Max Applications (1–200)", default=5, min=1, max=200),
+        Field("max_pages", "number", "Search Pages Per Keyword (1–10, 50 jobs each)", default=3, min=1, max=10),
+        Field("cover_letter", "textarea", "Cover Letter",
+              help="Written into Seek's 'Write a cover letter' box; {company} and {title} are filled in. "
+                   "Blank = no cover letter."),
+        Field("resume_name", "text", "Résumé To Use", placeholder="resume_backend",
+              help="Part of the name of a résumé saved in your Seek profile. Blank = Seek's pre-selected one."),
+        Field("years_experience", "number", "Years of Experience", default=3, min=0, max=50),
+        Field("salary_expectation", "text", "Expected Annual Salary", placeholder="120000",
+              help="Picks the nearest salary band in Seek's salary question (in the job's currency). "
+                   "Blank leaves it to Extra Answers / the LLM, or the job is skipped."),
+        Field("notice_period", "text", "Notice Period", default="1 month"),
+        Field("authorized_countries", "text", "Authorized To Work In", placeholder="Taiwan",
+              help="Countries you may work in. Seek's 'right to work in <country>' question is answered "
+                   "only with the sponsorship statement when the job's country isn't listed; otherwise "
+                   "add your exact status to Extra Answers (e.g. 'right to work: Australian citizen')."),
+        Field("work_authorized", "checkbox", "Authorized to work where the job is", default=True),
+        Field("needs_sponsorship", "checkbox", "Needs visa sponsorship", default=False),
+        Field("languages", "text", "Spoken Languages", default="English, Chinese"),
+        Field("programming_languages", "text", "Programming Languages", default="Python, Java, JavaScript"),
+        Field("current_location", "text", "Where You Are Based", placeholder="Taipei, Taiwan"),
+        Field("extra_answers", "textarea", "Extra Answers",
+              placeholder="driver's licence: No\npolice check: Yes",
+              help="One 'keyword: answer' per line; matched against employer questions before any other rule."),
+        Field("candidate_background", "textarea", "Candidate Background (for LLM answers)",
+              help="When set, the LLM answers required employer questions the rules miss from it — and "
+                   "abstains (job skipped) when it can't answer truthfully."),
+        Field("task_filter", "textarea", "Relevance Filter (LLM)", placeholder="Only backend roles; no management"),
+        Field("route_offsite", "checkbox", "Apply to link-out jobs on Greenhouse / Lever / … via ATS Apply",
+              default=True,
+              help="Jobs whose Apply button leaves Seek. Needs the name / e-mail / résumé below; "
+                   "without them they are listed for manual apply."),
+        Field("first_name", "text", "First Name (link-out jobs)"),
+        Field("last_name", "text", "Last Name (link-out jobs)"),
+        Field("email", "text", "Email (link-out jobs)"),
+        Field("phone", "text", "Phone (link-out jobs)"),
+        Field("resume_path", "text", "Resume Path On Server (link-out jobs)", placeholder="/path/to/resume.pdf",
+              help="Blank = ATS_RESUME_PATH from .env."),
+        Field("dry_run", "checkbox", "Dry run — stop at Seek's review step, don't Submit", default=True),
+    ),
+    help_note=(
+        "Needs your own Seek / JobStreet login: run <code>uv run python scripts/seek_login.py --site au</code> "
+        "once (or Admin → Sessions). Opens a visible Chrome window (Seek sits behind a Cloudflare check). "
+        "Jobs with an employer question we can't answer truthfully are skipped and listed — add the answer "
+        "to <b>Extra Answers</b>. Starts as a dry run."
     ),
 ))
 

@@ -43,6 +43,8 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'freelancer_relevance_judge', "name": 'Freelancer Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'freelancer_bids', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_relevance_judge', "name": 'ATS Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_screening_answerer', "name": 'ATS Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
+    {"id": 'seek_relevance_judge', "name": 'Seek Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'seek_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
+    {"id": 'seek_screening_answerer', "name": 'Seek Employer-Question Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'seek_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
 ]
 
@@ -348,6 +350,31 @@ _CATALOG: dict = {
             ],
             "used_by": ["ATSApplyFlow"],
             "source_file": "src/automation/tools/ats_apply_tool.py",
+        },
+        {
+            "id": "seek_apply",
+            "name": "Seek / JobStreet Quick Apply",
+            "class": "SeekApplyTool",
+            "description": (
+                "Quick Apply on Seek's platform (Seek AU / NZ, JobStreet SG / MY / PH / ID) with the "
+                "user's saved login. Searches the market's public search API, reads each job's "
+                "details and employer questions from Seek's GraphQL without a browser (expired / "
+                "link-out jobs never open the wizard), then walks the Quick Apply wizard — documents, "
+                "employer questions (shared answer rules + Seek's right-to-work / salary / notice "
+                "rules; a required question it can't answer skips the job), profile, review — and "
+                "clicks Submit only when dry_run is false, counting success only on Seek's success "
+                "page. Link-out jobs on a supported ATS are handed to ATS Apply."
+            ),
+            "inputs": [
+                {"name": "keywords",         "type": "str",  "description": "Search phrases, comma-separated (max 5 searches)"},
+                {"name": "site",             "type": "str",  "description": "Market: au | nz | sg | my | ph | id"},
+                {"name": "location",         "type": "str",  "description": "Seek's 'where' (blank = whole market)"},
+                {"name": "cover_letter",     "type": "str",  "description": "Typed into 'Write a cover letter' ({company} / {title} filled)"},
+                {"name": "max_applications", "type": "int (1–200)", "description": "Number of jobs to actually apply to (default 5)"},
+                {"name": "dry_run",          "type": "bool", "description": "If true (default), stop at the review step; never Submit"},
+            ],
+            "used_by": ["SeekApplyFlow"],
+            "source_file": "src/automation/tools/seek_apply_tool.py",
         },
         {
             "id": "maps_search",
