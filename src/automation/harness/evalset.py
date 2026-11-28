@@ -486,6 +486,35 @@ def _freelancer_run(case: Case, provider: str, model: str) -> object:
         return _kickoff(case.job_type, payload, provider, model)
 
 
+# upwork_drafts — discovery is a deterministic fetch (API) or a parse of pasted
+# text; the prompt-sensitive part is drafting. `fixtures.jobs` are canned
+# marketplaceJobPostingsSearch nodes fed into the real filters, ranking and
+# drafting crew; pasted jobs come straight from `payload.jobs_text`.
+def _upwork_fixture_problems(case: Case) -> list[str]:
+    jobs = case.fixtures.get("jobs", [])
+    ok = isinstance(jobs, list) and all(
+        isinstance(j, dict) and j.get("id") and j.get("title") and j.get("ciphertext") for j in jobs)
+    if not ok or not (jobs or str(case.payload.get("jobs_text", "")).strip()):
+        return ["fixtures.jobs must be a list of Upwork API job nodes ({id, title, ciphertext, ...}) "
+                "and/or payload.jobs_text must hold pasted postings"]
+    return []
+
+
+def _no_upwork_network(*_a, **_k):
+    raise AssertionError("eval runs never call the Upwork API")
+
+
+def _upwork_run(case: Case, provider: str, model: str) -> object:
+    from src.automation.tools import upwork_tool as ut
+    jobs = [ut.normalize(j) for j in case.fixtures.get("jobs", [])]
+    with mock.patch.object(ut.UpworkAuth, "from_env", classmethod(lambda cls: cls(access_token="eval"))), \
+            mock.patch.object(ut, "search", lambda client, auth, keywords, **k: (jobs, [])), \
+            mock.patch.object(ut, "graphql", _no_upwork_network), \
+            mock.patch.object(ut._ledger, "load_ledger", lambda path: {}), \
+            mock.patch.object(ut, "record_drafted", lambda path, job: None):
+        return _kickoff(case.job_type, case.payload, provider, model)
+
+
 # custom:<slug> — the definition normally lives in the DB; a case carries it in
 # `fixtures.custom` and runs the same no-tools DynamicCrew as executor._run_custom.
 def _custom_fixture_problems(case: Case) -> list[str]:
@@ -516,6 +545,7 @@ _ADAPTERS: dict[str, Adapter] = {
     "profit_health_check": Adapter(_profit_fixture_problems, _profit_run, _profit_consistency),
     "email_collect": Adapter(_email_fixture_problems, _email_run),
     "freelancer_bids": Adapter(_freelancer_fixture_problems, _freelancer_run),
+    "upwork_drafts": Adapter(_upwork_fixture_problems, _upwork_run),
 }
 _CUSTOM_ADAPTER = Adapter(_custom_fixture_problems, _custom_run)
 

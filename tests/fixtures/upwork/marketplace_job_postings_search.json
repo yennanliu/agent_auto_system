@@ -1,0 +1,85 @@
+{
+  "_comment": "Shape of a marketplaceJobPostingsSearch answer, built from Upwork's GraphQL reference (MarketplaceJobPostingSearchConnection / MarketplaceJobPostingSearchResult / Money / MarketplaceJobPostingSearchClientInfo). Values are fictional; NOT captured from a live call (no Upwork token on the build machine).",
+  "data": {
+    "marketplaceJobPostingsSearch": {
+      "totalCount": 3,
+      "edges": [
+        {
+          "cursor": "1",
+          "node": {
+            "id": "2056488576136638272",
+            "title": "Senior Python developer for a Playwright scraper",
+            "description": "Scrape 40 category pages whose prices render with JavaScript; daily CSV.",
+            "ciphertext": "~022056488576136638272",
+            "publishedDateTime": "2026-11-27T21:34:18.000Z",
+            "createdDateTime": "2026-11-27T21:30:00.000Z",
+            "totalApplicants": 4,
+            "experienceLevel": "EXPERT",
+            "durationLabel": "1 to 3 months",
+            "applied": false,
+            "hourlyBudgetType": "DEFAULT",
+            "amount": {"rawValue": "0.0", "currency": "USD"},
+            "hourlyBudgetMin": {"rawValue": "35.0", "currency": "USD"},
+            "hourlyBudgetMax": {"rawValue": "70.0", "currency": "USD"},
+            "skills": [{"name": "python", "prettyName": "Python"}, {"name": "web-scraping", "prettyName": "Web Scraping"}],
+            "client": {
+              "totalHires": 9, "totalPostedJobs": 14, "totalReviews": 7, "totalFeedback": 4.8,
+              "verificationStatus": "VERIFIED", "totalSpent": {"rawValue": "12500.0", "currency": "USD"},
+              "location": {"country": "United States"}
+            }
+          }
+        },
+        {
+          "cursor": "2",
+          "node": {
+            "id": "2056488576136638273",
+            "title": "Fix our Django admin export",
+            "description": "The CSV export in Django admin times out on large tables.",
+            "ciphertext": "~022056488576136638273",
+            "publishedDateTime": "2026-11-26T10:00:00.000Z",
+            "createdDateTime": "2026-11-26T09:58:00.000Z",
+            "totalApplicants": 22,
+            "experienceLevel": "INTERMEDIATE",
+            "durationLabel": "Less than 1 month",
+            "applied": false,
+            "hourlyBudgetType": null,
+            "amount": {"rawValue": "250.0", "currency": "USD"},
+            "hourlyBudgetMin": null,
+            "hourlyBudgetMax": null,
+            "skills": [{"name": "django", "prettyName": "Django"}],
+            "client": {
+              "totalHires": 0, "totalPostedJobs": 1, "totalReviews": 0, "totalFeedback": 0,
+              "verificationStatus": "NOT_VERIFIED", "totalSpent": null,
+              "location": {"country": "Australia"}
+            }
+          }
+        },
+        {
+          "cursor": "3",
+          "node": {
+            "id": "2056488576136638274",
+            "title": "Logo for a coffee brand",
+            "description": "Need a modern logo.",
+            "ciphertext": "~022056488576136638274",
+            "publishedDateTime": "2026-11-25T10:00:00.000Z",
+            "createdDateTime": "2026-11-25T10:00:00.000Z",
+            "totalApplicants": 48,
+            "experienceLevel": "ENTRY_LEVEL",
+            "durationLabel": "Less than 1 month",
+            "applied": true,
+            "hourlyBudgetType": null,
+            "amount": {"rawValue": "80.0", "currency": "USD"},
+            "hourlyBudgetMin": null,
+            "hourlyBudgetMax": null,
+            "skills": [{"name": "logo-design", "prettyName": "Logo Design"}],
+            "client": {
+              "totalHires": 3, "totalPostedJobs": 5, "totalReviews": 2, "totalFeedback": 4.1,
+              "verificationStatus": "VERIFIED", "totalSpent": {"rawValue": "300.0", "currency": "USD"},
+              "location": {"country": "Spain"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

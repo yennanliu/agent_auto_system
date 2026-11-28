@@ -12,8 +12,11 @@ with open(_CFG / "tasks.yaml") as _f:
 
 
 class FreelancerProposalCrew:
-    """Drafts one Freelancer.com bid proposal from the candidate's background,
-    or answers "SKIP: <reason>" when the background doesn't fit the project.
+    """Drafts one freelance proposal from the candidate's background, or
+    answers "SKIP: <reason>" when the background doesn't fit the job.
+
+    Shared by ``freelancer_bids`` and ``upwork_drafts``: the ``platform`` input
+    ("Freelancer.com" / "Upwork") names the marketplace in the prompt.
 
     Pure-LLM (no tools); the flow calls ``.crew().kickoff(...)`` once per
     project. Plain class, no @CrewBase (see CLAUDE.md).

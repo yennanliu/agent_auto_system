@@ -149,7 +149,7 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                     continue
             try:
                 text = _kick(FreelancerProposalCrew, {
-                    "project_title": p["title"], "project_budget": budget_text(p),
+                    "platform": "Freelancer.com", "project_title": p["title"], "project_budget": budget_text(p),
                     "project_skills": ", ".join(p["skills"]) or "(none tagged)",
                     "project_description": p["description"][:3000] or "(no description)",
                     "candidate_background": st.candidate_background,

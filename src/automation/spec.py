@@ -705,6 +705,66 @@ register(AutomationSpec(
 ))
 
 register(AutomationSpec(
+    job_type="upwork_drafts", desc="Find and rank Upwork jobs and draft proposals (draft-only, never submits)",
+    name="Upwork Drafts", icon="🟢",
+    flow_module="src.automation.flows.upwork_drafts_flow", flow_class="UpworkDraftsFlow",
+    start_log="Searching Upwork jobs", temperature=0.5,
+    steps=(("Start", "Starting"), ("Validate", "Payload validated"),
+           ("Search", "Searching Upwork jobs"), ("Draft", "Upwork drafting complete"), *_QA, _DONE),
+    validate=lambda r: (
+        isinstance(r.get("drafted"), list) and r.get("jobs_found") is not None and not r.get("submitted"),
+        "no jobs processed",
+    ),
+    rubric=("DRAFT-ONLY: nothing may be submitted and no Connects spent — submitted is 0 and the note "
+            "tells the human to submit each proposal on Upwork themselves. Matching Upwork jobs were "
+            "found and ranked; each drafted proposal is specific to its job, uses only facts from the "
+            "candidate background (no invented experience, clients or links), contains no price or "
+            "placeholders, ends with a question, and comes with the job's url and a suggested rate / "
+            "bid. Jobs the background doesn't fit are declined (skipped with a reason), not drafted; "
+            "jobs removed by the filters are listed with their reason."),
+    canary_skip=(
+        "Discovery is the official GraphQL API, which needs the user's own OAuth token (the canary "
+        "holds none), or text the user pasted. Every public Upwork page answers a non-browser client "
+        "with a Cloudflare 403, and probing them with a browser is the scraping Upwork's ToS forbid."
+    ),
+    name_template="Upwork drafts: {keywords}",
+    fields=(
+        Field("candidate_background", "textarea", "Your Background", required=True,
+              help="Skills, experience and links the proposals may use — the only facts about you the LLM "
+                   "is allowed to state. Jobs your background doesn't fit are declined, not drafted."),
+        Field("keywords", "text", "Search Keywords (Upwork API)", placeholder="python, web scraping",
+              help="Comma-separated; one Upwork API search per keyword (max 5). Needs your Upwork API token "
+                   "on the server (scripts/upwork_oauth.py). Leave blank to use only pasted jobs."),
+        Field("jobs_text", "textarea", "Pasted Jobs (no API needed)",
+              placeholder="https://www.upwork.com/jobs/~01...\nJob title\nHourly: $30-$60\n...\n---\nnext job",
+              help="Paste job postings copied from Upwork or its job-alert e-mails, separated by a line of "
+                   "'---'. Include each job's link so you can submit."),
+        Field("job_type", "select", "Job Type", default="any",
+              options=(("any", "Fixed or hourly"), ("fixed", "Fixed price"), ("hourly", "Hourly"))),
+        Field("min_fixed_budget", "number", "Min Fixed Budget (USD)", default=0, min=0,
+              help="Skip fixed-price jobs below this. 0 = any."),
+        Field("min_hourly_rate", "number", "Min Hourly Rate (USD)", default=0, min=0,
+              help="Skip hourly jobs whose range tops out below this. 0 = any."),
+        Field("hourly_rate", "number", "Your Hourly Rate (USD, optional)", default=0, min=0,
+              help="Used as the suggested rate on hourly jobs; blank = middle of the client's range."),
+        Field("max_applicants", "number", "Max Existing Proposals", default=20, min=0,
+              help="Skip crowded jobs with more proposals than this. 0 = any."),
+        Field("payment_verified_only", "checkbox", "Only clients with a verified payment method", default=True),
+        Field("max_drafts", "number", "Proposals To Draft (1–25)", default=5, min=1, max=25),
+        Field("proposal_template", "textarea", "Proposal Template (optional)",
+              help="Reusable text (portfolio links, sign-off) kept verbatim; the rest is tailored."),
+        Field("task_filter", "textarea", "Relevance Filter (LLM, optional)",
+              placeholder="Only backend / data work; no WordPress"),
+    ),
+    help_note=(
+        "<b>Draft-only — never submits a proposal and never spends Connects.</b> Finds Upwork jobs via the "
+        "official API (your token) and/or jobs you paste, ranks them, and drafts a proposal with a suggested "
+        "rate for each. Open each job's link, review, and click Submit on Upwork yourself. Jobs drafted in an "
+        "earlier run are skipped."
+    ),
+))
+
+register(AutomationSpec(
     job_type="ats_apply", desc="Auto-apply on Greenhouse, Lever, Ashby, Workable, Recruitee, Teamtailor, SmartRecruiters and Workday boards",
     name="ATS Apply", icon="🧭",
     flow_module="src.automation.flows.ats_apply_flow", flow_class="ATSApplyFlow",

@@ -41,6 +41,8 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'greenhouse_screening_answerer', "name": 'Greenhouse Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
     {"id": 'freelancer_proposal_writer', "name": 'Freelancer Proposal Writer', "yaml_key": 'proposal_writer', "tools": [], "crew": 'FreelancerProposalCrew', "task": 'write_proposal_task', "job_type": 'freelancer_bids', "source_file": 'src/automation/crews/freelancer_proposal_crew/config/agents.yaml'},
     {"id": 'freelancer_relevance_judge', "name": 'Freelancer Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'freelancer_bids', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
+    {"id": 'upwork_proposal_writer', "name": 'Upwork Proposal Writer (draft-only)', "yaml_key": 'proposal_writer', "tools": [], "crew": 'FreelancerProposalCrew', "task": 'write_proposal_task', "job_type": 'upwork_drafts', "source_file": 'src/automation/crews/freelancer_proposal_crew/config/agents.yaml'},
+    {"id": 'upwork_relevance_judge', "name": 'Upwork Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'upwork_drafts', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_relevance_judge', "name": 'ATS Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_screening_answerer', "name": 'ATS Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
@@ -322,6 +324,29 @@ _CATALOG: dict = {
             ],
             "used_by": ["FreelancerBidsFlow"],
             "source_file": "src/automation/tools/freelancer_tool.py",
+        },
+        {
+            "id": "upwork_search",
+            "name": "Upwork Job Search (read-only)",
+            "class": "upwork_tool.find_jobs",
+            "description": (
+                "Finds Upwork jobs through the official GraphQL API (marketplaceJobPostingsSearch, with the "
+                "user's OAuth token) and/or job postings the user pasted, then filters (type, budget, rate, "
+                "proposals so far, payment-verified client, keywords, already drafted) and ranks them. "
+                "Read-only by construction: its GraphQL helper refuses any non-query document, so it can't "
+                "submit a proposal or spend Connects. Called directly by UpworkDraftsFlow."
+            ),
+            "inputs": [
+                {"name": "keywords",              "type": "str",   "description": "Comma-separated API search terms (max 5 searches)"},
+                {"name": "jobs_text",             "type": "str",   "description": "Pasted postings separated by '---' lines"},
+                {"name": "job_type",              "type": "str",   "description": "any | fixed | hourly"},
+                {"name": "min_fixed_budget",      "type": "float", "description": "Skip fixed-price jobs below this (0 = any)"},
+                {"name": "min_hourly_rate",       "type": "float", "description": "Skip hourly jobs topping out below this (0 = any)"},
+                {"name": "max_applicants",        "type": "int",   "description": "Skip jobs with more proposals than this (0 = any)"},
+                {"name": "payment_verified_only", "type": "bool",  "description": "Skip clients whose payment isn't verified"},
+            ],
+            "used_by": ["UpworkDraftsFlow"],
+            "source_file": "src/automation/tools/upwork_tool.py",
         },
         {
             "id": "ats_apply",

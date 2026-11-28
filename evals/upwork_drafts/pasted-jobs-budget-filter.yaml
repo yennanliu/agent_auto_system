@@ -1,0 +1,96 @@
+id: pasted-jobs-budget-filter
+job_type: upwork_drafts
+description: >-
+  No API token: two fictional postings pasted from Upwork job-alert text. The Airflow /
+  BigQuery job fits and must be drafted from the background only, keeping its link and the
+  client's fixed budget as the suggested bid. The $50 job is below the $200 minimum and is
+  filtered out before the LLM. Nothing is submitted.
+payload:
+  min_fixed_budget: 200
+  max_drafts: 3
+  candidate_background: >-
+    Data engineer, 5 years. Apache Airflow DAGs, dbt models and BigQuery for a retail analytics
+    team; Python and SQL. Wrote an Airflow-on-Kubernetes migration guide at
+    https://notes.example/airflow-k8s.
+  jobs_text: |
+    https://www.upwork.com/jobs/~01bb0000000000002001
+    Move nightly cron jobs to Airflow and BigQuery (fictional)
+    Fixed-price - Est. budget: $600
+    Proposals: 5 to 10
+    Payment verified
+    We have three nightly Python cron jobs. Move them into Airflow, load the results into
+    BigQuery and alert us in Slack when one fails.
+    ---
+    https://www.upwork.com/jobs/~01bb0000000000002002
+    Quick CSV cleanup (fictional)
+    Fixed-price - Est. budget: $50
+    Proposals: Less than 5
+    Tidy one CSV with pandas.
+fixtures: {}
+expect:
+  contains:
+    - "Move nightly cron jobs to Airflow and BigQuery (fictional)"
+    - "https://www.upwork.com/jobs/~01bb0000000000002001"
+    - "fixed budget $50 < $200"
+  assertions:
+    - {path: "jobs_found", equals: 2}
+    - {path: "submitted", equals: 0}
+    - {path: "drafted", type: list, min_len: 1, max_len: 1}
+    - {path: "drafted[0].id", equals: "~01bb0000000000002001"}
+    - {path: "drafted[0].suggested_rate.amount", equals: 600}
+    - {path: "drafted[0].proposal", type: str, non_empty: true, max_len: 1600}
+    - {path: "skipped", type: list, min_len: 1, max_len: 1}
+  min_judge_score: 65
+reference_output:
+  summary: 2 job(s) found, 1 passed the filters, 1 proposal(s) drafted (not submitted), 1 skipped.
+  sources:
+  - pasted
+  jobs_found: 2
+  drafted_count: 1
+  skipped_count: 1
+  submitted: 0
+  drafted:
+  - rank: 1
+    rank_score: 55
+    rank_reasons:
+    - payment verified
+    - 10 proposal(s) so far
+    id: ~01bb0000000000002001
+    title: Move nightly cron jobs to Airflow and BigQuery (fictional)
+    url: https://www.upwork.com/jobs/~01bb0000000000002001
+    type: fixed
+    budget: fixed price, $600
+    applicants: 10
+    source: pasted
+    skills: []
+    client:
+      payment_verified: true
+      hires: null
+      posted_jobs: null
+      reviews: null
+      feedback: null
+      spent: null
+      country: ''
+    suggested_rate:
+      amount: 600
+      unit: fixed
+      basis: the client's fixed budget
+    proposal: You want three nightly Python cron jobs moved into Airflow, their results loaded into BigQuery,
+      and a Slack alert when one fails. I would wrap each existing script as a task in one DAG with retries,
+      load into BigQuery with an explicit schema so bad rows fail loudly, and add an on-failure callback
+      that posts the task name and log link to Slack. I build Airflow DAGs and BigQuery models for a retail
+      analytics team today, and wrote up an Airflow-on-Kubernetes migration at https://notes.example/airflow-k8s.
+      Are the three jobs independent, or does one need another's output first?
+    status: draft — not submitted
+  skipped:
+  - id: ~01bb0000000000002002
+    title: Quick CSV cleanup (fictional)
+    url: https://www.upwork.com/jobs/~01bb0000000000002002
+    type: fixed
+    budget: fixed price, $50
+    applicants: 4
+    source: pasted
+    reason: fixed budget $50 < $200
+  warnings: []
+  note: 'Draft-only: nothing was submitted and no Connects were spent. Open each job''s url, review the
+    proposal (and answer any screening questions) and submit it on Upwork yourself.'
