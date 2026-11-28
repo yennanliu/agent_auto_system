@@ -4,7 +4,7 @@
 
 ```bash
 uv sync                                              # install deps
-uv run playwright install chromium                   # browser jobs: form_fill, shopee, x, tasker, email_collect
+uv run playwright install chromium                   # browser jobs: form_fill, shopee, x, tasker, email_collect, seek_apply
 
 uv run uvicorn src.main:app --reload --port 8000     # dev server
 kill -9 $(lsof -ti:8000)                             # kill port 8000
@@ -24,6 +24,7 @@ uv run python scripts/ats_live_smoke.py              # live DRY-RUN of the ATS a
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
+uv run python scripts/seek_login.py --site au        # persist a Seek (au/nz) or JobStreet (sg/my/ph/id) session for seek_apply
 
 uv run python scripts/greenhouse_country_boards.py scan            # cache live Greenhouse boards (~25 min, throttled)
 uv run python scripts/greenhouse_country_boards.py report spain    # per-country board list for greenhouse_apply
@@ -59,7 +60,7 @@ GET /api/jobs/{id}/overview → Airflow-style grid: recent runs × per-step stat
 | Auth / RBAC | `src/auth.py`, `src/settings_store.py` | login, per-user `allowed_automations`, global `ALL_AUTOMATIONS`/enabled set, Fernet-encrypted API keys, eval-judge choice |
 | SSO / OAuth | `src/oauth.py`, `src/routers/oauth.py` | Google/GitHub sign-in (Authlib); env-gated provider registration, find-link-provision. Setup: [doc/sso-setup.md](doc/sso-setup.md) |
 | Routers | `src/routers/` | `auth` · `admin` · `jobs` · `runs` (trigger/cancel/SSE/stats/`report.pdf`/`leads.csv`) · `system` · `sessions` · `uploads` |
-| Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
+| Browser sessions | `src/automation/browser_session.py`, `src/routers/sessions.py` | On-demand headed-browser login refresh for the storage-state automations (tasker/104/Shopee/LinkedIn/Seek/JobStreet), decoupled from runs. `GET /api/sessions` (freshness), `POST /api/sessions/{name}/login` (background headed login). **Local server only** — gate with `BROWSER_LOGIN_ENABLED=0` on remote hosts. UI: Admin → Sessions |
 | Canaries | `src/automation/canary.py`, `scripts/run_canaries.py` | Read-only scraper drift probes, declared per automation as `AutomationSpec.canary` (or `canary_skip` + reason). Outcomes `ok`/`failed`/`session_expired`/`skipped_no_session`/`error` land in `CanaryResult`; `decide_alert()` pages on the flip to failing → log + `CANARY_ALERT_WEBHOOK`. Nightly via the scheduler only with `CANARY_ENABLED=1` (no effect when `SCHEDULER_ENABLED=0` — cron `scripts/run_canaries.py` instead). Throttle/bot-wall statuses (403/408/425/429/999) are `error`, not drift. `GET /api/admin/canaries`. **Must stay read-only**: no tool/flow imports, non-GET requests aborted, probes see only `ReadOnlyPage` |
 | UI | `ui/index.html`, `ui/js/*.js` | Native ES modules, **no build step**; `main.js` is the entry point (see *UI modules* below). `catalog.js` `LLM_MODELS` drives the provider→model dropdown |
 
