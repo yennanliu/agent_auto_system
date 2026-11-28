@@ -43,6 +43,8 @@ _AGENT_DEFS: list[dict] = [
     {"id": 'freelancer_relevance_judge', "name": 'Freelancer Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'freelancer_bids', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_relevance_judge', "name": 'ATS Relevance Judge', "yaml_key": 'relevance_judge', "tools": [], "crew": 'GreenhouseRelevanceCrew', "task": 'judge_relevance_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_relevance_crew/config/agents.yaml'},
     {"id": 'ats_screening_answerer', "name": 'ATS Screening Answerer', "yaml_key": 'screening_answerer', "tools": [], "crew": 'GreenhouseAnswerCrew', "task": 'answer_question_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/greenhouse_answer_crew/config/agents.yaml'},
+    {"id": 'greenhouse_resume_tailor', "name": 'Greenhouse Résumé Tailor', "yaml_key": 'resume_tailor', "tools": [], "crew": 'ResumeTailorCrew', "task": 'tailor_resume_task', "job_type": 'greenhouse_apply', "source_file": 'src/automation/crews/resume_tailor_crew/config/agents.yaml'},
+    {"id": 'ats_resume_tailor', "name": 'ATS Résumé Tailor', "yaml_key": 'resume_tailor', "tools": [], "crew": 'ResumeTailorCrew', "task": 'tailor_resume_task', "job_type": 'ats_apply', "source_file": 'src/automation/crews/resume_tailor_crew/config/agents.yaml'},
     {"id": 'lead_qualifier_agent', "name": 'Lead Qualifier', "tools": [], "crew": 'EmailCollectCrew', "task": 'qualify_task', "job_type": 'email_collect', "source_file": 'src/automation/crews/email_collect_crew/config/agents.yaml'},
 ]
 

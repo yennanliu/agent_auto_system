@@ -5,10 +5,21 @@ from pydantic import BaseModel
 
 from src.automation.crews.greenhouse_answer_crew.crew import GreenhouseAnswerCrew
 from src.automation.crews.greenhouse_relevance_crew.crew import GreenhouseRelevanceCrew
+from src.automation.crews.resume_tailor_crew.crew import ResumeTailorCrew
 from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.greenhouse_apply_tool import run_greenhouse_apply
+from src.automation.tools.resume_tailor import Tailor, accept, jd_focus, job_description
+
+# A résumé PDF without a text layer (scanned), transcribed once per run.
+_READ_PDF_PROMPT = (
+    "Transcribe the attached résumé PDF to plain text, verbatim: every name, "
+    "contact detail, employer, title, date, bullet and skill exactly as written, "
+    "in reading order, with UPPERCASE section headings and '- ' bullets. Add, "
+    "summarise or correct nothing. Output only the transcript. If no document is "
+    "attached, reply exactly NO_DOCUMENT."
+)
 
 
 def _parse_json_obj(text: str, key: str) -> dict | None:
@@ -66,8 +77,9 @@ def _names_unmentioned_employer(question: str, job: dict, background: str) -> bo
 
 def build_llm_callbacks(state) -> tuple:
     """The optional LLM steps of an apply flow, built from its state:
-    ``(relevance_fn, answer_fn, usage_acc)``. ``relevance_fn`` is None unless
-    ``task_filter`` is set; ``answer_fn`` is None unless ``candidate_background``
+    ``(relevance_fn, answer_fn, tailor_fn, usage_acc)``. ``relevance_fn`` is
+    None unless ``task_filter`` is set; ``answer_fn`` is None unless
+    ``candidate_background`` is; ``tailor_fn`` is None unless ``tailor_resume``
     is. Shared by the Greenhouse and multi-ATS apply flows; the LLM is resolved
     lazily, so a run using neither makes no LLM call."""
     usage_acc = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -172,7 +184,53 @@ def build_llm_callbacks(state) -> tuple:
                     append_log(state.run_id,
                                f"Screening answerer failed ({exc}); leaving unanswered.")
                     return ""
-    return relevance_fn, answer_fn, usage_acc
+
+    # ── Tailored résumé (forms with a paste-résumé option) ──
+    tailor_fn = None
+    if state.tailor_resume:
+        llm = _get_llm()
+        if llm is None:
+            append_log(state.run_id, "tailor_resume is on but no LLM is available; "
+                                     "uploading the résumé file as is.")
+        else:
+            identity = {"first_name": state.first_name, "last_name": state.last_name,
+                        "email": state.email}
+
+            def rewrite(resume_text: str, job_data: dict) -> str:
+                title = job_data.get("title") or ""
+                jd = job_description(job_data)
+                if not jd:
+                    return ""
+                try:
+                    result = ResumeTailorCrew(llm=llm).crew().kickoff(inputs={
+                        "job_title": title, "company": job_data.get("company_name") or "",
+                        "job_description": jd, "resume": resume_text,
+                    })
+                    _acc_usage(result)
+                    text, why = accept(
+                        (result.raw if hasattr(result, "raw") else str(result)) or "",
+                        resume_text, identity)
+                except Exception as exc:  # noqa: BLE001
+                    text, why = "", f"{type(exc).__name__}: {exc}"
+                if why:
+                    append_log(state.run_id, f"Tailored résumé rejected for '{title[:60]}' "
+                                             f"({why[:120]}); uploading the file instead.")
+                else:
+                    append_log(state.run_id, (
+                        f"Résumé tailored to '{title[:60]}' ({len(text)} chars, pasted) — "
+                        f"JD terms in its top section: {jd_focus(resume_text, jd):.0%} → "
+                        f"{jd_focus(text, jd):.0%}."))
+                return text
+
+            def read_pdf(path: str) -> str:
+                from crewai_files import PDFFile  # crewai[file-processing]
+                raw = llm.call([{"role": "user", "content": _READ_PDF_PROMPT,
+                                 "files": {"resume": PDFFile(source=path)}}])
+                text = str(raw or "").strip()
+                return "" if "NO_DOCUMENT" in text[:40] else text
+
+            tailor_fn = Tailor(rewrite=rewrite, read_pdf=read_pdf)
+    return relevance_fn, answer_fn, tailor_fn, usage_acc
 
 
 class GreenhouseApplyState(BaseModel):
@@ -210,6 +268,7 @@ class GreenhouseApplyState(BaseModel):
     reason_for_leaving: str = "Looking for more challenging opportunities."
     has_criminal_record: bool = False
     candidate_background: str = ""  # enables LLM answers to required screening questions
+    tailor_resume: bool = False     # paste a JD-tailored résumé where the form allows plain text
     task_filter: str = ""           # optional 2nd gate: LLM relevance filter (nat-lang)
     max_applications: int = 5
     max_per_board: int = 0          # cap per company (0 = no cap)
@@ -239,7 +298,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
 
     @listen(validate_payload)
     def execute_apply(self, _):
-        relevance_fn, answer_fn, usage_acc = build_llm_callbacks(self.state)
+        relevance_fn, answer_fn, tailor_fn, usage_acc = build_llm_callbacks(self.state)
 
         result = run_greenhouse_apply(
             boards=self.state.boards,
@@ -277,6 +336,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
             dry_run=self.state.dry_run,
             relevance_fn=relevance_fn,
             answer_fn=answer_fn,
+            resume_tailor=tailor_fn,
             log=lambda m: append_log(self.state.run_id, m),
         )
 

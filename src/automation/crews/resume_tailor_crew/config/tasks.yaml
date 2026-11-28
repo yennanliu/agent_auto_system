@@ -1,0 +1,30 @@
+tailor_resume_task:
+  description: >
+    Tailor the candidate's résumé to this job. It will be pasted as plain text
+    into the application form's "Enter résumé manually" box.
+
+    Job: {job_title} at {company}
+
+    Job description:
+    ---
+    {job_description}
+    ---
+
+    Original résumé (the ONLY source of facts you may use):
+    ---
+    {resume}
+    ---
+
+    Requirements:
+    - Keep every employer, title, date, degree and contact detail exactly as
+      written. Never add a skill, tool, number, metric or achievement the
+      original does not state — not even one the job asks for.
+    - Put the experience and skills most relevant to this job first; reword
+      bullets to use the job's terminology only where the original supports it.
+    - Shorten or drop bullets unrelated to the job, but keep every role.
+    - Plain text only: no Markdown (#, **, tables), no code fences. Use
+      UPPERCASE section headings and "- " bullets.
+    - Output only the résumé — no preface, notes or explanation.
+  expected_output: >
+    The tailored résumé as plain text, starting with the candidate's name.
+  agent: resume_tailor

@@ -626,6 +626,13 @@ register(AutomationSpec(
                    "from it — and abstains (job skipped) when it can't answer truthfully."),
         Field("task_filter", "textarea", "Relevance Filter (LLM)",
               placeholder="Only backend / platform roles; no management"),
+        Field("tailor_resume", "checkbox", "Tailor résumé to each job (LLM, plain-text paste)",
+              default=False,
+              help="Where a form lets you paste the résumé as text (Greenhouse's 'Enter manually'), "
+                   "the LLM rewrites your résumé toward that job's description — reordering and "
+                   "rewording only, never adding facts — and pastes it. Reads the résumé file's text "
+                   "(.pdf / .txt / .md; a scanned PDF is read by the LLM). Any problem falls back to "
+                   "uploading the file."),
         Field("max_applications", "number", "Max Applications (1–200)", default=5, min=1, max=200),
         Field("max_per_board", "number", "Max Applications Per Company (0 = no cap)", default=0, min=0, max=50),
         Field("max_scans_per_board", "number", "Max Jobs Examined Per Company (0 = no cap)", default=0, min=0, max=500,
