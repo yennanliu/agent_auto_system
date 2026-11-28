@@ -24,6 +24,7 @@ uv run python scripts/ats_live_smoke.py              # live DRY-RUN of the ATS a
 
 uv run python scripts/shopee_login.py                # persist a Shopee session (once)
 uv run python scripts/tasker_login.py                # persist a tasker.com.tw session (once)
+uv run python scripts/upwork_oauth.py                # authorize the read-only Upwork API for upwork_drafts (once)
 
 uv run python scripts/greenhouse_country_boards.py scan            # cache live Greenhouse boards (~25 min, throttled)
 uv run python scripts/greenhouse_country_boards.py report spain    # per-country board list for greenhouse_apply

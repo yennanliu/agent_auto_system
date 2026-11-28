@@ -1,0 +1,207 @@
+id: api-rank-fit-and-misfit
+job_type: upwork_drafts
+description: >-
+  Five fictional Upwork API jobs. A Python scraping job (few proposals, verified client) and a
+  Django API job both fit the background and must be drafted, best-ranked first, each with its
+  job link and a suggested rate, and nothing submitted. A Swift/iOS app does not fit a
+  Python-only background and must be declined, not drafted. A crowded job (75 proposals) and a
+  client without a verified payment method are removed by the deterministic filters before the
+  LLM sees them. The API search is stubbed.
+payload:
+  keywords: "python, scraping"
+  hourly_rate: 45
+  max_applicants: 20
+  payment_verified_only: true
+  max_drafts: 5
+  candidate_background: >-
+    Python developer, 6 years. Built web scrapers with Scrapy and Playwright for e-commerce
+    price monitoring, Django REST APIs and PostgreSQL. Portfolio: https://portfolio.example/dev.
+    No mobile or iOS experience.
+fixtures:
+  jobs:
+    - id: "1001"
+      ciphertext: "~01aa0000000000001001"
+      title: "Python scraper for JavaScript-rendered price pages (fictional)"
+      description: >-
+        We track competitor prices on about 30 product pages. Prices load with JavaScript.
+        Need a Python script that runs daily and writes a CSV with product, price and stock.
+      publishedDateTime: "2026-01-10T08:00:00Z"
+      totalApplicants: 3
+      hourlyBudgetType: DEFAULT
+      hourlyBudgetMin: {rawValue: "30.0", currency: USD}
+      hourlyBudgetMax: {rawValue: "60.0", currency: USD}
+      amount: {rawValue: "0.0", currency: USD}
+      skills: [{name: python, prettyName: Python}, {name: web-scraping, prettyName: Web Scraping}]
+      client: {totalHires: 12, totalPostedJobs: 20, totalReviews: 8, totalFeedback: 4.9,
+               verificationStatus: VERIFIED, location: {country: Canada}}
+    - id: "1002"
+      ciphertext: "~01aa0000000000001002"
+      title: "Django REST API for inventory sync (fictional)"
+      description: >-
+        Build a small Django REST Framework API that receives stock updates from our warehouse
+        system and stores them in PostgreSQL. Token auth, three endpoints, tests.
+      publishedDateTime: "2026-01-09T08:00:00Z"
+      totalApplicants: 12
+      amount: {rawValue: "800.0", currency: USD}
+      skills: [{name: python, prettyName: Python}, {name: django, prettyName: Django}]
+      client: {totalHires: 0, totalPostedJobs: 1, totalReviews: 0, totalFeedback: 0,
+               verificationStatus: VERIFIED, location: {country: Germany}}
+    - id: "1003"
+      ciphertext: "~01aa0000000000001003"
+      title: "Native iOS app in Swift with a Python backend hook (fictional)"
+      description: "Build a native iOS ordering app in Swift with Apple Pay; a Python team owns the backend."
+      publishedDateTime: "2026-01-08T08:00:00Z"
+      totalApplicants: 6
+      amount: {rawValue: "3000.0", currency: USD}
+      skills: [{name: swift, prettyName: Swift}, {name: ios, prettyName: iOS Development}, {name: python, prettyName: Python}]
+      client: {totalHires: 4, totalPostedJobs: 6, totalReviews: 3, totalFeedback: 4.6,
+               verificationStatus: VERIFIED, location: {country: United States}}
+    - id: "1004"
+      ciphertext: "~01aa0000000000001004"
+      title: "Python data entry script (fictional)"
+      description: "Copy rows from PDFs into a sheet with Python."
+      publishedDateTime: "2026-01-07T08:00:00Z"
+      totalApplicants: 75
+      amount: {rawValue: "100.0", currency: USD}
+      skills: [{name: python, prettyName: Python}]
+      client: {totalHires: 1, totalPostedJobs: 3, totalReviews: 1, totalFeedback: 5.0,
+               verificationStatus: VERIFIED, location: {country: India}}
+    - id: "1005"
+      ciphertext: "~01aa0000000000001005"
+      title: "Python scraping bot for listings (fictional)"
+      description: "Scrape listings from a marketplace."
+      publishedDateTime: "2026-01-06T08:00:00Z"
+      totalApplicants: 2
+      amount: {rawValue: "400.0", currency: USD}
+      skills: [{name: python, prettyName: Python}]
+      client: {totalHires: 0, totalPostedJobs: 1, totalReviews: 0, totalFeedback: 0,
+               verificationStatus: NOT_VERIFIED, location: {country: United States}}
+expect:
+  contains:
+    - "Python scraper for JavaScript-rendered price pages (fictional)"
+    - "75 proposals already"
+    - "payment method is not verified"
+    - "https://www.upwork.com/jobs/~01aa0000000000001001"
+  not_contains:
+    - "createJobProposal"
+  assertions:
+    - {path: "jobs_found", equals: 5}
+    - {path: "submitted", equals: 0}
+    - {path: "drafted", type: list, min_len: 2, max_len: 2}
+    - {path: "drafted[0].id", equals: "1001"}
+    - {path: "drafted[0].suggested_rate.amount", equals: 45}
+    - {path: "drafted[0].proposal", type: str, non_empty: true, max_len: 1600}
+    - {path: "drafted[1].id", equals: "1002"}
+    - {path: "drafted[1].suggested_rate.amount", equals: 800}
+    - {path: "skipped", type: list, min_len: 3, max_len: 3}
+  min_judge_score: 65
+reference_output:
+  summary: 5 job(s) found, 3 passed the filters, 2 proposal(s) drafted (not submitted), 3 skipped.
+  sources:
+  - api
+  jobs_found: 5
+  drafted_count: 2
+  skipped_count: 3
+  submitted: 0
+  drafted:
+  - rank: 1
+    rank_score: 95
+    rank_reasons:
+    - keyword in title
+    - payment verified
+    - client has 12 hire(s)
+    - client rated 4.9
+    - 3 proposal(s) so far
+    id: '1001'
+    title: Python scraper for JavaScript-rendered price pages (fictional)
+    url: https://www.upwork.com/jobs/~01aa0000000000001001
+    type: hourly
+    budget: hourly, $30–$60/hr
+    applicants: 3
+    source: api
+    skills:
+    - Python
+    - Web Scraping
+    client:
+      payment_verified: true
+      hires: 12
+      posted_jobs: 20
+      reviews: 8
+      feedback: 4.9
+      spent: null
+      country: Canada
+    suggested_rate:
+      amount: 45.0
+      unit: hour
+      basis: your hourly rate
+    proposal: You want a daily CSV of product, price and stock for about 30 competitor pages whose prices
+      only appear after JavaScript runs. I would load each page with Playwright so the rendered price
+      is captured, keep the crawl polite with a short delay between pages, and write one dated CSV per
+      run with a check that flags any page where the price went missing. I have built Scrapy and Playwright
+      scrapers for e-commerce price monitoring, so JavaScript-rendered prices are familiar ground; examples
+      are at https://portfolio.example/dev. Should out-of-stock products stay in the file with a stock
+      of 0, or be left out?
+    status: draft — not submitted
+  - rank: 2
+    rank_score: 65
+    rank_reasons:
+    - keyword in skills
+    - payment verified
+    - 12 proposal(s) so far
+    id: '1002'
+    title: Django REST API for inventory sync (fictional)
+    url: https://www.upwork.com/jobs/~01aa0000000000001002
+    type: fixed
+    budget: fixed price, $800
+    applicants: 12
+    source: api
+    skills:
+    - Python
+    - Django
+    client:
+      payment_verified: true
+      hires: 0
+      posted_jobs: 1
+      reviews: 0
+      feedback: 0
+      spent: null
+      country: Germany
+    suggested_rate:
+      amount: 800
+      unit: fixed
+      basis: the client's fixed budget
+    proposal: You need a small Django REST Framework API that takes stock updates from your warehouse
+      system and stores them in PostgreSQL. I would model stock per product and location, expose the three
+      endpoints behind token authentication, validate each update so a bad payload is rejected with a
+      clear error, and cover the endpoints with tests that run against PostgreSQL. I build Django REST
+      APIs on PostgreSQL in my day-to-day work. Does the warehouse system send a full stock snapshot each
+      time, or only the changes since the last update?
+    status: draft — not submitted
+  skipped:
+  - id: '1004'
+    title: Python data entry script (fictional)
+    url: https://www.upwork.com/jobs/~01aa0000000000001004
+    type: fixed
+    budget: fixed price, $100
+    applicants: 75
+    source: api
+    reason: 75 proposals already (max 20)
+  - id: '1005'
+    title: Python scraping bot for listings (fictional)
+    url: https://www.upwork.com/jobs/~01aa0000000000001005
+    type: fixed
+    budget: fixed price, $400
+    applicants: 2
+    source: api
+    reason: client's payment method is not verified
+  - id: '1003'
+    title: Native iOS app in Swift with a Python backend hook (fictional)
+    url: https://www.upwork.com/jobs/~01aa0000000000001003
+    type: fixed
+    budget: fixed price, $3000
+    applicants: 6
+    source: api
+    reason: 'LLM declined: the background has no iOS or Swift experience'
+  warnings: []
+  note: 'Draft-only: nothing was submitted and no Connects were spent. Open each job''s url, review the
+    proposal (and answer any screening questions) and submit it on Upwork yourself.'
