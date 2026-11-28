@@ -108,11 +108,60 @@ def test_accept_good_rewrite_and_strips_fences():
     ("", "empty"),
     ("Ada Lovelace\nGo engineer", "too short"),
     (TAILORED + "\n- 8+ years of Rust", "numbers not in the original résumé: 8"),
-    (TAILORED.replace("2016", "2014"), "2014"),
+    (TAILORED.replace("2016", "2014"), "2016"),             # a changed date drops the real one
 ])
 def test_accept_rejects_empty_short_and_invented_numbers(bad, why):
     text, reason = rt.accept(bad, RESUME)
     assert text == "" and why in reason
+
+
+def test_accept_ignores_digit_separators():
+    assert rt.accept(TAILORED.replace("20000", "20,000"), RESUME)[1] == ""
+    assert rt.accept(TAILORED.replace("20000", "20 000"), RESUME)[1] == ""
+    assert "200000" in rt.accept(TAILORED.replace("20000", "200,000"), RESUME)[1]
+
+
+# ── did the LLM really produce an updated résumé? ────────────────────────────
+
+_IDENTITY = {"first_name": "Ada", "last_name": "Lovelace", "email": "ada@example.com"}
+
+
+@pytest.mark.parametrize("echo", [
+    RESUME,                                            # handed back as is
+    RESUME.replace("\n", "\n\n"),                     # only re-spaced
+    RESUME + "\n",                                     # trailing whitespace
+])
+def test_accept_rejects_the_resume_handed_back_unchanged(echo):
+    text, why = rt.accept(echo, RESUME, _IDENTITY)
+    assert text == "" and "unchanged" in why
+
+
+def test_accept_rejects_someone_elses_resume():
+    stranger = TAILORED.replace("Ada Lovelace", "John Smith").replace("ada@", "john@")
+    text, why = rt.accept(stranger, RESUME, _IDENTITY)
+    assert text == "" and "ada@example.com" in why
+    no_name = TAILORED.replace("Ada Lovelace\n", "")
+    assert "Ada Lovelace" in rt.accept(no_name, RESUME, _IDENTITY)[1]
+
+
+def test_accept_rejects_a_dropped_role():
+    no_initech = TAILORED.replace("\nData Analyst, Initech (2016-2019)\n- SQL reporting", "")
+    no_initech += "\n- SQL reporting and dashboards for the analytics team, weekly"
+    text, why = rt.accept(no_initech, RESUME, _IDENTITY)
+    assert text == "" and "2016" in why
+
+
+def test_accept_identity_only_requires_what_the_original_states():
+    original = RESUME.replace("ada@example.com\n", "")
+    tailored = TAILORED.replace("ada@example.com\n", "")
+    assert rt.accept(tailored, original, _IDENTITY) == (tailored, "")
+    assert rt.accept(TAILORED, RESUME, None) == (TAILORED, "")   # no identity → not checked
+
+
+def test_jd_focus_rises_when_matching_experience_moves_up():
+    jd = "Platform engineer: Kubernetes, PostgreSQL, Go."
+    assert rt.jd_focus(TAILORED, jd) > rt.jd_focus(RESUME, jd)
+    assert rt.jd_focus(RESUME, "Marketing copywriter") == 0.0
 
 
 # ── bind_tailor / tailored_text ───────────────────────────────────────────────
@@ -281,6 +330,8 @@ class _Loc:
         return self.page.exists(self.sel) and self.sel not in self.page.hidden
 
     def click(self, timeout=None):
+        if ("click", self.sel) in self.page.fail:
+            raise TimeoutError(f"click {self.sel}")
         self.page.actions.append(("click", self.sel))
         self.page.hidden.discard(self.page.reveals.get(self.sel))
 
@@ -289,6 +340,8 @@ class _Loc:
             raise TimeoutError(self.sel)
 
     def fill(self, value, timeout=None):
+        if ("fill", self.sel) in self.page.fail:
+            raise TimeoutError(f"fill {self.sel}")
         self.page.actions.append(("fill", self.sel, value))
 
     def set_input_files(self, value, timeout=None):
@@ -297,9 +350,9 @@ class _Loc:
 
 class _Page:
     """Just enough of a Playwright page for the résumé field."""
-    def __init__(self, present, hidden=(), reveals=None):
+    def __init__(self, present, hidden=(), reveals=None, fail=()):
         self.present, self.hidden = set(present), set(hidden)
-        self.reveals, self.actions = reveals or {}, []
+        self.reveals, self.actions, self.fail = reveals or {}, [], set(fail)
 
     def exists(self, sel):
         return sel in self.present
@@ -344,6 +397,16 @@ def test_fill_pastes_into_an_already_visible_box():
 ])
 def test_fill_falls_back_to_file_upload(present, hidden):
     page = _Page(present, hidden=hidden)   # no `reveals`: clicking does nothing
+    _assert_fell_back(page)
+
+
+@pytest.mark.parametrize("fail", [("click", _BTN), ("fill", _BOX)])
+def test_fill_playwright_error_on_the_paste_box_falls_back_to_file(fail):
+    page = _Page({_BOX, _BTN, _FILE}, hidden={_BOX}, reveals={_BTN: _BOX}, fail={fail})
+    _assert_fell_back(page)
+
+
+def _assert_fell_back(page):
     answers, logs = _paste_answers(), []
     assert gh._fill_form(page, answers, logs.append) == []
     assert page.actions[-1] == ("upload", _FILE, "/tmp/cv.pdf")

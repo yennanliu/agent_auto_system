@@ -17,6 +17,7 @@ import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from src.automation.tools.ats_common import off_loop
 
@@ -57,23 +58,76 @@ def job_description(job_data: dict) -> str:
 
 _FENCE = re.compile(r"^```[a-z]*\n|\n?```$", re.I)
 _NUMBER = re.compile(r"\d+")
+_SEPARATOR = re.compile(r"(?<=\d)[,\u00a0 ](?=\d{3}(?!\d))")  # 20,000 / 20 000 → 20000
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_UNCHANGED = 0.97  # line-level similarity at/above which the "rewrite" is the original
 
 
-def accept(tailored: str, original: str) -> tuple[str, str]:
-    """``(text, "")`` when the tailored résumé is safe to send, else ``("", why)``.
+def _numbers(text: str) -> set[str]:
+    return set(_NUMBER.findall(_SEPARATOR.sub("", text)))
 
-    The LLM may reorder, trim and reword — never add facts. Numbers are the
-    facts that are cheap to check: a year, a percentage or a "5+ years" the
-    original doesn't contain means something was invented."""
+
+def _lines(text: str) -> list[str]:
+    return [ln for ln in text.splitlines() if ln.strip()]
+
+
+def _lost_identity(text: str, original: str, identity: dict | None) -> str:
+    """The candidate's e-mail / name that the original states but the rewrite
+    dropped — the sign of a model that wrote someone else's résumé (or none)."""
+    t, o = text.lower(), original.lower()
+    email = ((identity or {}).get("email") or "").strip().lower()
+    name = " ".join((identity or {}).get(k, "").strip() for k in ("first_name", "last_name")).strip()
+    if email and email in o and email not in t:
+        return email
+    if name and all(w.lower() in o for w in name.split()) and \
+            not all(w.lower() in t for w in name.split()):
+        return name
+    return ""
+
+
+def accept(tailored: str, original: str, identity: dict | None = None) -> tuple[str, str]:
+    """``(text, "")`` when the LLM really produced a tailored version of THIS
+    résumé that is safe to send, else ``("", why)``:
+
+    - not empty, and not truncated (at least 40 % of the original's length);
+    - actually rewritten — not the original handed back (near-)unchanged;
+    - still the candidate's — keeps the e-mail / name the original states
+      (``identity``: first_name / last_name / email);
+    - every role kept — every year the original states is still there;
+    - no invented facts — numbers are cheap to check: a year, a percentage or a
+      "5+ years" the original doesn't contain (digit separators ignored)."""
     text = _normalize(_FENCE.sub("", (tailored or "").strip()))
     if not text:
         return "", "empty answer"
     if len(text) < 0.4 * len(original):
         return "", f"too short ({len(text)} of {len(original)} chars)"
-    invented = sorted(set(_NUMBER.findall(text)) - set(_NUMBER.findall(original)))
+    if SequenceMatcher(None, _lines(original), _lines(text)).ratio() >= _UNCHANGED:
+        return "", "not tailored: the résumé came back unchanged"
+    lost = _lost_identity(text, original, identity)
+    if lost:
+        return "", f"not the candidate's résumé any more (dropped '{lost}')"
+    dropped = sorted(set(_YEAR.findall(original)) - set(_YEAR.findall(text)))
+    if dropped:
+        return "", "dropped dates (a role?) the original states: " + ", ".join(dropped[:5])
+    invented = sorted(_numbers(text) - _numbers(original))
     if invented:
         return "", "numbers not in the original résumé: " + ", ".join(invented[:5])
     return text, ""
+
+
+_WORD = re.compile(r"[a-z][a-z0-9+#.-]{2,}")
+
+
+def jd_focus(resume: str, jd: str) -> float:
+    """Share of the job-description terms the résumé mentions that already
+    appear in its top 40 % — tailoring should raise it. Evidence for the run
+    log, never a gate (0.0 when they share no terms)."""
+    def words(t: str) -> set[str]:
+        return {w.rstrip(".") for w in _WORD.findall(t.lower())}
+    shared = words(jd) & words(resume)
+    if not shared:
+        return 0.0
+    return len(shared & words(resume[:int(len(resume) * 0.4)])) / len(shared)
 
 
 @dataclass(frozen=True)

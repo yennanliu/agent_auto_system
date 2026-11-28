@@ -10,7 +10,7 @@ from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.greenhouse_apply_tool import run_greenhouse_apply
-from src.automation.tools.resume_tailor import Tailor, accept, job_description
+from src.automation.tools.resume_tailor import Tailor, accept, jd_focus, job_description
 
 # A résumé PDF without a text layer (scanned), transcribed once per run.
 _READ_PDF_PROMPT = (
@@ -193,6 +193,9 @@ def build_llm_callbacks(state) -> tuple:
             append_log(state.run_id, "tailor_resume is on but no LLM is available; "
                                      "uploading the résumé file as is.")
         else:
+            identity = {"first_name": state.first_name, "last_name": state.last_name,
+                        "email": state.email}
+
             def rewrite(resume_text: str, job_data: dict) -> str:
                 title = job_data.get("title") or ""
                 jd = job_description(job_data)
@@ -205,13 +208,18 @@ def build_llm_callbacks(state) -> tuple:
                     })
                     _acc_usage(result)
                     text, why = accept(
-                        (result.raw if hasattr(result, "raw") else str(result)) or "", resume_text)
+                        (result.raw if hasattr(result, "raw") else str(result)) or "",
+                        resume_text, identity)
                 except Exception as exc:  # noqa: BLE001
                     text, why = "", f"{type(exc).__name__}: {exc}"
-                append_log(state.run_id,
-                           f"Tailored résumé rejected for '{title[:60]}' ({why[:120]}); "
-                           "uploading the file instead." if why else
-                           f"Résumé tailored to '{title[:60]}' ({len(text)} chars, pasted).")
+                if why:
+                    append_log(state.run_id, f"Tailored résumé rejected for '{title[:60]}' "
+                                             f"({why[:120]}); uploading the file instead.")
+                else:
+                    append_log(state.run_id, (
+                        f"Résumé tailored to '{title[:60]}' ({len(text)} chars, pasted) — "
+                        f"JD terms in its top section: {jd_focus(resume_text, jd):.0%} → "
+                        f"{jd_focus(text, jd):.0%}."))
                 return text
 
             def read_pdf(path: str) -> str:

@@ -46,8 +46,8 @@ def _kickoff(mocker, flow_path, flow_cls, **inputs):
                      "applied": [], "skipped": [], "jobs_found": 0, "summary": "none"})
     resolve = mocker.patch("src.automation.harness.provider.resolve",
                            return_value=(object(), "gemini", "gemini/gemini-2.5-flash"))
-    flow_cls().kickoff(inputs={"boards": "figma", "first_name": "Ada", "last_name": "L",
-                               "email": "a@x.io", **inputs})
+    flow_cls().kickoff(inputs={"boards": "figma", "first_name": "Ada", "last_name": "Lovelace",
+                               "email": "ada@example.com", **inputs})
     return captured, resolve
 
 
@@ -86,6 +86,9 @@ def test_flow_tailors_through_the_crew(mocker):
     (TAILORED + "\n- 10 years of Rust", None),      # invented a number → rejected
     ("Ada", None),                                  # truncated answer → rejected
     (None, RuntimeError("provider 500")),           # LLM call failed
+    (RESUME, None),                                 # not tailored: handed back unchanged
+    (TAILORED.replace("Ada Lovelace", "John Smith")  # not the candidate's résumé
+     .replace("ada@", "john@"), None),
 ])
 def test_flow_tailor_returns_empty_so_the_file_is_uploaded(mocker, raw, exc):
     _crew_returns(mocker, raw=raw, exc=exc)
@@ -309,3 +312,32 @@ def test_browser_without_paste_option_uploads_file(browser_page, tmp_path):
     assert gh._fill_form(browser_page, answers, lambda _m: None) == []
     assert browser_page.locator("#resume").evaluate("e => e.files[0].name") == "cv.txt"
     assert answers[0]["kind"] == "file"
+
+
+# ── live: does the real model produce a tailored résumé that passes the guard? ─
+
+LIVE_JD = ("<p>Platform Engineer. You will run our Kubernetes clusters and build "
+           "Go services on PostgreSQL. Python scripting is a plus.</p>")
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("provider, model", [("openai", "gpt-4o-mini")])
+def test_live_llm_really_tailors_the_resume(provider, model):
+    """Opt-in (needs the provider's API key; costs one small call):
+    ``uv run pytest tests/integration/test_resume_tailor_integration.py -m e2e``"""
+    from src.automation.crews.resume_tailor_crew.crew import ResumeTailorCrew
+    from src.automation.harness.provider import resolve
+    from src.automation.tools.resume_tailor import accept, jd_focus, job_description
+    try:
+        llm, _p, _m = resolve(provider, model, temperature=0.2)
+    except OSError as exc:
+        pytest.skip(str(exc))
+    jd = job_description({"content": LIVE_JD})
+    result = ResumeTailorCrew(llm=llm).crew().kickoff(inputs={
+        "job_title": "Platform Engineer", "company": "Figma", "job_description": jd,
+        "resume": RESUME})
+    identity = {"first_name": "Ada", "last_name": "Lovelace", "email": "ada@example.com"}
+    text, why = accept(result.raw, RESUME, identity)
+    assert why == "", f"{why}\n---\n{result.raw}"
+    assert text != RESUME
+    assert jd_focus(text, jd) >= jd_focus(RESUME, jd)

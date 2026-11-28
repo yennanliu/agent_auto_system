@@ -471,12 +471,15 @@ def _paste(page, field: str, text: str) -> bool:
         button = page.locator(f"[data-testid='{field.removesuffix('_text')}-text']").first
         if button.count() == 0:
             return False
-        button.click(timeout=5000)
         try:
+            button.click(timeout=5000)
             box.wait_for(state="visible", timeout=5000)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — no paste box: the caller uploads the file
             return False
-    box.fill(text, timeout=5000)
+    try:
+        box.fill(text, timeout=5000)
+    except Exception:  # noqa: BLE001
+        return False
     return True
 
 

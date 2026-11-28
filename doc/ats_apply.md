@@ -309,9 +309,15 @@ they keep uploading it.
   is kept only if it names the candidate (e-mail, or first + last name).
 - **Only for jobs we apply to**: the call happens after planning found no
   unanswered required question, so skipped jobs cost no LLM call.
-- **Guard** (`resume_tailor.accept`): the rewrite may reorder and reword, never
-  add facts — it's rejected if empty, under 40 % of the original's length, or if
-  it states a number (year, %, "5+ years") the original doesn't contain.
+- **Guard** (`resume_tailor.accept`) — did the LLM really produce a tailored
+  version of *this* résumé? Rejected when it is empty or under 40 % of the
+  original's length; came back unchanged (≥ 97 % of non-blank lines identical);
+  dropped the candidate's e-mail / name the original states; dropped any year
+  the original states (a dropped role); or states a number the original doesn't
+  (digit separators ignored: `20,000` = `20000`). Each accepted rewrite logs
+  `jd_focus` — the share of JD terms in the résumé's top section, before → after.
+  Live check: `pytest tests/integration/test_resume_tailor_integration.py -m e2e`
+  (real OpenAI call; skipped without a key).
 - **Fallback to the original behaviour — upload the file** — on every failure:
   no readable résumé text (run warning; includes an LLM transcript that fails
   the name check), no LLM, no job description, an LLM
