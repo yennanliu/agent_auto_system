@@ -61,7 +61,7 @@ class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
             max_applications=st.max_applications, max_per_board=st.max_per_board,
             max_scans_per_board=st.max_scans_per_board, dry_run=st.dry_run,
             create_workday_accounts=st.create_workday_accounts,
-            relevance_fn=relevance_fn, answer_fn=answer_fn, tailor_resume_fn=tailor_fn,
+            relevance_fn=relevance_fn, answer_fn=answer_fn, resume_tailor=tailor_fn,
             log=lambda m: append_log(st.run_id, m),
         )
         self.state.usage = usage_acc

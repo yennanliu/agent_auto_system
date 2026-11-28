@@ -9,6 +9,7 @@ import pytest
 from src.automation.tools import ats_apply_tool as ats
 from src.automation.tools import greenhouse_apply_tool as gh
 from src.automation.tools.ats_greenhouse import GreenhouseAdapter
+from src.automation.tools.resume_tailor import Tailor
 
 RESUME = """Ada Lovelace
 ada@example.com
@@ -68,14 +69,14 @@ def _gh_flow(mocker, **inputs):
 
 def test_flow_off_by_default_makes_no_llm_call(mocker):
     captured, resolve = _gh_flow(mocker)
-    assert captured["tailor_resume_fn"] is None
+    assert captured["resume_tailor"] is None
     resolve.assert_not_called()
 
 
 def test_flow_tailors_through_the_crew(mocker):
     kickoff = _crew_returns(mocker, raw=f"```\n{TAILORED}\n```")
     captured, _ = _gh_flow(mocker, tailor_resume=True)
-    assert captured["tailor_resume_fn"](RESUME, JOB_DATA) == TAILORED
+    assert captured["resume_tailor"].rewrite(RESUME, JOB_DATA) == TAILORED
     inputs = kickoff.call_args.kwargs["inputs"]
     assert inputs["job_title"] == "Platform Engineer" and inputs["company"] == "Figma"
     assert inputs["job_description"] == "Kubernetes, Go" and inputs["resume"] == RESUME
@@ -89,13 +90,13 @@ def test_flow_tailors_through_the_crew(mocker):
 def test_flow_tailor_returns_empty_so_the_file_is_uploaded(mocker, raw, exc):
     _crew_returns(mocker, raw=raw, exc=exc)
     captured, _ = _gh_flow(mocker, tailor_resume=True)
-    assert captured["tailor_resume_fn"](RESUME, JOB_DATA) == ""
+    assert captured["resume_tailor"].rewrite(RESUME, JOB_DATA) == ""
 
 
 def test_flow_no_job_description_skips_the_llm(mocker):
     kickoff = _crew_returns(mocker, raw=TAILORED)
     captured, _ = _gh_flow(mocker, tailor_resume=True)
-    assert captured["tailor_resume_fn"](RESUME, {"title": "X"}) == ""
+    assert captured["resume_tailor"].rewrite(RESUME, {"title": "X"}) == ""
     kickoff.assert_not_called()
 
 
@@ -109,7 +110,7 @@ def test_flow_no_llm_available_disables_tailoring(mocker):
     GreenhouseApplyFlow().kickoff(inputs={"boards": "figma", "first_name": "Ada",
                                           "last_name": "L", "email": "a@x.io",
                                           "tailor_resume": True})
-    assert captured["tailor_resume_fn"] is None
+    assert captured["resume_tailor"] is None
 
 
 def test_ats_flow_wires_tailoring_too(mocker):
@@ -117,7 +118,74 @@ def test_ats_flow_wires_tailoring_too(mocker):
     _crew_returns(mocker, raw=TAILORED)
     captured, _ = _kickoff(mocker, "src.automation.flows.ats_apply_flow", ATSApplyFlow,
                            tailor_resume=True)
-    assert captured["tailor_resume_fn"](RESUME, JOB_DATA) == TAILORED
+    assert captured["resume_tailor"].rewrite(RESUME, JOB_DATA) == TAILORED
+
+
+# ── scanned PDF → the run's LLM reads it ─────────────────────────────────────
+
+def test_flow_read_pdf_attaches_the_file_to_the_llm_call(mocker, tmp_path):
+    from crewai_files import PDFFile
+    llm = mocker.Mock()
+    llm.call.return_value = RESUME
+    mocker.patch("src.automation.harness.provider.resolve",
+                 return_value=(llm, "gemini", "gemini/gemini-2.5-flash"))
+    captured = {}
+    mocker.patch("src.automation.flows.greenhouse_apply_flow.run_greenhouse_apply",
+                 side_effect=lambda **kw: captured.update(kw) or {
+                     "applied": [], "skipped": [], "jobs_found": 0, "summary": "none"})
+    from src.automation.flows.greenhouse_apply_flow import GreenhouseApplyFlow
+    GreenhouseApplyFlow().kickoff(inputs={"boards": "figma", "first_name": "Ada",
+                                          "last_name": "L", "email": "a@x.io",
+                                          "tailor_resume": True})
+    cv = tmp_path / "cv.pdf"
+    cv.write_bytes(b"%PDF-1.4")
+    assert captured["resume_tailor"].read_pdf(str(cv)) == RESUME
+    [msg] = llm.call.call_args.args[0]
+    assert isinstance(msg["files"]["resume"], PDFFile) and "verbatim" in msg["content"]
+    llm.call.return_value = "NO_DOCUMENT"
+    assert captured["resume_tailor"].read_pdf(str(cv)) == ""
+
+
+@pytest.mark.parametrize("make_llm, block", [
+    (lambda: __import__("crewai").LLM(model="gemini/gemini-2.5-flash", api_key="x"), "inlineData"),
+    (lambda: __import__("src.automation.harness.provider", fromlist=["_anthropic_llm"])
+        ._anthropic_llm("claude-haiku-4-5-20251001", "x", 0.2), "document"),
+])
+def test_crewai_turns_our_pdf_message_into_a_document_block(make_llm, block, tmp_path, monkeypatch):
+    """Offline drift check on crewai's file formatting (no request is sent):
+    the message read_pdf() builds reaches Gemini / Claude as a PDF block."""
+    from crewai_files import PDFFile
+
+    from tests.unit.test_resume_tailor import _pdf_with_text
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    cv = tmp_path / "cv.pdf"
+    cv.write_bytes(_pdf_with_text(""))
+    [msg] = make_llm()._process_message_files(
+        [{"role": "user", "content": "read", "files": {"resume": PDFFile(source=str(cv))}}])
+    assert any(block in b or b.get("type") == block for b in msg["content"])
+
+
+def test_runner_scanned_pdf_read_by_llm_then_pasted(tmp_path, mocker):
+    from tests.unit.test_resume_tailor import _pdf_with_text
+    cv = tmp_path / "cv.pdf"
+    cv.write_bytes(_pdf_with_text(""))
+    sent = []
+    mocker.patch("playwright.sync_api.sync_playwright")
+    mocker.patch.object(ats, "launch_browser")
+    mocker.patch.object(gh, "_apply_to_job", side_effect=lambda _p, job, answers, *_a: sent.append(
+        answers) or {**job, "status": "prepared", "submitted": False})
+    mocker.patch.dict("os.environ", {"GREENHOUSE_LEDGER": str(tmp_path / "gh.json")})
+    client = _Client({
+        "/figma/jobs": {"jobs": [{"id": 7, "title": "Platform Engineer",
+                                  "company_name": "Figma", "location": {"name": "Remote"}}]},
+        "/figma/jobs/7": {**JOB_DATA, "location": {"name": "Remote"}, "questions": [_RESUME_Q]},
+    })
+    tailor = Tailor(rewrite=lambda r, j: r.upper(), read_pdf=lambda path: RESUME)
+    ats.run_ats_apply(boards="greenhouse:figma", first_name="Ada", last_name="Lovelace",
+                      email="ada@example.com", resume_path=str(cv), client=client,
+                      ledger_path=str(tmp_path / "ats.json"),
+                      adapters={"greenhouse": GreenhouseAdapter()}, resume_tailor=tailor)
+    assert [(a["field"], a["value"]) for a in sent[0]] == [("resume_text", RESUME.upper())]
 
 
 # ── runner → planner, through the multi-ATS Greenhouse adapter ───────────────
@@ -178,7 +246,7 @@ def ats_run(tmp_path, mocker):
 
 
 def test_ats_runner_pastes_tailored_resume_on_greenhouse(ats_run):
-    out, sent = ats_run(tailor_resume_fn=lambda r, j: f"{r}\n(for {j['title']})")
+    out, sent = ats_run(resume_tailor=Tailor(rewrite=lambda r, j: f"{r}\n(for {j['title']})"))
     assert [(a["field"], a["kind"]) for a in sent[0]] == [("resume_text", "paste")]
     assert sent[0][0]["value"].endswith("(for Platform Engineer)")
     assert len(out["applied"]) == 1
@@ -187,7 +255,7 @@ def test_ats_runner_pastes_tailored_resume_on_greenhouse(ats_run):
 def test_ats_runner_falls_back_when_tailoring_fails(ats_run):
     def boom(_r, _j):
         raise RuntimeError("provider 500")
-    out, sent = ats_run(tailor_resume_fn=boom)
+    out, sent = ats_run(resume_tailor=Tailor(rewrite=boom))
     assert [(a["field"], a["kind"]) for a in sent[0]] == [("resume", "file")]
     assert len(out["applied"]) == 1
 

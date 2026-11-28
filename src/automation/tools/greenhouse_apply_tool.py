@@ -77,7 +77,7 @@ from src.automation.tools.ats_common import (
     years_option,
 )
 from src.automation.tools.ats_common import record_applied as _record_applied
-from src.automation.tools.resume_tailor import bind_tailor, tailored_text
+from src.automation.tools.resume_tailor import Tailor, bind_tailor, tailored_text
 
 # Pre-refactor private names, kept so existing callers / tests keep working.
 _noop = noop
@@ -694,7 +694,7 @@ def run_greenhouse_apply(
     dry_run: bool = True,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     answer_fn: Callable[[str, str, list[str]], str] | None = None,
-    tailor_resume_fn: Callable[[str, dict], str] | None = None,
+    resume_tailor: Tailor | None = None,
     log: Callable[[str], None] | None = None,
     ledger_path: str | None = None,
     client=None,
@@ -758,7 +758,7 @@ def run_greenhouse_apply(
             current_company=current_company, current_title=current_title,
             current_start=current_start,
         )
-        profile["tailor_resume"] = bind_tailor(tailor_resume_fn, resume_path, log, warnings)
+        profile["tailor_resume"] = bind_tailor(resume_tailor, resume_path, profile, log, warnings)
         ledger = load_ledger(ledger_path)
 
         applied: list[dict] = []

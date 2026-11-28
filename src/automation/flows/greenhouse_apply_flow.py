@@ -10,7 +10,16 @@ from src.automation.flows.base import FlowMixin
 from src.automation.flows.utils import extract_usage
 from src.automation.progress import append_log
 from src.automation.tools.greenhouse_apply_tool import run_greenhouse_apply
-from src.automation.tools.resume_tailor import accept, job_description
+from src.automation.tools.resume_tailor import Tailor, accept, job_description
+
+# A résumé PDF without a text layer (scanned), transcribed once per run.
+_READ_PDF_PROMPT = (
+    "Transcribe the attached résumé PDF to plain text, verbatim: every name, "
+    "contact detail, employer, title, date, bullet and skill exactly as written, "
+    "in reading order, with UPPERCASE section headings and '- ' bullets. Add, "
+    "summarise or correct nothing. Output only the transcript. If no document is "
+    "attached, reply exactly NO_DOCUMENT."
+)
 
 
 def _parse_json_obj(text: str, key: str) -> dict | None:
@@ -184,7 +193,7 @@ def build_llm_callbacks(state) -> tuple:
             append_log(state.run_id, "tailor_resume is on but no LLM is available; "
                                      "uploading the résumé file as is.")
         else:
-            def tailor_fn(resume_text: str, job_data: dict) -> str:  # noqa: F811
+            def rewrite(resume_text: str, job_data: dict) -> str:
                 title = job_data.get("title") or ""
                 jd = job_description(job_data)
                 if not jd:
@@ -204,6 +213,15 @@ def build_llm_callbacks(state) -> tuple:
                            "uploading the file instead." if why else
                            f"Résumé tailored to '{title[:60]}' ({len(text)} chars, pasted).")
                 return text
+
+            def read_pdf(path: str) -> str:
+                from crewai_files import PDFFile  # crewai[file-processing]
+                raw = llm.call([{"role": "user", "content": _READ_PDF_PROMPT,
+                                 "files": {"resume": PDFFile(source=path)}}])
+                text = str(raw or "").strip()
+                return "" if "NO_DOCUMENT" in text[:40] else text
+
+            tailor_fn = Tailor(rewrite=rewrite, read_pdf=read_pdf)
     return relevance_fn, answer_fn, tailor_fn, usage_acc
 
 
@@ -310,7 +328,7 @@ class GreenhouseApplyFlow(FlowMixin, Flow[GreenhouseApplyState]):
             dry_run=self.state.dry_run,
             relevance_fn=relevance_fn,
             answer_fn=answer_fn,
-            tailor_resume_fn=tailor_fn,
+            resume_tailor=tailor_fn,
             log=lambda m: append_log(self.state.run_id, m),
         )
 

@@ -303,13 +303,18 @@ uploading the file. Lever / Ashby / Workable / Workday / … only take a file, s
 they keep uploading it.
 
 - **Source text**: read once per run from `resume_path` (`.pdf` via pypdf, `.txt`, `.md`).
+  A PDF with no text layer (scanned) is transcribed once per run by the run's LLM
+  (`Tailor.read_pdf`, via `crewai[file-processing]`) — Gemini and Claude receive
+  the PDF; crewai's OpenAI client drops attachments silently, so the transcript
+  is kept only if it names the candidate (e-mail, or first + last name).
 - **Only for jobs we apply to**: the call happens after planning found no
   unanswered required question, so skipped jobs cost no LLM call.
 - **Guard** (`resume_tailor.accept`): the rewrite may reorder and reword, never
   add facts — it's rejected if empty, under 40 % of the original's length, or if
   it states a number (year, %, "5+ years") the original doesn't contain.
 - **Fallback to the original behaviour — upload the file** — on every failure:
-  no readable résumé text (run warning), no LLM, no job description, an LLM
+  no readable résumé text (run warning; includes an LLM transcript that fails
+  the name check), no LLM, no job description, an LLM
   error, a rejected rewrite, or a live form whose paste box can't be revealed.
   `applied[].resume_tailored` tells which jobs got the pasted version; the
   pasted text is in that entry's `answers`.

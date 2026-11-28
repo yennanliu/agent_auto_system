@@ -117,26 +117,92 @@ def test_accept_rejects_empty_short_and_invented_numbers(bad, why):
 
 # ── bind_tailor / tailored_text ───────────────────────────────────────────────
 
+_ID = {"first_name": "Ada", "last_name": "Lovelace", "email": "ada@example.com"}
+
+
+def _bind(tailor, path, profile=_ID):
+    warnings, logs = [], []
+    fn = rt.bind_tailor(tailor, str(path), profile, logs.append, warnings)
+    return fn, warnings, logs
+
+
 def test_bind_tailor_off_returns_none(tmp_path):
-    assert rt.bind_tailor(None, str(tmp_path / "cv.txt"), lambda _m: None, []) is None
+    assert _bind(None, tmp_path / "cv.txt")[0] is None
 
 
 def test_bind_tailor_unreadable_resume_warns_and_disables(tmp_path):
     p = tmp_path / "cv.pdf"
     p.write_bytes(b"%PDF")
-    warnings, logs = [], []
-    assert rt.bind_tailor(lambda r, j: "x", str(p), logs.append, warnings) is None
-    assert "uploading the file" in warnings[0] and logs
+    fn, warnings, logs = _bind(rt.Tailor(rewrite=lambda r, j: "x"), p)
+    assert fn is None and "uploading the file" in warnings[0] and logs
 
 
 def test_bind_tailor_binds_resume_text(tmp_path):
     p = tmp_path / "cv.txt"
     p.write_text(RESUME, encoding="utf-8")
     seen = {}
-    fn = rt.bind_tailor(lambda r, j: seen.update(resume=r, job=j) or "out", str(p),
-                        lambda _m: None, [])
+    fn, _w, _l = _bind(rt.Tailor(rewrite=lambda r, j: seen.update(resume=r, job=j) or "out"), p)
     assert fn({"title": "SRE"}) == "out"
     assert seen == {"resume": RESUME, "job": {"title": "SRE"}}
+
+
+def test_bind_tailor_text_pdf_never_asks_the_llm(tmp_path):
+    p = tmp_path / "cv.pdf"
+    p.write_bytes(_pdf_with_text("Ada Lovelace Backend Engineer"))
+    asked = []
+    fn, _w, _l = _bind(rt.Tailor(rewrite=lambda r, j: r, read_pdf=lambda path: asked.append(1)), p)
+    assert asked == [] and "Ada Lovelace" in fn({})
+
+
+# ── a scanned PDF (no text layer): the LLM reads it, once per run ────────────
+
+@pytest.fixture
+def scanned(tmp_path):
+    p = tmp_path / "cv.pdf"
+    p.write_bytes(_pdf_with_text(""))           # a page with no extractable text
+    assert rt.load_resume_text(str(p)) == ""
+    return p
+
+
+def test_scanned_pdf_is_read_by_the_llm_once(scanned):
+    reads = []
+    tailor = rt.Tailor(rewrite=lambda r, j: f"{r}|{j['title']}",
+                       read_pdf=lambda path: reads.append(path) or RESUME)
+    fn, warnings, _l = _bind(tailor, scanned)
+    assert fn({"title": "A"}) == f"{RESUME}|A" and fn({"title": "B"}).endswith("|B")
+    assert reads == [str(scanned)] and warnings == []
+
+
+@pytest.mark.parametrize("profile", [
+    {"first_name": "", "last_name": "", "email": "ADA@example.com"},   # e-mail, any case
+    {"first_name": "ada", "last_name": "LOVELACE", "email": ""},       # full name
+])
+def test_scanned_pdf_transcript_must_name_the_candidate(scanned, profile):
+    fn, _w, _l = _bind(rt.Tailor(rewrite=lambda r, j: r, read_pdf=lambda p: RESUME), scanned,
+                       profile)
+    assert fn is not None
+
+
+@pytest.mark.parametrize("read_pdf", [
+    None,                                                   # model can't read PDFs
+    lambda p: "John Smith\nJava developer, 10 years",       # invented: not the candidate
+    lambda p: "",                                           # NO_DOCUMENT → ""
+    lambda p: (_ for _ in ()).throw(ValueError("model does not support multimodal")),
+])
+def test_scanned_pdf_falls_back_to_file_upload(scanned, read_pdf):
+    rewrites = []
+    fn, warnings, _l = _bind(rt.Tailor(rewrite=lambda r, j: rewrites.append(r) or "x",
+                                       read_pdf=read_pdf), scanned)
+    assert fn is None and rewrites == []
+    assert "uploading the file" in warnings[0]
+
+
+def test_non_pdf_is_never_sent_to_the_llm(tmp_path):
+    p = tmp_path / "cv.docx"
+    p.write_bytes(b"PK")
+    asked = []
+    fn, _w, _l = _bind(rt.Tailor(rewrite=lambda r, j: "x", read_pdf=lambda path: asked.append(1)), p)
+    assert fn is None and asked == []
 
 
 def test_tailored_text_never_raises():
@@ -341,7 +407,7 @@ def test_runner_pastes_tailored_resume(gh_run):
         seen.update(resume=resume_text, title=job_data["title"])
         return "TAILORED CV"
 
-    out, sent = gh_run(tailor_resume_fn=tailor)
+    out, sent = gh_run(resume_tailor=rt.Tailor(rewrite=tailor))
     assert seen == {"resume": RESUME, "title": "Backend SRE"}
     assert [(a["field"], a["value"]) for a in sent[0]] == [("resume_text", "TAILORED CV")]
     assert len(out["applied"]) == 1
@@ -356,7 +422,7 @@ def test_runner_without_tailoring_uploads_file(gh_run):
 def test_runner_unreadable_resume_uploads_file_and_warns(gh_run):
     calls = []
     out, sent = gh_run(resume_name="cv.pdf", resume_bytes=b"%PDF",
-                       tailor_resume_fn=lambda r, j: calls.append(1) or "x")
+                       resume_tailor=rt.Tailor(rewrite=lambda r, j: calls.append(1) or "x"))
     assert calls == [] and [a["kind"] for a in sent[0]] == ["file"]
     assert any("tailor_resume" in w for w in out["warnings"])
 
@@ -364,6 +430,6 @@ def test_runner_unreadable_resume_uploads_file_and_warns(gh_run):
 def test_runner_tailor_crash_still_applies_with_file(gh_run):
     def tailor(_r, _j):
         raise RuntimeError("provider 500")
-    out, sent = gh_run(tailor_resume_fn=tailor)
+    out, sent = gh_run(resume_tailor=rt.Tailor(rewrite=tailor))
     assert [a["kind"] for a in sent[0]] == ["file"]
     assert len(out["applied"]) == 1
