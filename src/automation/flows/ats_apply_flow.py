@@ -41,7 +41,7 @@ class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
 
     @listen(validate_payload)
     def execute_apply(self, _):
-        relevance_fn, answer_fn, usage_acc = build_llm_callbacks(self.state)
+        relevance_fn, answer_fn, tailor_fn, usage_acc = build_llm_callbacks(self.state)
         st = self.state
         result = run_ats_apply(
             boards=st.boards, sources=st.sources, keywords=st.keywords, location=st.location,
@@ -61,7 +61,7 @@ class ATSApplyFlow(FlowMixin, Flow[ATSApplyState]):
             max_applications=st.max_applications, max_per_board=st.max_per_board,
             max_scans_per_board=st.max_scans_per_board, dry_run=st.dry_run,
             create_workday_accounts=st.create_workday_accounts,
-            relevance_fn=relevance_fn, answer_fn=answer_fn,
+            relevance_fn=relevance_fn, answer_fn=answer_fn, tailor_resume_fn=tailor_fn,
             log=lambda m: append_log(st.run_id, m),
         )
         self.state.usage = usage_acc

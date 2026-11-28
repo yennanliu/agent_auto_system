@@ -77,6 +77,7 @@ from src.automation.tools.ats_common import (
     years_option,
 )
 from src.automation.tools.ats_common import record_applied as _record_applied
+from src.automation.tools.resume_tailor import bind_tailor, tailored_text
 
 # Pre-refactor private names, kept so existing callers / tests keep working.
 _noop = noop
@@ -229,6 +230,7 @@ def plan_answers(job_data: dict, profile: dict,
     """
     answers: list[dict] = []
     unanswered: list[str] = []
+    paste_resume = False  # the form offers "Enter manually" beside the résumé upload
     profile = with_job_location(profile, (job_data.get("location") or {}).get("name"),
                                 job_data.get("company_name"))
 
@@ -240,6 +242,7 @@ def plan_answers(job_data: dict, profile: dict,
         required = bool(q.get("required"))
         fields = [f for f in q.get("fields") or [] if f.get("type") in _KIND_BY_TYPE]
         names = {f.get("name") for f in fields}
+        paste_resume = paste_resume or {"resume", "resume_text"} <= names
         done = False
         for f in fields:
             name, kind = f.get("name") or "", _KIND_BY_TYPE[f["type"]]
@@ -340,6 +343,18 @@ def plan_answers(job_data: dict, profile: dict,
             add(str(q["id"]), kind, [pick] if kind == "multiselect" else pick, label)
         else:
             unanswered.append(f"{label} (demographic)")
+
+    # tailor_resume: paste a JD-tailored résumé where the form offers "Enter
+    # manually" — only for a job we will apply to, so a skipped one costs no
+    # LLM call. Any failure keeps the planned file upload.
+    if paste_resume and not unanswered:
+        for i, a in enumerate(answers):
+            if a["field"] == "resume" and a["kind"] == "file":
+                text = tailored_text(profile, job_data)
+                if text:
+                    answers[i] = {"field": "resume_text", "kind": "paste", "value": text,
+                                  "label": a["label"], "fallback": a}
+                break
 
     return answers, unanswered
 
@@ -447,6 +462,24 @@ _CONSENT_JS = """
 """
 
 
+def _paste(page, field: str, text: str) -> bool:
+    """Fill a paste-instead box (``resume_text``), first clicking its "Enter
+    manually" button (data-testid ``resume-text``) to reveal it. False when the
+    form has neither, so the caller can upload the file instead."""
+    box = _by_id(page, field)
+    if not (box.count() and box.is_visible()):
+        button = page.locator(f"[data-testid='{field.removesuffix('_text')}-text']").first
+        if button.count() == 0:
+            return False
+        button.click(timeout=5000)
+        try:
+            box.wait_for(state="visible", timeout=5000)
+        except Exception:  # noqa: BLE001
+            return False
+    box.fill(text, timeout=5000)
+    return True
+
+
 def _fill_form(page, answers: list[dict], log: Callable) -> list[str]:
     """Fill every planned answer. Returns labels of fields that could not be set."""
     failed: list[str] = []
@@ -473,6 +506,14 @@ def _fill_form(page, answers: list[dict], log: Callable) -> list[str]:
                 # matching suggestion — never an arbitrary first one.
                 if not _choose_option(page, field, [str(value)], type_text=str(value), require_match=True):
                     failed.append(label)
+            elif kind == "paste":
+                if not _paste(page, field, str(value)):
+                    fb = a["fallback"]  # the paste box is gone: upload the file instead
+                    log(f"⚠ no '{label[:40]}' paste box — uploading the file instead")
+                    page.locator(f"input[type='file'][id='{fb['field']}']").first.set_input_files(
+                        fb["value"], timeout=10000)
+                    page.wait_for_timeout(800)
+                    a.update(fb)
             elif kind == "file":
                 el = page.locator(f"input[type='file'][id='{field}']").first
                 if el.count() == 0:
@@ -555,16 +596,21 @@ def _apply_to_job(page, job: dict, answers: list[dict], dry_run: bool,
     called immediately before the Submit click (the ledger marks the job
     "pending" there, so nothing after the click can lead to a resend)."""
     entry = {k: job[k] for k in ("token", "job_id", "title", "company", "location", "url")}
-    entry["answers"] = [{"label": a["label"][:80],
-                         "value": os.path.basename(a["value"]) if a["kind"] == "file" else a["value"]}
-                        for a in answers]
 
+    def _record_answers() -> None:  # after filling: a paste may have fallen back to the file
+        entry["answers"] = [{"label": a["label"][:80],
+                             "value": os.path.basename(a["value"]) if a["kind"] == "file" else a["value"]}
+                            for a in answers]
+        entry["resume_tailored"] = any(a["kind"] == "paste" for a in answers)
+
+    _record_answers()
     if not _open_form(page, job):
         entry.update(status="failed", submitted=False,
                      reason="application form did not load (job closed or not a Greenhouse form)")
         return entry
 
     failed = _fill_form(page, answers, log)
+    _record_answers()
     if failed:
         entry.update(status="failed", submitted=False,
                      reason="could not fill: " + "; ".join(f[:60] for f in failed[:3]))
@@ -648,6 +694,7 @@ def run_greenhouse_apply(
     dry_run: bool = True,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     answer_fn: Callable[[str, str, list[str]], str] | None = None,
+    tailor_resume_fn: Callable[[str, dict], str] | None = None,
     log: Callable[[str], None] | None = None,
     ledger_path: str | None = None,
     client=None,
@@ -711,6 +758,7 @@ def run_greenhouse_apply(
             current_company=current_company, current_title=current_title,
             current_start=current_start,
         )
+        profile["tailor_resume"] = bind_tailor(tailor_resume_fn, resume_path, log, warnings)
         ledger = load_ledger(ledger_path)
 
         applied: list[dict] = []

@@ -168,10 +168,11 @@ export const AUTO_CATALOG = {
       { name: 'salary / notice / languages / programming / AI experience / reason for leaving', type: 'str', desc: 'Default answers to recurring screening questions, pre-filled and editable on the run form' },
       { name: 'candidate_background', type: 'str',  desc: 'Your own summary; enables LLM answers to required screening questions' },
       { name: 'task_filter',          type: 'str',  desc: '2nd gate (optional): natural-language filter; AI skips jobs that don\'t match' },
+      { name: 'tailor_resume',        type: 'bool', desc: 'Paste an LLM-tailored, plain-text résumé where the form allows it (falls back to the file)' },
       { name: 'max_applications',     type: 'int (1–200)', desc: 'Number of jobs to actually apply to' },
       { name: 'dry_run',              type: 'bool', desc: 'If checked, fill the form but do NOT click Submit' },
     ],
-    crew: 'GreenhouseRelevanceCrew + GreenhouseAnswerCrew', flow: 'GreenhouseApplyFlow',
+    crew: 'GreenhouseRelevanceCrew + GreenhouseAnswerCrew + ResumeTailorCrew', flow: 'GreenhouseApplyFlow',
     agent: 'Greenhouse Relevance Judge / Screening Answerer', tools: ['Greenhouse Apply'],
   },
   email_collect: {

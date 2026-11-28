@@ -46,6 +46,7 @@ from src.automation.tools.ats_common import (
     visible_text,
 )
 from src.automation.tools.ats_router import SUPPORTED, BoardRef, parse_board_ref
+from src.automation.tools.resume_tailor import bind_tailor
 
 DEFAULT_LEDGER_PATH = "data/ats_applied.json"
 USER_AGENT = "agent-auto-system/ats-apply"
@@ -384,6 +385,7 @@ def run_ats_apply(
     create_workday_accounts: bool = False,
     relevance_fn: Callable[[str, str], tuple[bool, str]] | None = None,
     answer_fn: Callable[[str, str, list[str], dict], str] | None = None,
+    tailor_resume_fn: Callable[[str, dict], str] | None = None,
     log: Callable[[str], None] | None = None,
     ledger_path: str | None = None,
     client=None,
@@ -483,6 +485,8 @@ def run_ats_apply(
             current_company=current_company, current_title=current_title,
             current_start=current_start,
         )
+        # Only forms with a paste-résumé option use it (Greenhouse today).
+        profile["tailor_resume"] = bind_tailor(tailor_resume_fn, resume_path, log, warnings)
         ledger = load_ledger(ledger_path)
         # "Have you applied to <Company> before?" is a fact the ledger knows.
         profile["applied_companies"] = {

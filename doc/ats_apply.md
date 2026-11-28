@@ -293,6 +293,27 @@ POST https://<tenant>.<wdN>.myworkdayjobs.com/wday/cxs/<tenant>/<site>/jobs
   `tests/e2e/test_workday_apply_browser.py` covers the whole flow against a local stand-in
   built from the same hooks.
 
+## Tailored résumé (`tailor_resume`)
+
+Off by default. Where a form lets the candidate paste the résumé as plain text —
+today Greenhouse's **Enter manually** beside the upload (`resume_text`), in both
+`greenhouse_apply` and `ats_apply` — the LLM (`ResumeTailorCrew`) rewrites the
+résumé toward that job's description and the filler pastes it instead of
+uploading the file. Lever / Ashby / Workable / Workday / … only take a file, so
+they keep uploading it.
+
+- **Source text**: read once per run from `resume_path` (`.pdf` via pypdf, `.txt`, `.md`).
+- **Only for jobs we apply to**: the call happens after planning found no
+  unanswered required question, so skipped jobs cost no LLM call.
+- **Guard** (`resume_tailor.accept`): the rewrite may reorder and reword, never
+  add facts — it's rejected if empty, under 40 % of the original's length, or if
+  it states a number (year, %, "5+ years") the original doesn't contain.
+- **Fallback to the original behaviour — upload the file** — on every failure:
+  no readable résumé text (run warning), no LLM, no job description, an LLM
+  error, a rejected rewrite, or a live form whose paste box can't be revealed.
+  `applied[].resume_tailored` tells which jobs got the pasted version; the
+  pasted text is in that entry's `answers`.
+
 ## Unconfirmed submissions
 
 If Submit is clicked but no confirmation appears, the employer **may still have
