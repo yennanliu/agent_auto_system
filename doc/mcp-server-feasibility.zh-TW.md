@@ -1,6 +1,7 @@
 # Agent Auto System 的 MCP Server — 可行性評估
 
-> **狀態：** 提案 / 評估（尚未實作）· **日期：** 2026-11-28
+> **狀態：** 已評估 — **決定採用選項 A**（架在 REST API 之上的薄層 MCP server）· **日期：** 2026-11-28
+> **下一步：** [系統設計](mcp-server-design.zh-TW.md) · [實作計畫](mcp-server-implementation.zh-TW.md)，以上兩份文件取代本文中工具清單、scope 與工作量的初步規劃。
 > **English version:** [mcp-server-feasibility.md](mcp-server-feasibility.md)
 
 ---

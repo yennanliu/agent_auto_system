@@ -1,6 +1,7 @@
 # MCP Server for Agent Auto System — Feasibility Study
 
-> **Status:** Proposal / evaluation (no code yet) · **Date:** 2026-11-28
+> **Status:** Evaluated — **decision: Option A** (thin MCP server over the REST API) · **Date:** 2026-11-28
+> **Next:** [system design](mcp-server-design.md) · [implementation plan](mcp-server-implementation.md) — these supersede the tool list, scopes and estimates sketched below.
 > **中文版:** [mcp-server-feasibility.zh-TW.md](mcp-server-feasibility.zh-TW.md)
 
 ---
