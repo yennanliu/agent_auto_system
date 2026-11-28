@@ -265,14 +265,17 @@ class _BidClient:
     """Fake authenticated API: /self and /bids."""
     def __init__(self, *, self_resp=None, bid_resps=()):
         self.self_resp = self_resp or _ApiResp(200, {"status": "success", "result": {"id": 42, "username": "ada"}})
-        self.bid_resps, self.posts, self.headers = list(bid_resps), [], []
+        self.bid_resps, self.posts, self.headers, self.urls, self.params = list(bid_resps), [], [], [], []
 
     def get(self, url, headers=None, params=None):
         self.headers.append(headers)
+        self.urls.append(url)
+        self.params.append(params)
         return self.self_resp
 
     def post(self, url, headers=None, json=None):
         self.headers.append(headers)
+        self.urls.append(url)
         self.posts.append(json)
         return self.bid_resps.pop(0) if self.bid_resps else _ApiResp(
             200, {"status": "success", "result": {"id": 1000 + len(self.posts)}})
@@ -291,6 +294,8 @@ def test_whoami_and_place_bid_send_the_token_and_body():
     assert res == {"bid_id": 1001}
     assert body == {"project_id": 7, "bidder_id": 42, "amount": 200.0, "period": 1,
                     "milestone_percentage": 100, "description": "x" * 1500}
+    assert client.urls == ["https://www.freelancer.com/api/users/0.1/self/",
+                           "https://www.freelancer.com/api/projects/0.1/bids/"]
 
 
 def test_api_errors_carry_their_code_and_flag_auth():
@@ -299,12 +304,13 @@ def test_api_errors_carry_their_code_and_flag_auth():
     with pytest.raises(ft.FreelancerAPIError) as e:
         ft.whoami(client, "bad")
     assert e.value.is_auth and "logged in" in str(e.value)
-    quota = ft.FreelancerAPIError("no bids left", "ProjectExceptionCodes.NOT_ENOUGH_BIDS", 409)
-    assert not quota.is_auth
+    quota = ft.FreelancerAPIError("You have used all of you bids.", "ProjectExceptionCodes.BID_LIMIT_EXCEEDED", 400)
+    assert not quota.is_auth and quota.stops_bidding and quota.kind == "account"
 
 
 @pytest.mark.parametrize("proposal,amount,why", [
     ("x" * 120, 200, ""),
+    ("x" * 120 + " mail me at ada@example.com", 200, "proposal contains an email address (not allowed in bids)"),
     ("too short", 200, "proposal shorter than 100 characters"),
     ("x" * 120, None, "no budget to base a bid amount on"),
     ("x" * 120, 999, "bid 999 outside the budget"),
@@ -359,12 +365,36 @@ def test_an_auth_error_stops_bidding_but_keeps_the_drafts(bidding):
     assert len(out["drafted"]) == 2 and any("bidding stopped" in w for w in out["warnings"])
 
 
-def test_a_quota_error_fails_that_bid_and_tries_the_next(bidding):
-    bidding.bid_resps = [_ApiResp(409, {"status": "error", "message": "no bids left",
-                                        "error_code": "ProjectExceptionCodes.NOT_ENOUGH_BIDS"})]
+def test_a_project_specific_error_fails_that_bid_and_tries_the_next(bidding):
+    # A documented 403 that is about this one project, not the token.
+    bidding.bid_resps = [_ApiResp(403, {"status": "error", "message": "You must sign the NDA before you can "
+                                        "bid on this project.", "error_code": "ProjectExceptionCodes.NDA_NOT_SIGNED"})]
     out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
         "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
     assert [d["bid"]["status"] for d in out["drafted"]] == ["failed", "placed"]
+    assert out["drafted"][0]["bid"]["code"] == "NDA_NOT_SIGNED"
+
+
+def test_an_exhausted_bid_quota_stops_bidding(bidding):
+    bidding.bid_resps = [_ApiResp(400, {"status": "error", "message": "You have used all of you bids.",
+                                        "error_code": "ProjectExceptionCodes.BID_LIMIT_EXCEEDED"})]
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
+    assert len(bidding.posts) == 1                                           # no point trying the next
+    assert out["drafted"][0]["bid"]["status"] == "failed"
+    assert "no bids left" in out["drafted"][0]["bid"]["reason"]
+    assert out["drafted"][1]["bid"]["status"] == "not_placed"
+    assert "account limit" in out["drafted"][1]["bid"]["reason"]
+
+
+def test_a_duplicate_bid_is_recorded_not_failed(bidding, tmp_path):
+    bidding.bid_resps = [_ApiResp(409, {"status": "error", "message": "You have already bid on that project.",
+                                        "error_code": "ProjectExceptionCodes.DUPLICATE_BID"})]
+    out = json.loads(fbf.FreelancerBidsFlow().kickoff(inputs={
+        "keywords": "python", "candidate_background": "Python dev", "submit_bids": True}))
+    assert [d["bid"]["status"] for d in out["drafted"]] == ["already_bid", "placed"]
+    assert out["bids_placed"] == 1
+    assert ft.load_ledger(str(tmp_path / "drafted.json"))["1"]["status"] == "bid_placed"
 
 
 def test_submit_bids_without_a_token_drafts_only(bidding, monkeypatch):
@@ -410,3 +440,117 @@ def test_eval_runs_never_bid_and_accept_the_ledger_status(mocker, monkeypatch):
                           "payload": {"keywords": "python", "submit_bids": True}})()
     evalset._ADAPTERS["freelancer_bids"].run(case, "openai", "gpt")
     assert seen["payload"]["submit_bids"] is False and seen["payload"]["keywords"] == "python"
+
+
+# ── documented API contract (developers.freelancer.com) ─────────────────────
+
+# The documented sandbox "create a bid" answer, trimmed.
+DOC_BID_OK = {"status": "success", "result": {
+    "milestone_percentage": 50, "period": 3, "id": 1, "retracted": False, "project_id": 15339009,
+    "bidder_id": 25832139, "description": "A proposal has not yet been provided", "amount": 60,
+    "award_status": None, "time_submitted": 1512010617}, "request_id": "13920e4d2cf61b0b58d2153224ca1bd1"}
+
+# Documented error answers: (http status, error_code, expected kind).
+DOC_ERRORS = [
+    (401, "RestExceptionCodes.NOT_AUTHENTICATED", "auth"),
+    (403, "AuthorisationExceptionCodes.PERMISSION_DENIED", "auth"),
+    (429, "AuthorisationExceptionCodes.RATE_LIMITED", "account"),
+    (400, "ProjectExceptionCodes.BID_LIMIT_EXCEEDED", "account"),
+    (400, "ProjectExceptionCodes.EMAIL_VERIFICATION_REQUIRED", "account"),
+    (400, "ProjectExceptionCodes.RESTRICTED_FROM_BIDDING", "account"),
+    (400, "ProjectExceptionCodes.MUST_RESPOND_TO_EXISTING_PROJECT_AWARD", "account"),
+    (409, "ProjectExceptionCodes.DUPLICATE_BID", "duplicate"),
+    (400, "ProjectExceptionCodes.PROJECT_NOT_ACTIVE", "project"),
+    (400, "ProjectExceptionCodes.PROJECT_DELETED", "project"),
+    (400, "ProjectExceptionCodes.BID_AMOUNT_INVALID", "project"),
+    (400, "ProjectExceptionCodes.SKILL_REQUIREMENTS_NOT_MET", "project"),
+    (400, "ProjectExceptionCodes.RESTRICTED_FROM_BIDDING_PREMIUM", "project"),
+    (403, "ProjectExceptionCodes.NDA_NOT_SIGNED", "project"),
+    (403, "ProjectExceptionCodes.UNLISTED_NOT_PREFERRED", "project"),
+    (403, "ProjectExceptionCodes.BIDDER_NOT_INVITED", "project"),
+    (409, "ProjectExceptionCodes.PROJECT_MAX_HIGHLIGHTS", "project"),
+]
+
+
+@pytest.mark.parametrize("status,code,kind", DOC_ERRORS)
+def test_documented_bid_errors_are_classified(status, code, kind):
+    client = _BidClient(bid_resps=[_ApiResp(status, {"status": "error", "message": "m", "error_code": code,
+                                                    "request_id": "r"})])
+    with pytest.raises(ft.FreelancerAPIError) as e:
+        ft.place_bid(client, "tok", bidder_id=1, project=_p(id="7"), amount=200, period_days=7,
+                     milestone_percentage=100, description="x" * 120)
+    assert e.value.kind == kind and e.value.code == code and e.value.status == status
+    assert e.value.stops_bidding == (kind in ("auth", "account"))
+
+
+def test_nested_error_shape_is_read_too():
+    client = _BidClient(bid_resps=[_ApiResp(400, {"status": "error", "error": {
+        "code": "ProjectExceptionCodes.PROJECT_NOT_ACTIVE", "detail": "frozen or closed", "http_code": 400}})])
+    with pytest.raises(ft.FreelancerAPIError) as e:
+        ft.place_bid(client, "tok", bidder_id=1, project=_p(id="7"), amount=200, period_days=7,
+                     milestone_percentage=100, description="x" * 120)
+    assert e.value.short_code == "PROJECT_NOT_ACTIVE" and "frozen or closed" in str(e.value)
+
+
+def test_non_json_error_body_still_raises():
+    class _Bad(_ApiResp):
+        def json(self):
+            raise ValueError("not json")
+    client = _BidClient(bid_resps=[_Bad(502, None)])
+    with pytest.raises(ft.FreelancerAPIError, match="HTTP 502"):
+        ft.place_bid(client, "tok", bidder_id=1, project=_p(id="7"), amount=200, period_days=7,
+                     milestone_percentage=100, description="x" * 120)
+
+
+def test_documented_success_answer_returns_the_bid_id():
+    client = _BidClient(bid_resps=[_ApiResp(200, DOC_BID_OK)])
+    assert ft.place_bid(client, "tok", bidder_id=25832139, project=_p(id="15339009"), amount=60,
+                        period_days=3, milestone_percentage=50, description="x" * 120) == {"bid_id": 1}
+
+
+def test_payload_has_every_documented_required_field_and_clamps_milestone():
+    body = ft.bid_payload(bidder_id=5, project=_p(id="9"), amount=60, period_days=3,
+                          milestone_percentage=5, description="  hello  ")
+    assert {"project_id", "bidder_id", "amount", "period", "milestone_percentage"} <= body.keys()
+    assert body["milestone_percentage"] == 20 and body["description"] == "hello"
+    assert isinstance(body["project_id"], int) and isinstance(body["amount"], float)
+
+
+def test_api_base_switches_every_endpoint_to_the_sandbox(monkeypatch):
+    monkeypatch.setenv("FREELANCER_API_BASE", "https://www.freelancer-sandbox.com/")
+    client = _BidClient()
+    ft.whoami(client, "tok")
+    ft.place_bid(client, "tok", bidder_id=1, project=_p(id="7"), amount=200, period_days=7,
+                 milestone_percentage=100, description="x" * 120)
+    assert client.urls == ["https://www.freelancer-sandbox.com/api/users/0.1/self/",
+                           "https://www.freelancer-sandbox.com/api/projects/0.1/bids/"]
+    class _UrlClient(_Client):
+        def get(self, url, params=None):
+            self.calls.append(url)
+            return _Resp(RAW)
+    search = _UrlClient()
+    found, _ = ft.search(search, ["python"])
+    assert search.calls[0].startswith("https://www.freelancer-sandbox.com/api/projects/0.1/projects/active/")
+    assert found[0]["url"].startswith("https://www.freelancer-sandbox.com/projects/")
+
+
+def test_account_status_reads_the_documented_projections():
+    me = {"status": "success", "result": {
+        "id": 42, "username": "ada", "suspended": False, "closed": False, "limited_account": False,
+        "status": {"email_verified": True, "payment_verified": False},
+        "membership_package": {"id": 1, "name": "Free", "bid_limit": 6},
+        "account_balances": {"bids_remaining": 4}}}
+    client = _BidClient(self_resp=_ApiResp(200, me))
+    st = ft.account_status(client, "tok")
+    assert client.params[0]["status"] == "true" and client.params[0]["membership_details"] == "true"
+    assert st["id"] == 42 and st["membership"] == "Free" and st["bid_limit"] == 6
+    assert st["bids_remaining"] == 4 and st["can_bid"] and st["blockers"] == []
+
+
+def test_account_status_flags_blockers_and_unknowns():
+    me = {"status": "success", "result": {"id": 42, "username": "ada", "status": {"email_verified": False},
+                                          "account_balances": {"bids_remaining": 0}}}
+    st = ft.account_status(_BidClient(self_resp=_ApiResp(200, me)), "tok")
+    assert not st["can_bid"] and len(st["blockers"]) == 2
+    bare = ft.account_status(_BidClient(), "tok")        # no projections answered → unknown, not blocked
+    assert bare["bids_remaining"] is None and bare["can_bid"]
