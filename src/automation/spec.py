@@ -661,7 +661,7 @@ register(AutomationSpec(
             "clients or links), contains no price or placeholders, and ends with a question. "
             "Projects the background doesn't fit are declined (skipped with a reason), not "
             "drafted. Bids are placed only when submit_bids is on and only for drafted projects; "
-            "each drafted[].bid reports placed / not_placed / failed with a reason."),
+            "each drafted[].bid reports placed / already_bid / not_placed / failed with a reason."),
     # Read-only probe of the official public search endpoint the tool uses.
     canary=Canary(
         kind="http",
@@ -694,7 +694,8 @@ register(AutomationSpec(
               help="Off = draft only. On = each drafted proposal is placed as a real bid at the suggested "
                    "amount (capped by Proposals To Draft). Bids may use your account's bid credits."),
         Field("bid_period_days", "number", "Delivery Time On Bids (days)", default=7, min=1, max=365),
-        Field("milestone_percentage", "number", "Milestone Request (% of bid)", default=100, min=0, max=100),
+        Field("milestone_percentage", "number", "Milestone Request (% of bid)", default=100, min=20, max=100,
+              help="Freelancer requires 20–100; lower values are raised to 20."),
     ),
     help_note=(
         "Searches Freelancer.com's official public API (no login) and drafts a proposal and a suggested "

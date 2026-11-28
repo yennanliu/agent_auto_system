@@ -29,16 +29,30 @@ from datetime import UTC, datetime
 
 from src.automation.tools.ats_common import expand_keywords, phrase_in
 
-API = "https://www.freelancer.com/api/projects/0.1/projects/active/"
-PROJECT_URL = "https://www.freelancer.com/projects/{seo_url}"
+DEFAULT_BASE = "https://www.freelancer.com"
+SANDBOX_BASE = "https://www.freelancer-sandbox.com"
+API = DEFAULT_BASE + "/api/projects/0.1/projects/active/"
+PROJECT_URL = DEFAULT_BASE + "/projects/{seo_url}"
 DEFAULT_LEDGER_PATH = "data/freelancer_drafted.json"
 USER_AGENT = "agent-auto-system/freelancer-bids"
 PAGE = 50
+SEARCH_PATH = "/api/projects/0.1/projects/active/"
 MAX_SEARCHES = 5
 
 
 def _noop(_m: str) -> None:
     pass
+
+
+def api_base() -> str:
+    """``FREELANCER_API_BASE`` (e.g. the sandbox, ``https://www.freelancer-sandbox.com``)
+    or production. Tokens are locked to their environment: a sandbox token only
+    works against the sandbox host. Read per call so a script can switch it."""
+    return (os.getenv("FREELANCER_API_BASE", "").strip() or DEFAULT_BASE).rstrip("/")
+
+
+def _url(path: str) -> str:
+    return api_base() + path
 
 
 def to_usd(amount, exchange_rate) -> float | None:
@@ -55,6 +69,7 @@ def normalize(p: dict) -> dict:
     stats = p.get("bid_stats") or {}
     rate = cur.get("exchange_rate")
     seo = p.get("seo_url") or str(p.get("id"))
+    project_url = api_base() + "/projects/{seo_url}"
     return {
         "id": str(p.get("id")),
         "title": (p.get("title") or "").strip(),
@@ -69,7 +84,7 @@ def normalize(p: dict) -> dict:
         "bid_avg": stats.get("bid_avg"),
         "skills": [j.get("name") for j in p.get("jobs") or [] if j.get("name")],
         "description": (p.get("description") or p.get("preview_description") or "").strip(),
-        "url": PROJECT_URL.format(seo_url=seo),
+        "url": project_url.format(seo_url=seo),
         "submitted_at": p.get("time_submitted"),
         "nonpublic": bool(p.get("nonpublic")),
         "status": p.get("frontend_project_status") or p.get("status") or "",
@@ -162,7 +177,7 @@ def search(client, keywords: list[str], log: Callable = _noop) -> tuple[list[dic
     seen: dict[str, dict] = {}
     for q in queries:
         try:
-            resp = client.get(API, params={"query": q, "limit": PAGE, "full_description": "true",
+            resp = client.get(_url(SEARCH_PATH), params={"query": q, "limit": PAGE, "full_description": "true",
                                            "job_details": "true", "compact": "true",
                                            "sort_field": "time_updated"})
             resp.raise_for_status()
@@ -229,12 +244,62 @@ def drafted_entry(p: dict, proposal: str) -> dict:
 
 
 # ── placing bids (opt-in; needs the user's OAuth token) ─────────────────────
+#
+# Checked against the official reference (developers.freelancer.com):
+#   GET  /api/users/0.1/self/       scopes: basic, fln:user_information
+#   POST /api/projects/0.1/bids/    scopes: basic, fln:project_manage
+#        JSON body, required: project_id, bidder_id, amount, period, milestone_percentage
+#        (optional: description, profile_id); header ``freelancer-oauth-v1: <token>``.
+# Errors are ``{"status": "error", "message", "error_code": "<Service>ExceptionCodes.<X>",
+# "request_id"}`` (some answers nest it as ``error: {code, detail}``); 401 = not
+# authenticated, 429 = ``AuthorisationExceptionCodes.RATE_LIMITED``.
 
-SELF_API = "https://www.freelancer.com/api/users/0.1/self/"
-BIDS_API = "https://www.freelancer.com/api/projects/0.1/bids/"
+SELF_PATH = "/api/users/0.1/self/"
+BIDS_PATH = "/api/projects/0.1/bids/"
+SELF_API = DEFAULT_BASE + SELF_PATH
+BIDS_API = DEFAULT_BASE + BIDS_PATH
 MIN_PROPOSAL_CHARS = 100   # Freelancer rejects very short bid descriptions
 MAX_PROPOSAL_CHARS = 1500  # and caps them
-_AUTH_ERRORS = ("NOT_AUTHENTICATED", "INVALID_ACCESS_TOKEN", "AUTH", "FORBIDDEN", "PERMISSION")
+# BID_MILESTONE_INVALID: "Please fill in the milestone percentage (20 - 100 required …)".
+MIN_MILESTONE_PERCENTAGE = 20
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+# Documented error codes, by what they mean for the rest of the run.
+#   auth     — the token itself is bad / lacks a scope: stop bidding.
+#   account  — this account can't bid right now (quota, verification,
+#              restriction, rate limit): every later bid would fail too, stop.
+#   duplicate— already bid on this project: not a failure, record it.
+#   project  — anything else is specific to this one project: try the next.
+_AUTH_CODES = ("NOT_AUTHENTICATED", "INVALID_ACCESS_TOKEN", "INVALID_TOKEN", "TOKEN_EXPIRED",
+               "INSUFFICIENT_SCOPE", "INVALID_SCOPE", "PERMISSION_DENIED")
+_ACCOUNT_CODES = ("BID_LIMIT_EXCEEDED", "EMAIL_VERIFICATION_REQUIRED", "RESTRICTED_FROM_BIDDING",
+                  "MUST_RESPOND_TO_EXISTING_PROJECT_AWARD", "RATE_LIMITED", "ACCOUNT_LIMITED",
+                  "NEGATIVE_BALANCE")
+_HINTS = {
+    "BID_LIMIT_EXCEEDED": "no bids left on your membership for this period",
+    "EMAIL_VERIFICATION_REQUIRED": "verify your email on Freelancer.com before bidding",
+    "RESTRICTED_FROM_BIDDING": "your account is restricted from bidding (take an exam or verify payment)",
+    "MUST_RESPOND_TO_EXISTING_PROJECT_AWARD": "reply to your awarded projects first",
+    "RATE_LIMITED": "rate limited by the API, try later",
+    "PERMISSION_DENIED": "the token's user is not the bidder, or the token lacks the fln:project_manage scope",
+    "NOT_AUTHENTICATED": "token missing, expired (personal tokens last 30 days) or for the other environment",
+    "DUPLICATE_BID": "you have already bid on this project",
+    "PROJECT_NOT_ACTIVE": "project is frozen or closed",
+    "PROJECT_DELETED": "project was deleted",
+    "INVALID_PROJECT": "project not found",
+    "SKILL_REQUIREMENTS_NOT_MET": "add the project's skills to your profile to bid on it",
+    "BID_AMOUNT_INVALID": "bid amount below the project's minimum",
+    "BID_DESCRIPTION_CONTAINS_EMAIL": "proposal contains an email address",
+    "BID_DESCRIPTION_INVALID_LENGTH": "proposal length rejected",
+    "BID_MILESTONE_INVALID": "milestone percentage must be 20-100",
+    "RESTRICTED_FROM_BIDDING_PREMIUM": "project needs more reviews, verification or a paid membership",
+    "RESTRICTED_FROM_BIDDING_PREMIUM_VERIFIED": "project needs a Verified by Freelancer account",
+    "UNLISTED_NOT_PREFERRED": "project is for Preferred Freelancers only",
+    "NDA_NOT_SIGNED": "project needs a signed NDA",
+    "BIDDER_NOT_QUALIFIED": "project needs a passed exam",
+    "BIDDER_NOT_INVITED": "project is invite-only",
+    "BIDDER_OUT_OF_RANGE": "local project outside your range",
+}
 
 
 class FreelancerAPIError(RuntimeError):
@@ -244,8 +309,43 @@ class FreelancerAPIError(RuntimeError):
         self.code, self.status = code, status
 
     @property
+    def short_code(self) -> str:
+        """``ProjectExceptionCodes.BID_LIMIT_EXCEEDED`` → ``BID_LIMIT_EXCEEDED``."""
+        return (self.code or "").rsplit(".", 1)[-1].upper()
+
+    @property
+    def kind(self) -> str:
+        """``auth`` | ``account`` | ``duplicate`` | ``project`` (see ``_AUTH_CODES``)."""
+        c = self.short_code
+        if c == "DUPLICATE_BID":
+            return "duplicate"
+        if c in _ACCOUNT_CODES or self.status == 429:
+            return "account"
+        if self.status == 401 or c in _AUTH_CODES or (not c and self.status == 403):
+            return "auth"
+        return "project"
+
+    @property
     def is_auth(self) -> bool:
-        return self.status in (401, 403) or any(k in (self.code or "").upper() for k in _AUTH_ERRORS)
+        return self.kind == "auth"
+
+    @property
+    def stops_bidding(self) -> bool:
+        """True when every later bid in the run would fail the same way."""
+        return self.kind in ("auth", "account")
+
+    @property
+    def hint(self) -> str:
+        return _HINTS.get(self.short_code, "")
+
+    def __str__(self) -> str:
+        msg = super().__str__()
+        parts = [msg]
+        if self.short_code and self.short_code not in msg:
+            parts.append(f"[{self.short_code}]")
+        if self.hint and self.hint.lower() not in msg.lower():
+            parts.append(f"({self.hint})")
+        return " ".join(parts)
 
 
 def _auth(token: str) -> dict:
@@ -257,18 +357,61 @@ def _answer(resp) -> dict:
         data = resp.json()
     except ValueError:
         data = {}
+    if not isinstance(data, dict):
+        data = {}
     if resp.status_code >= 400 or data.get("status") != "success":
-        raise FreelancerAPIError(str(data.get("message") or f"HTTP {resp.status_code}"),
-                                 str(data.get("error_code") or ""), resp.status_code)
+        nested = data.get("error") if isinstance(data.get("error"), dict) else {}
+        raise FreelancerAPIError(
+            str(data.get("message") or nested.get("detail") or f"HTTP {resp.status_code}"),
+            str(data.get("error_code") or nested.get("code") or ""), resp.status_code)
     return data.get("result") or {}
+
+
+# Projections on /users/0.1/self/ that say whether the account can bid.
+ACCOUNT_PARAMS = {"status": "true", "membership_details": "true", "balance_details": "true",
+                  "limited_account": "true"}
 
 
 def whoami(client, token: str) -> dict:
     """``{id, username}`` of the token's account (the bidder)."""
-    res = _answer(client.get(SELF_API, headers=_auth(token)))
+    res = _answer(client.get(_url(SELF_PATH), headers=_auth(token)))
     if not res.get("id"):
         raise FreelancerAPIError("token accepted but no user id returned")
     return {"id": int(res["id"]), "username": res.get("username") or ""}
+
+
+def account_status(client, token: str) -> dict:
+    """``whoami`` plus what the API exposes about the account's ability to bid:
+    ``{id, username, email_verified, payment_verified, suspended, closed,
+    limited_account, membership, bid_limit, bids_remaining, can_bid, blockers}``.
+    Fields the API leaves out are ``None`` (``account_balances`` needs the
+    ``financial:get`` permission, so ``bids_remaining`` is often unknown)."""
+    res = _answer(client.get(_url(SELF_PATH), headers=_auth(token), params=ACCOUNT_PARAMS))
+    if not res.get("id"):
+        raise FreelancerAPIError("token accepted but no user id returned")
+    st = res.get("status") if isinstance(res.get("status"), dict) else {}
+    pkg = res.get("membership_package") if isinstance(res.get("membership_package"), dict) else {}
+    bal = res.get("account_balances") if isinstance(res.get("account_balances"), dict) else {}
+    out = {
+        "id": int(res["id"]), "username": res.get("username") or "",
+        "email_verified": st.get("email_verified"), "payment_verified": st.get("payment_verified"),
+        "suspended": res.get("suspended"), "closed": res.get("closed"),
+        "limited_account": res.get("limited_account"),
+        "membership": pkg.get("name"), "bid_limit": pkg.get("bid_limit"),
+        "bids_remaining": bal.get("bids_remaining"),
+    }
+    blockers = []
+    if out["suspended"]:
+        blockers.append("account suspended")
+    if out["closed"]:
+        blockers.append("account closed")
+    if out["email_verified"] is False:
+        blockers.append("email not verified (EMAIL_VERIFICATION_REQUIRED)")
+    if out["bids_remaining"] is not None and out["bids_remaining"] <= 0:
+        blockers.append("no bids remaining (BID_LIMIT_EXCEEDED)")
+    out["blockers"] = blockers
+    out["can_bid"] = not blockers
+    return out
 
 
 def bid_problem(project: dict, proposal: str, amount) -> str:
@@ -277,18 +420,28 @@ def bid_problem(project: dict, proposal: str, amount) -> str:
         return "no budget to base a bid amount on"
     if len(proposal.strip()) < MIN_PROPOSAL_CHARS:
         return f"proposal shorter than {MIN_PROPOSAL_CHARS} characters"
+    if _EMAIL_RE.search(proposal):
+        # The API rejects it (BID_DESCRIPTION_CONTAINS_EMAIL); contacts aren't allowed in bids.
+        return "proposal contains an email address (not allowed in bids)"
     lo, hi = project.get("budget_min"), project.get("budget_max")
     if (lo is not None and amount < lo) or (hi is not None and amount > hi):
         return f"bid {amount:g} outside the budget"
     return ""
 
 
+def bid_payload(*, bidder_id: int, project: dict, amount: float, period_days: int,
+                milestone_percentage: int, description: str) -> dict:
+    """The exact JSON body ``place_bid`` POSTs (all documented-required fields)."""
+    return {"project_id": int(project["id"]), "bidder_id": int(bidder_id), "amount": float(amount),
+            "period": max(1, int(period_days)),
+            "milestone_percentage": max(MIN_MILESTONE_PERCENTAGE, min(100, int(milestone_percentage))),
+            "description": description.strip()[:MAX_PROPOSAL_CHARS]}
+
+
 def place_bid(client, token: str, *, bidder_id: int, project: dict, amount: float,
               period_days: int, milestone_percentage: int, description: str) -> dict:
     """POST one bid. Returns ``{bid_id}``; raises FreelancerAPIError."""
-    body = {"project_id": int(project["id"]), "bidder_id": int(bidder_id), "amount": float(amount),
-            "period": max(1, int(period_days)),
-            "milestone_percentage": max(0, min(100, int(milestone_percentage))),
-            "description": description.strip()[:MAX_PROPOSAL_CHARS]}
-    res = _answer(client.post(BIDS_API, headers=_auth(token), json=body))
+    body = bid_payload(bidder_id=bidder_id, project=project, amount=amount, period_days=period_days,
+                       milestone_percentage=milestone_percentage, description=description)
+    res = _answer(client.post(_url(BIDS_PATH), headers=_auth(token), json=body))
     return {"bid_id": res.get("id")}

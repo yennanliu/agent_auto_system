@@ -3,9 +3,10 @@
 Deterministic funnel (CLAUDE.md): the tool searches the official public API and
 filters (budget in USD, type, competition, keywords, already-drafted); the LLM
 is used only to judge relevance (optional ``task_filter``) and to draft each
-proposal from the user's own ``candidate_background``. Nothing is submitted —
-placing a bid needs the user's Freelancer account; the result lists projects
-with a drafted proposal and a suggested bid to review and paste.
+proposal from the user's own ``candidate_background``. By default nothing is
+submitted: the result lists projects with a drafted proposal and a suggested
+bid to review. With ``submit_bids`` on and ``FREELANCER_OAUTH_TOKEN`` set, each
+draft is also placed as a bid (``freelancer_tool.place_bid``).
 """
 import json
 import os
@@ -167,12 +168,13 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
             status = "drafted"
             if bidder is not None:
                 entry["bid"] = self._place(bid_client, token, bidder, p, entry, log)
-                if entry["bid"]["status"] == "placed":
+                if entry["bid"]["status"] in ("placed", "already_bid"):
                     status = "bid_placed"
-                elif entry["bid"].get("auth_error"):
+                elif entry["bid"].get("stop"):
                     warnings.append(f"bidding stopped: {entry['bid']['reason']}")
-                    no_bid_reason = f"bidding stopped after an authentication error ({entry['bid']['reason']})"
-                    bidder = None  # a token problem won't fix itself mid-run
+                    what = "an authentication error" if entry["bid"].get("auth_error") else "an account limit"
+                    no_bid_reason = f"bidding stopped after {what} ({entry['bid']['reason']})"
+                    bidder = None  # a token / quota / verification problem won't fix itself mid-run
             elif st.submit_bids:
                 # Every draft reports an outcome when bidding was asked for.
                 entry["bid"] = {"status": "not_placed", "reason": no_bid_reason or "bidding unavailable"}
@@ -213,8 +215,13 @@ class FreelancerBidsFlow(FlowMixin, Flow[FreelancerBidsState]):
                                milestone_percentage=self.state.milestone_percentage,
                                description=entry["proposal"])
         except ft.FreelancerAPIError as exc:
+            if exc.kind == "duplicate":
+                # Already bid on (here or by hand) — not a failure; ledger it so later runs skip it.
+                log(f"↷ {project['title'][:50]}: already bid on")
+                return {"status": "already_bid", "reason": str(exc)[:200]}
             log(f"✗ bid on {project['title'][:50]} failed: {exc}")
-            return {"status": "failed", "reason": str(exc)[:200], "auth_error": exc.is_auth}
+            return {"status": "failed", "reason": str(exc)[:200], "code": exc.short_code,
+                    "auth_error": exc.is_auth, "stop": exc.stops_bidding}
         except Exception as exc:  # noqa: BLE001
             return {"status": "failed", "reason": f"{type(exc).__name__}: {str(exc)[:160]}"}
         log(f"✓ bid placed on {project['title'][:50]}: {project['currency_sign']}{amount:g}")
